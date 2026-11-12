@@ -76,6 +76,9 @@ export function lint(c: Compiled): Issue[] {
       // 一横排或一竖列撑满了长边，也算把板面用起来了
       if (cover < 0.45 && Math.max((x1 - x0) / B.w, (y1 - y0) / B.h) < 0.8) add('warn', sc.file, `所有元素加起来只占了画板的 ${(cover * 100).toFixed(0)}%（画板 ${B.w}×${B.h}，内容在 x ${x0.toFixed(0)}…${x1.toFixed(0)}，y ${y0.toFixed(0)}…${y1.toFixed(0)}）。画面太空、东西太小，手机上看不清：放大元素，把板面用满`);
     }
+    // 红色是用来指“此刻最要紧的那一样”的；满板红字等于没有重点
+    const reds = shown.filter(t => (t.el.kind === 'text' || t.el.kind === 'note') && t.el.src.color === 'red' && !(t.gone != null && t.gone < sc.t1 - 0.7));
+    if (reds.length > 4) add('warn', sc.file, `这块板上有 ${reds.length} 处红字（${reds.slice(0, 6).map(t => `“${t.el.text}”`).join('、')}${reds.length > 6 ? '…' : ''}）。红色只留给否定、警示的数字和此刻的重点，一块板不超过三四处；其余改回墨色，次要的用灰色`);
     // 构图：场景结束时，板上有没有一整条横带是空的
     if (visual.length && sc.t1 - sc.t0 >= 8) {
       const live = shown.filter(t => t.el.kind !== 'mark').map(t => { const b = t.el.kind === 'note' ? t.el.solid : t.el.box, mv = t.moves.length ? t.moves[t.moves.length - 1].to : [0, 0]; return [b.y + mv[1], b.y + mv[1] + b.h]; });

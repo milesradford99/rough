@@ -44,7 +44,7 @@ function gate(c: Compiled, stage: 'plan' | 'keyframes') {
   const a = approvals(c.dir);
   const label = stage === 'plan' ? '文字分镜' : '关键帧';
   const how = stage === 'plan'
-    ? `先运行 hj plan ${c.dir} 生成 storyboard.md 交给用户看；用户明确同意后运行 hj approve ${c.dir} plan --by "<用户的确认原话>"`
+    ? `先运行 hj plan ${c.dir} 生成 storyboard.md 交给用户看；用户明确同意后运行 hj approve ${c.dir} plan --by "<用户的确认原话>"\n  想在交给用户之前自己先看看画面：hj stills ${c.dir} --draft（带水印的草稿，不需要确认）`
     : `先运行 hj stills ${c.dir} 出关键帧交给用户看；用户明确同意后运行 hj approve ${c.dir} keyframes --by "<用户的确认原话>"`;
   if (!a[stage]) die(`${label}还没有得到用户确认，不能继续。\n  ${how}`);
   if (a[stage].planHash !== c.planHash) die(`${label}确认之后，分镜内容（场景划分 / 每拍画什么）又改过了（确认的是 ${a[stage].planHash}，现在是 ${c.planHash}），需要用户重新确认。\n  ${how}\n  只调位置、大小、颜色、时长这类细节不会触发重新确认。`);
@@ -214,12 +214,19 @@ const commands: Record<string, () => Promise<void> | void> = {
   },
 
   async stills() {
-    const dir = args[0] ?? die('用法：hj stills <项目目录> [--scene 场景] [--at 秒数或口播片段] [--guides]');
+    const dir = args[0] ?? die('用法：hj stills <项目目录> [--draft] [--scene 场景] [--at 秒数或口播片段] [--guides]');
     const c = load(dir);
-    gate(c, 'plan');
-    const out = join(dir, 'out', 'stills'); mkdirSync(out, { recursive: true });
-    const { cv, ctx } = canvasFor(c, 1);
-    const shot = async (t: number, name: string) => { drawFrame(ctx, c, t, env, { subtitles: true, pen: !!c.meta.pen, guides: !!flags.guides }); writeFileSync(join(out, name), await cv.encode('png')); };
+    // --draft：给写分镜的人自己看的草稿。半分辨率、打水印、单独存放，不需要确认，也不能当作交付
+    const draft = !!flags.draft, sc0 = draft ? 0.5 : 1;
+    if (!draft) gate(c, 'plan');
+    const out = join(dir, 'out', draft ? 'draft' : 'stills'); mkdirSync(out, { recursive: true });
+    const { cv, ctx } = canvasFor(c, sc0);
+    const stamp = draft ? textStrokes('草稿 · 未确认', { size: 54, color: '#d9433a' }) : null;
+    const frame = (t: number, o: { pen: boolean; guides?: boolean }) => {
+      drawFrame(ctx, c, t, env, { scale: sc0, subtitles: true, ...o });
+      if (stamp) for (const [fx, fy] of [[0.5, 0.045], [0.5, 0.93]]) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 0.6; ctx.translate(cv.width * fx - (stamp.w * 0.7) / 2, cv.height * fy); ctx.scale(0.7, 0.7); drawStrokes(ctx, env, stamp.strokes); ctx.restore(); }
+    };
+    const shot = async (t: number, name: string) => { frame(t, { pen: !!c.meta.pen, guides: !!flags.guides }); writeFileSync(join(out, name), await cv.encode('png')); };
     if (flags.at != null) {
       const t = /^[\d.]+$/.test(String(flags.at)) ? +flags.at : resolveAnchor(c.al, String(flags.at)).time;
       await shot(t, `at-${t.toFixed(2)}.png`);
@@ -250,7 +257,7 @@ const commands: Record<string, () => Promise<void> | void> = {
       sx.fillStyle = '#e9ecef'; sx.fillRect(0, 0, sheet.width, sheet.height);
       for (let i = 0; i < tiles.length; i++) {
         const x = pad + (i % cols) * (tw + pad), y = pad + Math.floor(i / cols) * (th + cap + pad);
-        drawFrame(ctx, c, tiles[i].t, env, { subtitles: true, pen: false });
+        frame(tiles[i].t, { pen: false });
         sx.drawImage(cv, x, y + cap, tw, th);
         sx.strokeStyle = '#adb5bd'; sx.lineWidth = 1; sx.strokeRect(x + 0.5, y + cap + 0.5, tw, th);
         const lab = textStrokes(tiles[i].label, { size: 28, color: '#212529' });
@@ -261,6 +268,7 @@ const commands: Record<string, () => Promise<void> | void> = {
       const sf = `sheet-${String(sc.index + 1).padStart(2, '0')}-${sc.id}.png`;
       writeFileSync(join(out, sf), await sheet.encode('png')); sheets.push(sf);
     }
+    if (draft) { console.log(`✓ 草稿关键帧已输出到 ${out}（半分辨率，带“草稿 · 未确认”水印）\n  每个场景一张联系表：${sheets.join('  ')}\n这是给你自己看的：逐张检查重叠、出界、难看、看不懂、和口播对不上，改到满意再把 storyboard.md 交给用户。\n草稿不是交付物：不要把它当作关键帧请用户确认，用户确认文字分镜之后再出正式关键帧（hj stills，不带 --draft）。`); return; }
     console.log(`✓ 关键帧已输出到 ${out}\n  每个场景一张联系表：${sheets.join('  ')}\n  每一拍的全尺寸图：<场景序号>-<场景>-<拍>.png`);
     console.log('先自己逐张看一遍（重叠、出界、难看、看不懂），改好后再交给用户确认关键帧。');
   },
@@ -378,6 +386,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj layout <目录> [--scene x]        布局线框：每个元素最后落在哪儿（随时跑，不需要确认）
   hj plan <目录>                      生成文字分镜表 storyboard.md → 交用户确认
   hj approve <目录> plan|keyframes --by "<用户确认原话>"
+  hj stills <目录> --draft            草稿关键帧：带水印、半分辨率，写分镜时自查用（不需要确认）
   hj stills <目录> [--scene x]        出关键帧（需先确认文字分镜）→ 交用户确认
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
   hj patterns [名字]                  表现手法：自带构图和动作编排的场景骨架
