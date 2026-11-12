@@ -2,6 +2,7 @@
 // agent 填角色、把步骤（step）卡到口播上；位置、大小、箭头走向、动作顺序由手法负责。
 // 手法展开后就是普通的 elements 和动作，所以可以和自己写的元素、动作混用，也可以引用它生成的 id。
 import type { Format } from './theme';
+import { textStrokes } from './text';
 
 export interface Area { x: number; y: number; w: number; h: number }
 export interface PCtx { fmt: Format; A: Area; portrait: boolean; fail: (msg: string) => never }
@@ -13,7 +14,7 @@ const list = (c: PCtx, v: any, what: string, min: number, max: number): any[] =>
 /** 元素定义：允许直接写一个字符串当文字 */
 const el = (src: any, extra: any, defSize?: number) => {
   const s = typeof src === 'string' ? { text: src } : { ...src };
-  delete s.id; delete s.note; delete s.value; delete s.cutTo; delete s.item; delete s.when;
+  delete s.id; delete s.note; delete s.value; delete s.cutTo; delete s.item; delete s.when; delete s.blank; delete s.mark;
   if (s.size == null && defSize != null) s.size = 'text' in s ? Math.round(defSize * 0.42) : 'figure' in s ? Math.round(defSize * 1.25) : defSize;
   return { ...s, ...extra };
 };
@@ -90,9 +91,19 @@ export const PATTERNS: Record<string, Pattern> = {
       const s = zig ? Math.min(A.w * 0.4, (A.h / n) * 1.05) : Math.min(A.h * 0.5, (A.w / n) * 0.72);
       const ids = items.map((it, i) => idOf(it, `c${i + 1}`));
       const E: [string, any][] = [];
+      // 横排时按每一环的实际宽度排：文字比图标宽得多，按等分格子排会把箭头挤没
+      const sizeOf = (it: any, base: number) => el(it, {}, r(base)).size as number;
+      const widthOf = (it: any, base: number) => { const e = el(it, {}, r(base)); return 'text' in e ? textStrokes(String(e.text), { size: e.size, color: '#000' }).w : 'figure' in e ? e.size * 0.42 : e.size; };
+      const gapMin = p.links?.some((x: any) => x) ? 150 : 96;
+      let sRow = s;
+      if (!zig) for (let k = 0; k < 12 && items.reduce((w, it) => w + widthOf(it, sRow), 0) + gapMin * (n - 1) > A.w - 16 && sRow > 60; k++) sRow *= 0.9;
+      const widths = items.map(it => widthOf(it, sRow)), total = widths.reduce((a, b) => a + b, 0), gap = Math.max(gapMin, (A.w - total) / n);
+      let xAcc = A.x + Math.max(0, (A.w - total - gap * (n - 1)) / 2);
       items.forEach((it, i) => {
-        const at = zig ? [r(A.x + A.w * (i % 2 ? 0.74 : 0.26)), r(A.y + s * 0.5 + ((A.h - s) * i) / (n - 1))] : [r(A.x + (A.w * (i + 0.5)) / n), r(A.y + A.h / 2)];
-        E.push([ids[i], el(it, { at }, r(s))]);
+        const at = zig ? [r(A.x + A.w * (i % 2 ? 0.74 : 0.26)), r(A.y + s * 0.5 + ((A.h - s) * i) / (n - 1))] : [r(xAcc + widths[i] / 2), r(A.y + A.h / 2)];
+        xAcc += widths[i] + gap;
+        const sized = typeof it === 'object' && it.size != null;
+        E.push([ids[i], el(it, sized || zig ? { at } : { at, size: sizeOf(it, sRow) }, r(s))]);
         if (i > 0) E.push([`l${i}`, { arrow: [ids[i - 1], ids[i]], pad: 22, ...(p.links?.[i - 1] ? { label: String(p.links[i - 1]) } : {}) }]);
       });
       const steps: Record<string, any[]> = {};
@@ -105,7 +116,7 @@ export const PATTERNS: Record<string, Pattern> = {
     title: '柱子比大小 / 被砍掉一截',
     when: '几个数量比大小；或者一个数被砍、被吃掉一部分（法定 3800 → 实发 1200）。“砍”是一个动作：柱子上半截被擦掉。',
     params: ['items: 1–5 项，每项 { label, value, color?, cutTo? }。写了 cutTo 的柱子可以被砍到这个值', 'unit: 数值后缀，可省'],
-    steps: ['axis 画底线', 'bar.N 画出第 N 根柱子、数值和标签', 'cut.N 擦掉第 N 根柱子的上半截，写上新数值，旁边标出砍掉的比例'],
+    steps: ['axis 画底线', 'bar.N 画出第 N 根柱子、数值和标签', 'col.N 只画第 N 根柱子和标签，先不写数值', 'value.N 写下第 N 根柱子的数值（卡在口播说出这个数的那一刻）', 'cut.N 擦掉第 N 根柱子的上半截，写上新数值，旁边标出砍掉的比例'],
     build(p, c) {
       const items = list(c, p.items, 'items', 1, 5), n = items.length, A = c.A, unit = p.unit ?? '';
       const base = A.y + A.h - 86, top = A.y + 110, max = Math.max(...items.map(i => +i.value));
@@ -122,6 +133,9 @@ export const PATTERNS: Record<string, Pattern> = {
         E.push([`v${k}`, { text: `${it.value}${unit}`, size: r(ts), color: col, at: [r(x), r(base - H(it.value) - ts * 0.75)] }]);
         if (it.label) E.push([`t${k}`, { text: String(it.label), size: r(ts * 0.9), at: [r(x), r(base + ts * 0.8)] }]);
         steps[`bar.${k}`] = [{ draw: [...draw, `v${k}`, ...(it.label ? [`t${k}`] : [])] }];
+        // 数字是画面的一等公民：柱子可以先立起来，数值等口播说到那个数再写
+        steps[`col.${k}`] = [{ draw: [...draw, ...(it.label ? [`t${k}`] : [])] }];
+        steps[`value.${k}`] = [{ draw: `v${k}` }];
         if (it.cutTo != null) {
           const pct = Math.round((1 - keep / it.value) * 100);
           E.push([`v${k}cut`, { text: `${keep}${unit}`, size: r(ts * 1.15), color: 'red', at: [r(x), r(base - H(keep) - ts * 0.85)] }]);
@@ -241,7 +255,7 @@ export const PATTERNS: Record<string, Pattern> = {
   split: {
     title: '一份东西怎么分',
     when: '“每 100 块里，工资拿走 53 块”“大半又从税里收回来了”。先画出完整的一条，再一段一段涂上颜色。',
-    params: ['parts: 2–4 份，每份 { label, value, color? }', 'total: 整条上方的标题（如 "100块"），可省', 'unit: 数值后缀，可省'],
+    params: ['parts: 2–4 份，每份 { label, value, color? }。写 blank: true 的那份留白不涂、不写数值，中间打一个问号（“这一份归谁还没定”），问号可用 mark: "？" 换成别的字', 'total: 整条上方的标题（如 "100块"），可省', 'unit: 数值后缀，可省'],
     steps: ['whole 画出完整的一条（和标题）', 'part.N 涂出第 N 份，写上名字和数值'],
     build(p, c) {
       const parts = list(c, p.parts, 'parts', 2, 4), A = c.A, unit = p.unit ?? '';
@@ -254,6 +268,13 @@ export const PATTERNS: Record<string, Pattern> = {
       parts.forEach((q, i) => {
         const k = i + 1, w = (W * +q.value) / sum, x = x0 + acc + w / 2, col = q.color ?? cols[i];
         acc += w;
+        if (q.blank) { // 留白的一份：只描个淡边，中间一个问号
+          E.push([`p${k}`, { shape: 'rect', w: r(w - 10), h: r(h - 14), at: [r(x), r(cy)], color: 'gray', rough: 0.6, overlap: true }]);
+          E.push([`pq${k}`, { text: String(q.mark ?? '？'), size: r(Math.min(h * 0.62, w * 0.6)), color: 'red', at: `p${k}`, overlap: true }]);
+          E.push([`pl${k}`, { text: String(q.label ?? ''), size: r(ts), color: q.color ?? 'ink', at: [r(x), r(cy + h / 2 + ts * 1.0)] }]);
+          steps[`part.${k}`] = [{ draw: [`p${k}`, ...(q.label ? [`pl${k}`] : []), `pq${k}`] }];
+          return;
+        }
         E.push([`p${k}`, { shape: 'rect', w: r(w - 10), h: r(h - 14), at: [r(x), r(cy)], color: col, fill: col, fillAlpha: 0.55, rough: 0.6, overlap: true }]);
         E.push([`pl${k}`, { text: `${q.label ?? ''}\n${q.value}${unit}`, size: r(ts), color: col, at: [r(x), r(cy + h / 2 + ts * 1.5)] }]);
         steps[`part.${k}`] = [{ draw: [`p${k}`, `pl${k}`] }];
