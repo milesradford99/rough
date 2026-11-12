@@ -50,6 +50,52 @@ function gate(c: Compiled, stage: 'plan' | 'keyframes') {
   if (a[stage].planHash !== c.planHash) die(`${label}确认之后，分镜内容（场景划分 / 每拍画什么）又改过了（确认的是 ${a[stage].planHash}，现在是 ${c.planHash}），需要用户重新确认。\n  ${how}\n  只调位置、大小、颜色、时长这类细节不会触发重新确认。`);
 }
 
+/** 一个场景板上的三层信息各有几样（一模一样的重复元素算一样） */
+function layers(c: Compiled, sc: CScene) {
+  const shown = c.tls.filter(t => t.scene === sc.index && (t.drawT0 != null || t.appear));
+  const seen = new Set<string>(); let main = 0, support = 0, notes = 0;
+  for (const t of shown) {
+    const e = t.el, k = e.kind;
+    if (['figure', 'doodle', 'icon', 'parts'].includes(k)) { const sig = k + JSON.stringify([e.src.figure, e.src.doodle, e.src.icon, e.src.wear, e.src.size]); if (!seen.has(sig)) { seen.add(sig); main++; } if (e.src.label) notes++; }
+    else if (k === 'note') notes++;
+    else if (k === 'text') { if (/[0-9０-９%％½¼¾×÷=≠+＋]/.test(e.text ?? '')) support++; else if ((e.src.size ?? 72) <= 60) notes++; else main++; }
+    else if (k === 'chart' || k === 'shape') support++;
+    else if (k === 'arrow' || k === 'line') { support++; if (e.src.label) notes++; }
+  }
+  return { main, support: Math.min(support, 99), notes };
+}
+
+const CAST_TEMPLATE = `# 角色表：全片反复出现的人和东西，长相只在这里定义一次。
+# 场景里写 { cast: 名字, at: [x, y], size: 300 } 引用；可以再加 pose / face / carry / size 覆盖。
+# 同一个角色全片一个样，观众才认得出来。
+#
+# me:     { figure: stand }                                  # 讲述者
+# boss:   { figure: stand, face: smug, wear: [tophat] }      # 老板永远戴礼帽
+# money:  { doodle: banknote }                               # 钱永远是那张绿钞票
+`;
+const OUTLINE_TEMPLATE = `# 提纲（写分镜之前先填；填不出来说明还没想清楚，不要急着写 YAML）
+
+## 一句话
+这条片子讲完，观众记住的那一个画面是什么？（不是一句话，是一个画面）
+
+## 母图
+全片反复回来的那张图（两个阵营、一条流程、一杆天平…）。它在第几场立起来，在哪几场回来（recall），每次回来加了什么、破坏了什么？
+
+## 角色表（同步写进 cast.yaml）
+| 角色 | 长相 | 代表什么 |
+|---|---|---|
+
+## 逐段
+| 场景 | 口播从哪句到哪句 | 这段在干什么（设问/说法/理由/算账/数据/转折/结论） | 手法 | 主体画什么 | 支撑：哪些数字、小账 | 批注：出处、名字、倍数 | 和前面哪个画面呼应 |
+|---|---|---|---|---|---|---|---|
+
+## 开头 5 秒
+第一句话落地时，板上是什么？（一个让人想看下去的画面，不是慢慢搭台）
+
+## 结尾
+最后一句话落下时，板上只多一样东西。是什么？
+`;
+
 function canvasFor(c: Compiled, scale: number) { const cv = createCanvas(Math.round(c.fmt.W * scale), Math.round(c.fmt.H * scale)); return { cv, ctx: cv.getContext('2d') }; }
 function sceneArg(c: Compiled): CScene | null {
   if (!flags.scene) return null;
@@ -70,7 +116,9 @@ const commands: Record<string, () => Promise<void> | void> = {
     const fmt = String(flags.format ?? 'portrait');
     if (!FORMATS[fmt]) die('format 只能是 portrait 或 landscape');
     if (!existsSync(join(dir, 'project.yaml'))) writeFileSync(join(dir, 'project.yaml'), `title: ${JSON.stringify(String(flags.title ?? basename(resolve(dir))))}\nformat: ${fmt}        # portrait 竖屏 1080×1920 / landscape 横屏 1920×1080\nfps: 30\nvoice: voice/${alName}\n${audio ? `audio: ${audio}` : '# audio: voice/narration.wav   # 配音文件放进 voice/ 后取消注释'}\nsubtitles: true\nsfx: true              # 落笔音效\npen: false             # 是否显示笔尖\n`);
-    console.log(`✓ 项目已创建：${dir}\n  时间表：voice/${alName}${audio ? `\n  配音：${audio}` : '\n  （没找到配音文件，渲染出来只有落笔音效；把 narration.wav 放进 voice/ 并在 project.yaml 里填 audio）'}\n下一步：hj brief ${dir}   通读口播和时间，然后在 scenes/ 里写分镜`);
+    if (!existsSync(join(dir, 'cast.yaml'))) writeFileSync(join(dir, 'cast.yaml'), CAST_TEMPLATE);
+    if (!existsSync(join(dir, 'outline.md'))) writeFileSync(join(dir, 'outline.md'), OUTLINE_TEMPLATE);
+    console.log(`✓ 项目已创建：${dir}\n  时间表：voice/${alName}${audio ? `\n  配音：${audio}` : '\n  （没找到配音文件，渲染出来只有落笔音效；把 narration.wav 放进 voice/ 并在 project.yaml 里填 audio）'}\n下一步：hj brief ${dir}   通读口播和时间；先填 outline.md（论证、母图、角色表），再在 scenes/ 里写分镜`);
   },
 
   brief() {
@@ -94,7 +142,11 @@ const commands: Record<string, () => Promise<void> | void> = {
     const dir = args[0] ?? die('用法：hj check <项目目录>');
     const c = load(dir, false);
     console.log(`${c.scenes.length} 个场景，${c.tls.length} 个元素，时长 ${fmtT(c.duration)}，分镜版本 ${c.planHash}\n`);
-    for (const sc of c.scenes) console.log(`  ${String(sc.index + 1).padStart(2)}. ${sc.id.padEnd(18)} ${fmtT(sc.t0)}–${fmtT(sc.t1)}  ${sc.beats.length} 拍  ${sc.els.length} 个元素`);
+    // 每个场景的三层信息各有多少：主体（人、物）/ 支撑（数字、图表、箭头）/ 批注（小字）。哪一层是 0，哪一层就该补
+    for (const sc of c.scenes) {
+      const L = layers(c, sc);
+      console.log(`  ${String(sc.index + 1).padStart(2)}. ${sc.id.padEnd(18)} ${fmtT(sc.t0)}–${fmtT(sc.t1)}  ${String(sc.beats.length).padStart(2)} 拍  主体 ${L.main} · 支撑 ${L.support} · 批注 ${L.notes}${L.main && L.support && L.notes ? '' : '   ← 缺一层'}`);
+    }
     console.log('');
     const r = printIssues(c.issues);
     const a = approvals(dir);
@@ -121,6 +173,44 @@ const commands: Record<string, () => Promise<void> | void> = {
     a[stage] = { planHash: c.planHash, by: flags.by, at: new Date().toISOString() };
     writeFileSync(approvalsFile(dir), JSON.stringify(a, null, 2) + '\n');
     console.log(`✓ 已记录用户对${stage === 'plan' ? '文字分镜' : '关键帧'}的确认（分镜版本 ${c.planHash}）。下一步：${stage === 'plan' ? `hj stills ${dir}` : `hj render ${dir}`}`);
+  },
+
+  // 布局线框：不画任何笔画，只把每个元素最后落在哪儿画成方框。写分镜时随时看，不需要用户确认
+  async layout() {
+    const dir = args[0] ?? die('用法：hj layout <项目目录> [--scene 场景]');
+    const c = load(dir, false);
+    const out = join(dir, 'out', 'layout'); mkdirSync(out, { recursive: true });
+    const only = sceneArg(c), B = c.fmt.board, k = 0.6, M = 30;
+    const COL: Record<string, string> = { figure: '#2f6fb7', doodle: '#2f6fb7', icon: '#2f6fb7', parts: '#2f6fb7', text: '#3c8f4f', note: '#8a8580', shape: '#7556c2', chart: '#7556c2', mark: '#d9433a', arrow: '#e8792b', line: '#e8792b' };
+    for (const sc of c.scenes) {
+      if (only && sc !== only) continue;
+      const shown = c.tls.filter(t => t.scene === sc.index && (t.drawT0 != null || t.appear));
+      const cv = createCanvas(Math.round(B.w * k) + M * 2, Math.round(B.h * k) + M * 2), x = cv.getContext('2d');
+      x.fillStyle = '#ffffff'; x.fillRect(0, 0, cv.width, cv.height);
+      x.strokeStyle = '#212529'; x.lineWidth = 2; x.setLineDash([8, 6]); x.strokeRect(M, M, B.w * k, B.h * k); x.setLineDash([]);
+      const flagged = new Set(c.issues.filter(i => i.level !== 'info' && i.where.startsWith(sc.file + ' / 元素 ')).map(i => i.where.split('元素 ')[1]));
+      const label = (txt: string, px: number, py: number, col: string) => { const t = textStrokes(txt, { size: 17, color: col }); x.save(); x.translate(px, py); drawStrokes(x, env, t.strokes); x.restore(); };
+      console.log(`\n■ ${sc.index + 1}. ${sc.id}（画板 ${B.w}×${B.h}，坐标是元素的外框）`);
+      for (const t of shown) {
+        const e = t.el, b = e.kind === 'note' ? e.solid : e.box, gone = t.gone != null && t.gone < sc.t1 - 0.7, mv = t.moves.length ? t.moves[t.moves.length - 1].to : [0, 0];
+        const bx = M + (b.x + mv[0]) * k, by = M + (b.y + mv[1]) * k;
+        x.globalAlpha = gone ? 0.3 : 1; x.strokeStyle = COL[e.kind] ?? '#000'; x.lineWidth = flagged.has(e.id) ? 4 : 1.5;
+        if (e.kind === 'arrow' || e.kind === 'line') { if (e.path) { x.beginPath(); x.moveTo(M + e.path[0] * k, M + e.path[1] * k); for (let i = 2; i < e.path.length; i += 2) x.lineTo(M + e.path[i] * k, M + e.path[i + 1] * k); x.stroke(); } }
+        else { if (e.kind === 'mark') x.setLineDash([4, 4]); if (flagged.has(e.id)) { x.fillStyle = 'rgba(217,67,58,0.12)'; x.fillRect(bx, by, b.w * k, b.h * k); } x.strokeRect(bx, by, b.w * k, b.h * k); x.setLineDash([]); }
+        if (e.nudged && Math.hypot(e.nudged[0], e.nudged[1]) > 30) { x.strokeStyle = '#e8792b'; x.lineWidth = 2; x.setLineDash([3, 3]); x.strokeRect(bx - e.nudged[0] * k, by - e.nudged[1] * k, b.w * k, b.h * k); x.beginPath(); x.moveTo(bx - e.nudged[0] * k + b.w * k / 2, by - e.nudged[1] * k + b.h * k / 2); x.lineTo(bx + b.w * k / 2, by + b.h * k / 2); x.stroke(); x.setLineDash([]); }
+        if (e.kind !== 'arrow' && e.kind !== 'line' && e.kind !== 'mark') label(e.id.slice(0, 14), bx + 3, by + 2, COL[e.kind] ?? '#000');
+        x.globalAlpha = 1;
+        console.log(`  ${e.id.padEnd(12)} ${e.kind.padEnd(7)} x ${String(Math.round(b.x + mv[0])).padStart(4)}…${String(Math.round(b.x + mv[0] + b.w)).padEnd(4)} y ${String(Math.round(b.y + mv[1])).padStart(4)}…${String(Math.round(b.y + mv[1] + b.h)).padEnd(4)}${e.text ? ' “' + e.text.replace(/\n/g, '/') + '”' : ''}${gone ? '  （中途擦掉）' : ''}${t.recalled ? '  （沿用）' : ''}${e.nudged && Math.hypot(e.nudged[0], e.nudged[1]) > 30 ? `  ← 被挪了 (${e.nudged[0].toFixed(0)}, ${e.nudged[1].toFixed(0)})` : ''}${flagged.has(e.id) ? '  ← 有警告' : ''}`);
+      }
+      // 占用图：一眼看出哪儿挤、哪儿空
+      const cols = 24, rows = Math.round(cols * B.h / B.w / 2), live = shown.filter(t => !(t.gone != null && t.gone < sc.t1 - 0.7) && !['mark', 'arrow', 'line'].includes(t.el.kind));
+      let filled = 0; const map: string[] = [];
+      for (let r0 = 0; r0 < rows; r0++) { let ln = ''; for (let c0 = 0; c0 < cols; c0++) { const cx = (c0 + 0.5) * B.w / cols, cy = (r0 + 0.5) * B.h / rows; const n = live.filter(t => { const b = t.el.solid; return cx >= b.x - 12 && cx <= b.x + b.w + 12 && cy >= b.y - 12 && cy <= b.y + b.h + 12; }).length; if (n) filled++; ln += n > 1 ? '▓' : n ? '█' : '·'; } map.push('    ' + ln); }
+      console.log(`  场景结束时的占用（█ 有东西，▓ 叠着，· 空）：占了 ${Math.round(filled / (rows * cols) * 100)}%\n${map.join('\n')}`);
+      const f = `${String(sc.index + 1).padStart(2, '0')}-${sc.id}.png`;
+      writeFileSync(join(out, f), await cv.encode('png'));
+    }
+    console.log(`\n✓ 线框图已输出到 ${out}（蓝=人和物 绿=文字 灰=批注 紫=形状 红虚线=标记 橙=箭头和连线；粗红框=有警告；橙色虚框=被引擎挪走前的位置）\n这不是画面，只是位置。它不需要用户确认，写分镜时随时跑。`);
   },
 
   async stills() {
@@ -285,6 +375,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj init <目录> --voice <配音材料>   建项目，导入时间表
   hj brief <目录>                     口播逐句时间简报（写分镜前先读）
   hj check <目录>                     编译 + 质量检查（随时跑，很快）
+  hj layout <目录> [--scene x]        布局线框：每个元素最后落在哪儿（随时跑，不需要确认）
   hj plan <目录>                      生成文字分镜表 storyboard.md → 交用户确认
   hj approve <目录> plan|keyframes --by "<用户确认原话>"
   hj stills <目录> [--scene x]        出关键帧（需先确认文字分镜）→ 交用户确认

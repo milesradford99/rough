@@ -14,7 +14,7 @@ function linePoints(el: El, pathOnly = false): Pt[] {
 }
 const countIn = (pts: Pt[], b: Box, shrink: number) => pts.filter(q => q[0] > b.x + shrink && q[0] < b.x + b.w - shrink && q[1] > b.y + shrink && q[1] < b.y + b.h - shrink).length;
 const contains = (a: Box, b: Box, m = 2) => a.x <= b.x + m && a.y <= b.y + m && a.x + a.w >= b.x + b.w - m && a.y + a.h >= b.y + b.h - m;
-const POS = new Set(['id', 'at', 'dx', 'dy', 'anchor', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'near', 'overlap']);
+const POS = new Set(['__rigid', '__seed', 'id', 'at', 'dx', 'dy', 'anchor', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'near', 'overlap']);
 const NAMES = (ids: string[]) => ids.map(i => `"${i}"`).join('、');
 
 function longestCommon(a: string, b: string): number {
@@ -40,7 +40,7 @@ export function lint(c: Compiled): Issue[] {
     for (const tl of shown) {
       const el = tl.el, where = `${sc.file} / 元素 ${el.id}`;
       if (el.kind === 'figure') figures++;
-      if (tl.drawT0 != null) draws++; else appears++;
+      if (tl.drawT0 != null) draws++; else if (!tl.recalled) appears++;
       // 1. 板书不抄口播
       if (el.text) {
         const txt = stripPunct(el.text.replace(/\n/g, ''));
@@ -75,6 +75,17 @@ export function lint(c: Compiled): Issue[] {
       const cover = ((x1 - x0) * (y1 - y0)) / (B.w * B.h);
       // 一横排或一竖列撑满了长边，也算把板面用起来了
       if (cover < 0.45 && Math.max((x1 - x0) / B.w, (y1 - y0) / B.h) < 0.8) add('warn', sc.file, `所有元素加起来只占了画板的 ${(cover * 100).toFixed(0)}%（画板 ${B.w}×${B.h}，内容在 x ${x0.toFixed(0)}…${x1.toFixed(0)}，y ${y0.toFixed(0)}…${y1.toFixed(0)}）。画面太空、东西太小，手机上看不清：放大元素，把板面用满`);
+    }
+    // 构图：场景结束时，板上有没有一整条横带是空的
+    if (visual.length && sc.t1 - sc.t0 >= 8) {
+      const live = shown.filter(t => t.el.kind !== 'mark').map(t => { const b = t.el.kind === 'note' ? t.el.solid : t.el.box, mv = t.moves.length ? t.moves[t.moves.length - 1].to : [0, 0]; return [b.y + mv[1], b.y + mv[1] + b.h]; });
+      const N = 50, row = (i: number) => live.some(([y0, y1]) => y1 > (i * B.h) / N && y0 < ((i + 1) * B.h) / N);
+      let best = 0, bestAt = 0, run = 0;
+      for (let i = 0; i <= N; i++) { if (i < N && !row(i)) run++; else { if (run > best) { best = run; bestAt = i - run; } run = 0; } }
+      if (best / N >= (c.fmt.name === 'portrait' ? 0.16 : 0.3)) { // 被擦掉的东西留下的空位是有意的，上面已经把它们算作“用过”
+        const y0 = Math.round((bestAt * B.h) / N), y1 = Math.round(((bestAt + best) * B.h) / N), whereY = bestAt === 0 ? '最上面' : bestAt + best >= N ? '最下面' : '中间';
+        add('warn', sc.file, `场景结束时，板面${whereY}有一整条是空的（y ${y0}…${y1}，占板高的 ${Math.round((best / N) * 100)}%）。画面重心偏了，这块地方正好放“支撑”那一层：一行小账、一个数字、一条批注，或者把主体往这边挪、放大。hj layout 可以看占用图`);
+      }
     }
     // 4. 重叠
     const solid = shown.filter(t => !['mark', 'arrow', 'line'].includes(t.el.kind) && !t.moves.length);
@@ -230,7 +241,7 @@ export function planMarkdown(c: Compiled): string {
   for (const sc of c.scenes) {
     L.push(`## ${sc.index + 1}. ${sc.id}　${fmtT(sc.t0)}–${fmtT(sc.t1)}`, '');
     L.push(`**这个场景要让人看到：** ${sc.intent || '（未填写）'}`, '');
-    L.push(`进场方式：${{ pan: '镜头平移到新板面', wipe: '板擦擦净后重画', cut: '直接切换' }[sc.enter] ?? sc.enter}`, '');
+    L.push(`进场方式：${{ pan: '镜头平移到新板面', wipe: '板擦擦净后重画', cut: '直接切换' }[sc.enter] ?? sc.enter}${sc.recall ? `；板上已经有场景 ${sc.recall} 留下的画面（不重画），在它上面接着讲` : ''}`, '');
     L.push('| 时间 | 口播 | 画面 | 板书文字 |', '|---|---|---|---|');
     const first = sc.beats[0];
     if (first && first.t - sc.t0 > 0.4) { const pre = c.al.units.filter(u => u.start >= sc.t0 - 1e-6 && u.start < first.t - 1e-6).map(u => u.display).join(''); if (pre) L.push(`| ${fmtT(sc.t0)} | ${pre} | （承接上一拍，画面不变） | |`); }

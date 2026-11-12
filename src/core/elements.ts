@@ -30,7 +30,7 @@ export interface El {
 export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'shape', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap', '__rigid', '__seed'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
@@ -201,7 +201,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   if (!kind) throw new SrcError(where, `看不出这是什么元素。需要包含其中一个键：${KINDS.join(' ')}`);
   for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
   const B = ctx.fmt.board;
-  const seed = hash(ctx.scene + '/' + id);
+  const seed = hash((src.__seed ?? ctx.scene) + '/' + id); // 沿用过来的元素用原场景的种子，抖动才一模一样
   const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
   let placed = false; // arrow/line/mark 直接画在场景坐标里
@@ -396,7 +396,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
         const near = src.near != null ? parseRef(ctx, src.near, where).pt : undefined;
         const sp = autoSpot(el.box, obs, B, near);
         if (sp) shiftEl(el, sp[0], sp[1]); else ctx.note?.(where, '板上已经没有放得下它的空地了（没写位置，由引擎自动找空位）。擦掉一些旧内容、缩小它，或换一块板');
-      } else {
+      } else if (src.__rigid !== true) { // 成组的元素整体定位，不单独挪
         // 出了画板就拉回来；压到同时存在的东西就挪到最近的空位
         const bx = el.box;
         if (!inBoard(bx, B) && bx.w <= B.w && bx.h <= B.h) {

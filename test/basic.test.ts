@@ -252,3 +252,53 @@ beats:
   assert.deepEqual(chain.issues.filter(i => i.level !== 'info'), []);
   for (const id of ['l1', 'l2']) { const a = chain.c.tls.find(t => t.el.id === id)!.el; assert.ok(Math.hypot(a.path![a.path!.length - 2] - a.path![0], a.path![a.path!.length - 1] - a.path![1]) > 70, `箭头 ${id} 要有长度`); }
 });
+
+test('人群、角色表、场景沿用：一排人整体定位，后五个走上船；下一场母图已经在板上', () => {
+  const d = tmp();
+  cpSync('examples/compound/project.yaml', join(d, 'project.yaml'));
+  mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes')); mkdirSync(join(d, 'doodles'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('陆地上有十个人。调一半的人去当海军。后来再看这张图，船上多了一个人。')));
+  writeFileSync(join(d, 'doodles/boat.yaml'), 'box: [300, 200]\nanchors: { deck: [150, 120] }\nparts:\n  - poly: [[20, 120], [280, 120], [240, 190], [60, 190]]\n    close: true\n  - line: [150, 120, 150, 10]\n');
+  writeFileSync(join(d, 'cast.yaml'), 'worker: { figure: stand, size: 130 }\nboss: { figure: stand, wear: [tophat], face: smug }\n');
+  writeFileSync(join(d, 'scenes/01-map.yaml'), `intent: 十个人站两排，后五个走上船
+elements:
+  boat: { doodle: boat, size: 320, at: [720, 420] }
+  p:    { crowd: 10, cols: 5, of: { cast: worker }, at: [270, 800] }
+  box:  { mark: box, target: p1..p5 }
+beats:
+  - { at: "陆地上", intent: 画船和十个人, do: [{ draw: boat }, { draw: p }] }
+  - { at: "调一半", intent: 后五个走上船，圈住留下的, do: [{ walk: p6..p10, to: boat.deck, dur: 1.2 }, { draw: box }] }
+`);
+  writeFileSync(join(d, 'scenes/02-back.yaml'), `from: "后来再看"
+intent: 回到母图，老板也站上船
+recall: { scene: map, show: [boat, p1..p5] }
+elements:
+  boss: { cast: boss, size: 150, at: boat.deck, anchor: bottom }
+beats:
+  - { at: "船上多了", intent: 老板出现在船上, do: [{ draw: boss }] }
+`);
+  const c = compile(d), issues = lint(c);
+  assert.deepEqual(issues.filter(i => i.level === 'error'), []);
+  const tl = (sc: number, id: string) => c.tls.find(t => t.scene === sc && t.el.id === id)!;
+  // 人群：十个成员，同一排的脚在一条线上，没有谁被单独挪走
+  const row1 = [1, 2, 3, 4, 5].map(i => tl(0, `p${i}`).el);
+  assert.ok(row1.every(e => Math.abs(e.box.y + e.box.h - (row1[0].box.y + row1[0].box.h)) < 1 && !e.nudged));
+  assert.ok(tl(0, 'p10'), '应该有第 10 个成员');
+  // 走上船：五个人的脚都落在甲板附近，而且没有叠成一个
+  const deck = tl(0, 'boat').el.anchors.deck, ends = [6, 7, 8, 9, 10].map(i => { const t = tl(0, `p${i}`), mv = t.moves[t.moves.length - 1].to; return [t.el.anchors.feet[0] + mv[0], t.el.anchors.feet[1] + mv[1]]; });
+  for (const e of ends) assert.ok(Math.abs(e[1] - deck[1]) < 40 && Math.abs(e[0] - deck[0]) < 160, '脚应该落在甲板附近');
+  assert.ok(Math.max(...ends.map(e => e[0])) - Math.min(...ends.map(e => e[0])) > 60, '队形应该保留，不叠在一起');
+  // 沿用：母图在第 2 场一开始就在板上，位置和第 1 场一模一样；没被要求的不带过来
+  const b1 = tl(0, 'boat'), b2 = tl(1, 'boat');
+  assert.ok(b2.recalled && b2.appear && b2.appear.t <= c.scenes[1].t0);
+  assert.deepEqual(b2.el.box, b1.el.box);
+  assert.ok(tl(1, 'p3') && !c.tls.some(t => t.scene === 1 && t.el.id === 'p8'));
+  // 角色表：老板戴着礼帽，脚落在甲板上
+  const boss = tl(1, 'boss').el;
+  assert.deepEqual(boss.src.wear, ['tophat']);
+  assert.ok(Math.abs(boss.box.y + boss.box.h - b2.el.anchors.deck[1]) < 2);
+  // 改 recall 算“画什么变了”
+  const h0 = c.planHash, f = join(d, 'scenes/02-back.yaml');
+  writeFileSync(f, readFileSync(f, 'utf8').replace('show: [boat, p1..p5]', 'show: [boat]'));
+  assert.notEqual(compile(d).planHash, h0);
+});
