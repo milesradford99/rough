@@ -224,6 +224,21 @@ parts:                       # 按书写顺序排列，坐标在 box 内
 
 画完用 `hj assets sheet` 看效果。内置的在仓库根目录 `doodles/`，可以照着写。
 
+## 命令
+
+| 命令 | 作用 |
+|---|---|
+| `hj init <目录> --voice <材料> [--format portrait\|landscape] [--title 标题]` | 建项目，导入时间表和配音 |
+| `hj brief <目录>` | 口播逐句时间简报 |
+| `hj check <目录> [--strict]` | 编译加质量检查。有错误时退出码为 1；`--strict` 时有警告也算失败 |
+| `hj plan <目录>` | 生成文字分镜表 `storyboard.md` |
+| `hj approve <目录> plan\|keyframes --by "<用户原话>"` | 记录用户确认 |
+| `hj stills <目录> [--scene 场景] [--at 秒数或口播片段] [--guides]` | 关键帧。`--guides` 画出画板边界 |
+| `hj render <目录> [--scene 场景 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染。`--draft` 为半分辨率、15 帧 |
+| `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |
+| `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件]` | 素材 |
+| `hj fake-align <稿.txt> [--cps 4]` | 没有配音时造一份匀速时间表打草稿 |
+
 ## 检查器会拦什么
 
 | 级别 | 情况 |

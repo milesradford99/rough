@@ -14,7 +14,6 @@ const list = (c: PCtx, v: any, what: string, min: number, max: number): any[] =>
 const el = (src: any, extra: any, defSize?: number) => {
   const s = typeof src === 'string' ? { text: src } : { ...src };
   delete s.id; delete s.note; delete s.value; delete s.cutTo; delete s.item; delete s.when;
-  const isLabelOnly = false; void isLabelOnly;
   if (s.size == null && defSize != null) s.size = 'text' in s ? Math.round(defSize * 0.42) : 'figure' in s ? Math.round(defSize * 1.25) : defSize;
   return { ...s, ...extra };
 };
@@ -152,7 +151,8 @@ export const PATTERNS: Record<string, Pattern> = {
         if (i) { E.push([`s${k}`, { line: [[r(X(i - 1)), r(Y(vals[i - 1]))], [r(X(i)), r(Y(vals[i]))]], color: col, pen: 9, rough: 0.5 }]); draw.push(`s${k}`); }
         E.push([`d${k}`, { shape: 'circle', size: 24, color: col, fill: col, fillStyle: 'solid', fillAlpha: 1, at: [r(X(i)), r(Y(vals[i]))] }]); draw.push(`d${k}`);
         if (q.label != null && String(q.label).trim()) { E.push([`t${k}`, { text: String(q.label), size: r(ts * 0.85), color: 'gray', at: [r(X(i)), r(y1 + ts * 0.75)] }]); draw.push(`t${k}`); }
-        const up = i > 0 && vals[i] < vals[i - 1];
+        // 数值写在点的上方；只有在往下走、且下面离横轴还远时才写到下方，避免压到横轴和年份
+        const up = i > 0 && vals[i] < vals[i - 1] && Y(vals[i]) + ts * 3.2 < y1;
         E.push([`v${k}`, { text: `${vals[i]}${unit}`, size: r(ts * 1.5), color: 'red', at: [r(X(i)), r(Y(vals[i]) + (up ? ts * 1.6 : -ts * 1.5))] }]);
         steps[`to.${k}`] = [{ draw }];
         steps[`mark.${k}`] = [{ draw: `v${k}` }, { draw: { mark: 'circle', target: `d${k}`, pad: 10 } }];

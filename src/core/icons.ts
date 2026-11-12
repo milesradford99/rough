@@ -7,7 +7,7 @@ import { R, type Stroke, type Style } from './strokes';
 let dir = '';
 const root = () => dir || (dir = pkgDir('@tabler/icons'));
 
-export function iconExists(name: string): boolean { return existsSync(`${root()}icons/outline/${name}.svg`); }
+export function iconExists(name: string): boolean { return /^[\w-]+$/.test(String(name)) && existsSync(`${root()}icons/outline/${name}.svg`); }
 
 export function scalePath(d: string, k: number, dx = 0, dy = 0): string {
   const segs = normalize(absolutize(parsePath(d)));

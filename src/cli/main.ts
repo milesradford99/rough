@@ -99,7 +99,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const r = printIssues(c.issues);
     const a = approvals(dir);
     console.log(`确认状态：文字分镜 ${a.plan ? (a.plan.planHash === c.planHash ? '✓ 已确认' : '✗ 确认后又改过，需重新确认') : '未确认'}；关键帧 ${a.keyframes ? (a.keyframes.planHash === c.planHash ? '✓ 已确认' : '✗ 需重新确认') : '未确认'}`);
-    if (r.errors) process.exit(1);
+    if (r.errors || (flags.strict && r.warns)) process.exit(1); // --strict：有警告也算失败（给 CI 用）
   },
 
   plan() {
@@ -263,7 +263,6 @@ async function assetSheet() {
   const cols = 8, cw = 290, chh = 330, rows = Math.ceil(items.length / cols);
   const cv = createCanvas(cols * cw, rows * chh), ctx = cv.getContext('2d');
   ctx.fillStyle = THEME.paper; ctx.fillRect(0, 0, cv.width, cv.height);
-  const c: any = { fmt: { ...fmt, W: cv.width, H: cv.height }, cams: [], scenes: [{ origin: [0, 0] }], tls: [], erases: [], subs: [] };
   items.forEach((it, i) => {
     const x = (i % cols) * cw + cw / 2, y = Math.floor(i / cols) * chh + 140, b = it.el.box;
     ctx.save(); ctx.translate(x - (b.x + b.w / 2), y - (b.y + b.h / 2));
@@ -274,13 +273,13 @@ async function assetSheet() {
     drawStrokes(ctx, env, lab.strokes);
     ctx.restore();
   });
-  void c;
   const out = String(flags.out ?? 'assets-sheet.png');
   writeFileSync(out, await cv.encode('png'));
   console.log(`✓ ${out}`);
 }
 
-if (!cmd || !commands[cmd]) {
+if (cmd === '--version' || cmd === '-v') { console.log(JSON.parse(readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8')).version); process.exit(0); }
+if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]) {
   console.log(`画讲 hj —— 把带时间表的口播做成“边画边讲”的手绘视频
 
   hj init <目录> --voice <配音材料>   建项目，导入时间表
@@ -295,6 +294,11 @@ if (!cmd || !commands[cmd]) {
   hj fake-align <稿.txt>              没配音时造匀速时间表打草稿
 
 完整工作流见 AGENTS.md`);
-  process.exit(cmd ? 1 : 0);
+  process.exit(!cmd || ['--help', '-h', 'help'].includes(cmd) ? 0 : 1);
 }
-await commands[cmd]();
+try { await commands[cmd](); }
+catch (e: any) {
+  // 走到这里说明是框架自己的缺陷，不是分镜写错了
+  console.error(`✗ 框架内部错误：${e?.message ?? e}\n${String(e?.stack ?? '').split('\n').slice(1, 6).join('\n')}\n这不是你的分镜的问题。请带上这段信息和触发它的场景文件报告给维护者。`);
+  process.exit(2);
+}

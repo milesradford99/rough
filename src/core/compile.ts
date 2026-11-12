@@ -7,7 +7,7 @@ import { loadAlignment, resolveAnchor, buildSubtitles, type Alignment, type SubL
 import { buildElement, SrcError, KINDS, type El, type BuildCtx } from './elements';
 import { POSES, FACES, type Pose } from './figure';
 import { FORMATS, THEME, type Format } from './theme';
-import { type Pt, type Box, unionBox, polyLen } from './strokes';
+import { type Pt, type Box, unionBox } from './strokes';
 import { PATTERNS } from './patterns';
 
 export interface Issue { level: 'error' | 'warn' | 'info'; where: string; msg: string }
@@ -121,7 +121,7 @@ export function compile(dir: string): Compiled {
     const local = new Map<string, TL>();
     const life = new Map<string, [number, number]>();
     const pending: [string, any][] = [];
-    const ctx: BuildCtx = { scene: id, fmt, els, projectDir: dir, life, note: (w, m) => issues.push({ level: 'info', where: w.replace(`场景 ${id}`, file), msg: m }) };
+    const ctx: BuildCtx = { scene: id, fmt, els, projectDir: dir, life, note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
     const addEl = (eid: string, esrc: any): TL | null => {
       if (els.has(eid)) { err(`${file} / 元素 ${eid}`, 'id 重复了'); return local.get(eid)!; }
       try {
@@ -142,7 +142,7 @@ export function compile(dir: string): Compiled {
       const multi = specs.length > 1, B = fmt.board;
       const pc = (v: any, total: number) => (typeof v === 'string' && v.endsWith('%') ? (parseFloat(v) / 100) * total : +v);
       const REF_KEYS = new Set(['draw', 'erase', 'move', 'hide', 'shake', 'pulse', 'nod', 'pop', 'fade', 'target', 'along', 'at', 'arrow', 'line', 'above', 'below', 'rightOf', 'leftOf', 'to']);
-      specs.forEach((ps, pi) => {
+      specs.forEach(ps => {
         const pat = PATTERNS[ps?.kind];
         if (!pat) { err(file, `pattern.kind 写一种表现手法：${Object.keys(PATTERNS).join(' ')}（hj patterns 查看说明）`); return; }
         const name = String(ps.name ?? ps.kind);
@@ -407,7 +407,6 @@ export function compile(dir: string): Compiled {
       if (tl.drawT0 == null && !tl.appear && !fromPattern.has(tl.el.id)) warn(`${file} / 元素 ${tl.el.id}`, '定义了但从没画出来（没有任何 draw / pop / fade 用到它）');
       tls.push(tl);
     }
-    void lastEnd;
   });
 
   // 镜头：按时间排好
@@ -460,6 +459,5 @@ function wipePath(b: Box, width?: number): { path: number[]; width: number } {
     if (r % 2 === 0) path.push(l, y - 12, rr, y + 12); else path.push(rr, y - 12, l, y + 12);
   }
   if (path.length === 4) { path.push(path[0] + 20, path[1] + 24); }
-  void polyLen;
   return { path, width: w };
 }

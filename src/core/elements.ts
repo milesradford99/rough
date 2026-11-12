@@ -39,6 +39,7 @@ const FIELDS: Record<string, string[]> = {
 const DOODLE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '../../doodles');
 export function doodleDirs(projectDir?: string): string[] { return [projectDir ? join(projectDir, 'doodles') : '', DOODLE_DIR].filter(d => d && existsSync(d)); }
 export function loadDoodle(name: string, projectDir?: string): any | null {
+  if (!/^[\w-]+$/.test(String(name))) return null; // 名字只能是字母数字和连字符，不当路径用
   for (const d of doodleDirs(projectDir)) { const f = join(d, name + '.yaml'); if (existsSync(f)) return YAML.parse(readFileSync(f, 'utf8')); }
   return null;
 }
@@ -85,7 +86,7 @@ export interface BuildCtx {
   scene: string; fmt: Format; els: Map<string, El>; projectDir?: string;
   /** 每个元素在画面上存在的时间段 [出现, 消失]。有它才启用自动避让 */
   life?: Map<string, [number, number]>;
-  note?: (where: string, msg: string) => void;
+  note?: (where: string, msg: string, level?: 'info' | 'warn') => void;
 }
 
 // ── 自动避让：手绘的板面上东西不互相压着。这里是底层机制，不靠写分镜的人自己看 ──
@@ -239,8 +240,10 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     const blockers = obstacles(ctx, el, [a.el?.id ?? '', b.el?.id ?? '']);
     const crosses = (cv: number) => { const m = midOf(cv); for (let i = 1; i < 12; i++) { const t = i / 12, u = 1 - t, c1x = 2 * m[0] - (p0[0] + p1[0]) / 2, c1y = 2 * m[1] - (p0[1] + p1[1]) / 2; const x = u * u * p0[0] + 2 * u * t * c1x + t * t * p1[0], y = u * u * p0[1] + 2 * u * t * c1y + t * t * p1[1]; if (hits({ x: x - 5, y: y - 5, w: 10, h: 10 }, blockers, -2)) return true; } return false; };
     const want = src.curve ?? 0;
-    const curveUsed = [want, 0.22, -0.22, 0.36, -0.36, 0.5, -0.5].find(cv => !crosses(cv)) ?? want;
-    if (curveUsed !== want) ctx.note?.(where, `连线会从别的元素身上穿过，已自动改成弯度 ${curveUsed} 绕开`);
+    const clear = [want, 0.22, -0.22, 0.36, -0.36, 0.5, -0.5].find(cv => !crosses(cv));
+    const curveUsed = clear ?? want;
+    if (clear == null) ctx.note?.(where, '这条连线怎么弯都会从别的元素身上穿过去。把两端的元素挪近、挪到中间没有东西的位置，或者拆成两段', 'warn');
+    else if (curveUsed !== want) ctx.note?.(where, `连线会从别的元素身上穿过，已自动改成弯度 ${curveUsed} 绕开`);
     const bow = curveUsed * L, mid = midOf(curveUsed);
     el.strokes = bow ? R.curve([p0, mid, p1], { ...st, rough: Math.min(st.rough, 0.6) }) : R.line(p0[0], p0[1], p1[0], p1[1], st);
     el.path = (el.strokes[0] as any).pts.slice();

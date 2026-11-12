@@ -55,7 +55,8 @@ export function lint(c: Compiled): Issue[] {
     if (visual.length && sc.t1 - sc.t0 >= 6) {
       const bs = shown.map(t => t.el.box), x0 = Math.min(...bs.map(b => b.x)), y0 = Math.min(...bs.map(b => b.y)), x1 = Math.max(...bs.map(b => b.x + b.w)), y1 = Math.max(...bs.map(b => b.y + b.h));
       const cover = ((x1 - x0) * (y1 - y0)) / (B.w * B.h);
-      if (cover < 0.45) add('warn', sc.file, `所有元素加起来只占了画板的 ${(cover * 100).toFixed(0)}%（画板 ${B.w}×${B.h}，内容在 x ${x0.toFixed(0)}…${x1.toFixed(0)}，y ${y0.toFixed(0)}…${y1.toFixed(0)}）。画面太空、东西太小，手机上看不清：放大元素，把板面用满`);
+      // 一横排或一竖列撑满了长边，也算把板面用起来了
+      if (cover < 0.45 && Math.max((x1 - x0) / B.w, (y1 - y0) / B.h) < 0.8) add('warn', sc.file, `所有元素加起来只占了画板的 ${(cover * 100).toFixed(0)}%（画板 ${B.w}×${B.h}，内容在 x ${x0.toFixed(0)}…${x1.toFixed(0)}，y ${y0.toFixed(0)}…${y1.toFixed(0)}）。画面太空、东西太小，手机上看不清：放大元素，把板面用满`);
     }
     // 4. 重叠
     const solid = shown.filter(t => !['mark', 'arrow', 'line'].includes(t.el.kind) && !t.moves.length);

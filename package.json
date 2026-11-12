@@ -1,7 +1,8 @@
 {
   "name": "huajiang",
-  "version": "0.1.0",
-  "description": "画讲：把带时间表的口播稿做成“边画边讲”手绘视频的框架（基于 rough.js 笔画引擎）",
+  "version": "1.0.0",
+  "private": true,
+  "description": "画讲：把带逐字时间表的口播做成“边画边讲”的手绘视频。给 AI agent 用的分镜与渲染框架，基于 rough.js 笔画引擎。",
   "type": "module",
   "bin": {
     "hj": "bin/hj.mjs"
@@ -9,9 +10,25 @@
   "scripts": {
     "hj": "tsx src/cli/main.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "check:examples": "node bin/hj.mjs check examples/compound --strict && node bin/hj.mjs check examples/patterns --strict"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/milesradford99/rough.git"
+  },
+  "keywords": [
+    "whiteboard",
+    "explainer",
+    "hand-drawn",
+    "video",
+    "storyboard",
+    "agent",
+    "rough",
+    "tts",
+    "sync"
+  ],
   "engines": {
     "node": ">=20"
   },
