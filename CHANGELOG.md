@@ -1,5 +1,9 @@
 # 版本记录
 
+## 未发布
+
+- 新增 Claude 像素形象手绘件，五个表情：`claude`、`claude-happy`、`claude-sad`、`claude-surprised`、`claude-think`。讲到具体的 AI 模型时用它代替通用的 `robot`
+
 ## 1.0.0
 
 第一个完整版本。仓库由 rough.js 的 fork 改造为“边画边讲”手绘视频框架，原 rough.js 作为笔画引擎保留在 `src/rough/`。

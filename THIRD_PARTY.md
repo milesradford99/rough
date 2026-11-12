@@ -12,3 +12,7 @@
 | opentype.js、yaml、tsx、path-data-parser、points-on-curve、points-on-path、hachure-fill | 工具库 | MIT |
 
 用本项目生成的视频包含上述字形和图标的渲染结果，OFL 与 MIT 均允许这样使用。
+
+## 品牌形象
+
+`doodles/claude*.yaml` 画的是 Anthropic 的 Claude 像素形象，形象归 Anthropic 所有，不在本项目的开源许可范围内。只用于在视频里指代 Claude 这款产品，不要让画面看起来像官方出品或官方代言。

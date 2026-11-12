@@ -189,7 +189,7 @@ beats:
 |---|---|---|
 | 文字 | `{ text: "+0", size: 150, color: red }` | `\n` 换行；`align`。`size` 是字高。字体是手写马克笔体「霞鹜漫黑」 |
 | 小人 | `{ figure: stand, face: happy, wear: [tophat, tie], size: 420 }` | `size` 是身高；`accent` 是配饰颜色；`carry: { doodle: moneybag, hand: left }` 手里拿一样东西（默认右手，跟着手动）。姿势/表情/配饰清单：`hj assets figure` |
-| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。47 个，和小人同一画风：`hj assets doodles` 查看；`vars` 是该手绘件开放的可调项 |
+| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。52 个，和小人同一画风：`hj assets doodles` 查看；`vars` 是该手绘件开放的可调项 |
 | 图标 | `{ icon: building-bank, size: 280 }` | 兜底。5000+ 个线条图标，`hj assets icons <英文关键词>` 搜索。造型偏“界面图标”，手绘件里有的就别用它 |
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 40；默认灰色。用来补数字、名字、出处 |

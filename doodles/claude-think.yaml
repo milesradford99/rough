@@ -1,0 +1,61 @@
+desc: Claude 像素形象（琢磨）
+box: [250, 165]
+parts:
+  - rect: [35, 0, 180, 125]
+    color: "#d97757"
+    fill: "#d97757"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - rect: [0, 65, 36, 30]
+    color: "#d97757"
+    fill: "#d97757"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - rect: [214, 65, 36, 30]
+    color: "#d97757"
+    fill: "#d97757"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - rect: [50, 124, 14, 40]
+    color: "#d97757"
+    fill: "#d97757"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - rect: [80, 124, 14, 40]
+    color: "#d97757"
+    fill: "#d97757"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - rect: [156, 124, 14, 40]
+    color: "#d97757"
+    fill: "#d97757"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - rect: [186, 124, 14, 40]
+    color: "#d97757"
+    fill: "#d97757"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - rect: [60, 44, 26, 10]
+    color: "#24211e"
+    fill: "#24211e"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - rect: [166, 44, 26, 10]
+    color: "#24211e"
+    fill: "#24211e"
+    fillStyle: solid
+    fillAlpha: 1
+    rough: 0.35
+  - line: [108, 86, 142, 86]
+    color: "#24211e"
+    pen: 7
+    rough: 0.3
