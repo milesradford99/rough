@@ -1,10 +1,10 @@
 from: "你存一百块"
 intent: 上半板：小人把 100 块存进存钱罐，年利率 10%。下半板：一张两行的小账——第 1 年 100 生出 10，这 10 滚进本金，第 2 年 110 生出 11，多出来的 1 被圈出来。
 elements:
-  me:    { figure: stand, face: happy, size: 380, at: [150, 250] }
+  me:    { figure: stand, face: happy, size: 380, at: [150, 275] }
   bill:  { doodle: banknote, size: 170, at: me.handR, dx: 120, dy: -80 }
-  pig:   { doodle: piggy, size: 330, at: [730, 250], label: 存钱罐 }
-  dep:   { arrow: [[330, 250], [540, 250]], label: 存入 }
+  pig:   { doodle: piggy, size: 330, at: [730, 275], label: 存钱罐 }
+  dep:   { arrow: [[330, 275], [540, 275]], label: 存入 }
   rate:  { text: "10%", size: 110, color: red, above: pig, gap: 6 }
   rateN: { note: 年利率, target: rate, side: left, gap: 40 }
   rule:  { line: [[30, 560], [930, 560]], color: gray, rough: 1.5 }
@@ -19,7 +19,7 @@ elements:
   e2:    { arrow: [[560, 960], [650, 960]] }
   c2:    { doodle: coin, size: 150, vars: { text: "11" }, at: [760, 960] }
   roll:  { arrow: [c1.bottom, b2.top], color: blue, label: 滚进本金 }
-  extra: { note: 多出的1是利息的利息, target: c2, side: bottom, color: red, gap: 60 }
+  extra: { note: 多出的1是利息的利息, target: c2, side: bottom, color: red, gap: 46 }
 beats:
   - at: "你存一百块"
     intent: 画出小人和存钱罐

@@ -11,4 +11,4 @@ elements:
 beats:
   - { at: "按公式", intent: 右上角画出一份文件，标“法定公式”；画出底线, do: [{ draw: law }, { step: axis }] }
   - { at: "该发三千八", intent: 画出 3800 的柱子, do: [{ step: bar.1 }] }
-  - { at: "最后只批了", intent: 上半截被擦掉，写上 1200, do: [{ step: cut.1 }, { draw: cut }] }
+  - { at: "最后只批了", intent: 上半截被擦掉，写上 1200, do: [{ step: cut.1, delay: 0.4 }, { draw: cut }] }

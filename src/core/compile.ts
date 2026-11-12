@@ -23,13 +23,15 @@ export interface TL {
   erase?: number; // 所属擦除组
   gone?: number;
   compress?: number;
+  /** 从前面的场景沿用过来的：进场时已经在板上 */
+  recalled?: boolean;
 }
 export interface EraseGroup { t0: number; t1: number; style: 'wipe' | 'fade'; path: number[]; width: number; scene: number }
 export interface CamSeg { t0: number; t1: number; to: Cam; cut?: boolean }
 export interface Cam { cx: number; cy: number; zoom: number }
 export interface CAction { verb: string; ids: string[]; t0: number; t1: number; natural: number; desc: string }
 export interface CBeat { at: string | number; t: number; tEnd: number; intent: string; actions: CAction[]; say: string; shaky: boolean; compress: number }
-export interface CScene { id: string; file: string; index: number; t0: number; t1: number; origin: Pt; intent: string; enter: string; beats: CBeat[]; els: string[]; say: string; home: Cam }
+export interface CScene { recall?: string; id: string; file: string; index: number; t0: number; t1: number; origin: Pt; intent: string; enter: string; beats: CBeat[]; els: string[]; say: string; home: Cam }
 export interface Compiled {
   dir: string; meta: any; fmt: Format; fps: number; al: Alignment; duration: number;
   scenes: CScene[]; tls: TL[]; erases: EraseGroup[]; cams: CamSeg[]; subs: SubLine[]; issues: Issue[];
@@ -60,6 +62,21 @@ export function loadProject(dir: string): { meta: any; scenes: { file: string; s
     try { return { file: 'scenes/' + f, src: YAML.parse(readFileSync(join(sd, f), 'utf8'), { prettyErrors: true }) ?? {} }; }
     catch (e: any) { throw new Error(`scenes/${f} 的 YAML 写错了：${e.message}`); }
   });
+  // 角色表：全片反复出现的人和东西，长相只定义一次
+  const cf = join(dir, 'cast.yaml');
+  let cast: Record<string, any> = {};
+  if (existsSync(cf)) { try { cast = YAML.parse(readFileSync(cf, 'utf8')) ?? {}; } catch (e: any) { throw new Error(`cast.yaml 的 YAML 写错了：${e.message}`); } }
+  if (typeof cast !== 'object' || Array.isArray(cast)) throw new Error('cast.yaml 应该是 "角色名: 元素定义" 的映射');
+  const bad: string[] = [];
+  const useCast = (v: any): any => {
+    if (Array.isArray(v)) return v.map(useCast);
+    if (!v || typeof v !== 'object') return v;
+    const o: any = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, useCast(x)]));
+    if (typeof o.cast === 'string') { const base = cast[o.cast]; if (!base) { bad.push(o.cast); return o; } const { cast: _c, ...rest } = o; void _c; return { ...base, ...rest }; }
+    return o;
+  };
+  for (const sc of scenes) { for (const k of ['pattern', 'elements', 'beats']) if (sc.src[k] != null) sc.src[k] = useCast(sc.src[k]); }
+  if (bad.length) throw new Error(`cast.yaml 里没有这些角色：${[...new Set(bad)].join('、')}。已有：${Object.keys(cast).join('、') || '（空）'}`);
   return { meta, scenes };
 }
 
@@ -93,13 +110,15 @@ export function compile(dir: string): Compiled {
   const screenC: Pt = [fmt.W / 2, fmt.H / 2], boardC: Pt = [fmt.board.x + fmt.board.w / 2, fmt.board.y + fmt.board.h / 2];
   let order = 0;
   const seenIds = new Set<string>();
+  /** 每个场景结束时板上还留着什么，供后面的场景 recall */
+  const boards = new Map<string, { srcs: [string, any][]; left: string[]; groups: Map<string, string[]> }>();
 
   srcScenes.forEach((s, si) => {
     const src = s.src, file = s.file;
     const id = String(src.id ?? basename(file).replace(/\.ya?ml$/, '').replace(/^\d+[-_]?/, '') ?? `s${si + 1}`);
     if (seenIds.has(id)) err(file, `场景 id "${id}" 重复了`);
     seenIds.add(id);
-    for (const k of Object.keys(src)) if (!['id', 'from', 'intent', 'enter', 'pattern', 'elements', 'beats', 'note'].includes(k)) err(file, `场景不认识字段 "${k}"。可用：from intent enter pattern elements beats note`);
+    for (const k of Object.keys(src)) if (!['id', 'from', 'intent', 'enter', 'recall', 'pattern', 'elements', 'beats', 'note'].includes(k)) err(file, `场景不认识字段 "${k}"。可用：from intent enter recall pattern elements beats note`);
     const t0 = starts[si], t1 = si + 1 < N ? starts[si + 1] : duration;
     const origin: Pt = [si * (fmt.W + SCENE_GAP), 0];
     const home: Cam = { cx: origin[0] + fmt.W / 2, cy: fmt.H / 2, zoom: 1 };
@@ -133,6 +152,39 @@ export function compile(dir: string): Compiled {
         return tl;
       } catch (e: any) { if (e instanceof SrcError) { err(file, e.message); return null; } throw e; }
     };
+    // 成组的元素（crowd）：组名可以当作全体成员用，"p6..p10" 取其中一段
+    const groups = new Map<string, string[]>();
+    const ids1 = (v: string): string[] => {
+      if (groups.has(v)) return groups.get(v)!;
+      const m = /^([A-Za-z_][\w-]*?)(\d+)\.\.(?:\1)?(\d+)$/.exec(v);
+      if (m && +m[3] >= +m[2] && +m[3] - +m[2] < 200) return Array.from({ length: +m[3] - +m[2] + 1 }, (_, i) => `${m[1]}${+m[2] + i}`);
+      return [v];
+    };
+    const idsOf = (v: any): any => (typeof v === 'string' ? (ids1(v).length === 1 && ids1(v)[0] === v ? v : ids1(v)) : Array.isArray(v) ? v.flatMap(x => (typeof x === 'string' ? ids1(x) : [x])) : v);
+    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale'];
+    const withGroups = (a: any): any => {
+      if (!a || typeof a !== 'object') return a;
+      const o = { ...a };
+      for (const k of GROUP_KEYS) if (k in o) { o[k] = idsOf(o[k]); const fix = (x: any) => (x && typeof x === 'object' && !Array.isArray(x) && x.target != null ? { ...x, target: idsOf(x.target) } : x); o[k] = Array.isArray(o[k]) ? o[k].map(fix) : fix(o[k]); }
+      if (o.camera && typeof o.camera === 'object' && o.camera.focus != null) o.camera = { ...o.camera, focus: [].concat(idsOf(o.camera.focus)) };
+      return o;
+    };
+    // 沿用前面某个场景的画面：定义和位置原样带过来，进场时已经在板上，不占口播时间重画
+    const recalled = new Set<string>();
+    if (src.recall != null) {
+      const rc = typeof src.recall === 'string' ? { scene: src.recall } : src.recall ?? {};
+      const from = boards.get(String(rc.scene));
+      for (const k of Object.keys(rc)) if (!['scene', 'show', 'except'].includes(k)) err(file, `recall 不认识字段 "${k}"。可用：scene show except`);
+      if (!from) err(file, `recall 要写前面某个场景的名字（文件名去掉序号），没有找到 "${rc.scene}"。前面的场景有：${[...boards.keys()].join(' ') || '（无）'}`);
+      else {
+        scene.recall = String(rc.scene);
+        for (const [g, ms] of from.groups) groups.set(g, ms);
+        const want: string[] = rc.show != null ? [].concat(idsOf(rc.show)) : from.left, drop = new Set<string>(rc.except != null ? [].concat(idsOf(rc.except)) : []);
+        for (const w of want) if (!from.srcs.some(([eid]) => eid === w)) err(file, `recall.show 里的 "${w}" 在场景 ${rc.scene} 里没有`);
+        for (const [eid, esrc] of from.srcs) if (want.includes(eid) && !drop.has(eid)) { pending.push([eid, esrc]); recalled.add(eid); }
+        for (const [g, ms] of [...groups]) if (!ms.every(m => recalled.has(m))) groups.set(g, ms.filter(m => recalled.has(m)));
+      }
+    }
     // 表现手法：展开成元素和具名步骤
     let steps: Record<string, any[]> = {};
     const fromPattern = new Set<string>();
@@ -166,7 +218,25 @@ export function compile(dir: string): Compiled {
       });
     }
     if (src.elements && typeof src.elements !== 'object') err(file, 'elements 应该是 "id: 定义" 的映射');
-    for (const [eid, esrc] of Object.entries(src.elements ?? {})) pending.push([eid, esrc]);
+    for (const [eid, esrc] of Object.entries(src.elements ?? {}) as [string, any][]) {
+      if (esrc && typeof esrc === 'object' && 'crowd' in esrc) {
+        // 一群一样的东西：整体定位、整体对齐，成员叫 <id>1…<id>N
+        const w = `${file} / 元素 ${eid}`, n = +esrc.crowd, of = esrc.of;
+        for (const k of Object.keys(esrc)) if (!['crowd', 'of', 'cols', 'at', 'gap', 'anchor'].includes(k)) err(w, `crowd 不认识字段 "${k}"。可用：crowd（个数）of（每一个长什么样）cols（每排几个）at（整群的中心）gap`);
+        if (!(n >= 2 && n <= 60) || !of || typeof of !== 'object' || !Array.isArray(esrc.at)) { err(w, 'crowd 要写成 { crowd: 10, cols: 5, of: { figure: stand, size: 140 }, at: [x, y] }：个数 2–60，of 是每一个的元素定义，at 是整群中心的坐标'); continue; }
+        const pcv = (v: any, total: number) => (typeof v === 'string' && v.endsWith('%') ? (parseFloat(v) / 100) * total : +v);
+        const cols = Math.max(1, Math.min(n, +(esrc.cols ?? (n <= 6 ? n : Math.ceil(n / 2))))), rows = Math.ceil(n / cols), size = +(of.size ?? ('figure' in of ? 150 : 140));
+        const g = Array.isArray(esrc.gap) ? esrc.gap : [esrc.gap, esrc.gap];
+        const gx = +(g[0] ?? ('figure' in of ? size * 0.72 : size * 1.18)), gy = +(g[1] ?? size * 1.14);
+        const cx = pcv(esrc.at[0], fmt.board.w), cy = pcv(esrc.at[1], fmt.board.h), members: string[] = [];
+        for (let i = 0; i < n; i++) {
+          const r0 = Math.floor(i / cols), c0 = i % cols, mid = `${eid}${i + 1}`;
+          pending.push([mid, { ...of, size, at: [Math.round(cx + (c0 - (cols - 1) / 2) * gx), Math.round(cy + (r0 - (rows - 1) / 2) * gy)], __rigid: true }]);
+          members.push(mid);
+        }
+        groups.set(eid, members);
+      } else pending.push([eid, esrc && typeof esrc === 'object' && esrc.target != null ? { ...esrc, target: idsOf(esrc.target) } : esrc]);
+    }
 
     // ── 节拍 ──
     const beats: any[] = Array.isArray(src.beats) ? src.beats : [];
@@ -192,8 +262,9 @@ export function compile(dir: string): Compiled {
           st.forEach((x, i) => { const { step: _s, ...rest } = a; void _s; acts.push(i === 0 ? { ...x, ...rest } : { ...x }); });
         } else acts.push(a);
       }
-      return acts;
+      return acts.map(withGroups);
     };
+    for (const eid of recalled) life.set(eid, [t0 - 1, Infinity]);
     // 预扫一遍节拍：每个元素什么时候出现、什么时候被擦掉。只有同时在板上的元素才需要互相避让
     beats.forEach((b, bi) => {
       const bt = beatTimes[bi].t;
@@ -215,6 +286,7 @@ export function compile(dir: string): Compiled {
       });
     });
     for (const [eid, esrc] of pending) addEl(eid, esrc);
+    for (const eid of recalled) { const tl = local.get(eid); if (tl) { tl.appear = { t: t0 - 0.02, kind: 'fade', dur: 0.3 }; tl.order = order++; tl.recalled = true; } }
     let pos = new Map<string, Pt>(); // 元素当前位移
     const poseNow = new Map<string, { pose: Pose; face: string }>();
     let lastEnd = t0;
@@ -333,13 +405,22 @@ export function compile(dir: string): Compiled {
         } else if (a.verb === 'hide') { for (const tl of tlsOf.filter(need)) { tl.alpha.push({ t0: a.t0, t1: a.t1, from: 1, to: 0 }); tl.gone = a.t1; } desc = '隐去 ' + ids.join('、'); }
         else if (a.verb === 'move' || a.verb === 'walk') {
           const walking = a.verb === 'walk';
+          // 几个人一起走：队形的中心（出发前算好）
+          const movers = tlsOf.filter(x => x.drawT0 != null || x.appear).map(x => { const q = pos.get(x.el.id) ?? [0, 0]; return [x.el.anchors.center[0] + q[0], x.el.anchors.center[1] + q[1]]; });
+          const gmx = movers.reduce((n, q) => n + q[0], 0) / (movers.length || 1), gmy = movers.reduce((n, q) => n + q[1], 0) / (movers.length || 1);
           for (const tl of tlsOf.filter(need)) {
             const cur = pos.get(tl.el.id) ?? [0, 0];
             let to: Pt = cur, path: number[] | undefined, base: Pt | undefined;
             const c = tl.el.anchors.center;
             try {
               if (o.along) { const ar = els.get(String(o.along)); if (!ar?.path) throw new SrcError(aw, `along 要写一个 arrow、line 或折线图元素的 id，"${o.along}" 不是`); path = ar.path; base = c; to = [path[path.length - 2] - c[0], path[path.length - 1] - c[1]]; }
-              else if (o.to != null) { const r = refPoint(els, pos, o.to, fmt, aw); to = [r[0] - c[0], r[1] - c[1]]; }
+              else if (o.to != null) {
+                const r = refPoint(els, pos, o.to, fmt, aw);
+                // 小人走到某处，是脚落在那儿；几个人一起走，保持队形（收紧一半）而不是叠成一个
+                const foot: Pt = walking && tl.el.anchors.feet ? tl.el.anchors.feet : c;
+                to = [r[0] - foot[0], r[1] - foot[1]];
+                if (movers.length > 1) to = [to[0] + (c[0] + cur[0] - gmx) * 0.5, to[1] + (c[1] + cur[1] - gmy) * 0.5];
+              }
               else if (Array.isArray(o.by)) to = [cur[0] + o.by[0], cur[1] + o.by[1]];
               else throw new SrcError(aw, 'move 需要 to（目标：元素 id、"id.锚点" 或 [x,y]）、by（相对位移 [dx,dy]）或 along（沿某条箭头走）');
             } catch (e: any) { if (e instanceof SrcError) { err(aw, e.message.replace(aw + ': ', '')); continue; } throw e; }
@@ -403,6 +484,7 @@ export function compile(dir: string): Compiled {
         for (const tl of live) { tl.erase = erases.length - 1; tl.gone = g.t1; }
       }
     }
+    boards.set(id, { srcs: [...local.values()].map(tl => [tl.el.id, { ...tl.el.src, __seed: tl.el.src.__seed ?? id }] as [string, any]), left: [...local.values()].filter(tl => (tl.drawT0 != null || tl.appear) && (tl.gone == null || tl.gone >= t1 - 0.7) && !tl.moves.length).map(tl => tl.el.id), groups: new Map(groups) });
     for (const tl of local.values()) {
       if (tl.drawT0 == null && !tl.appear && !fromPattern.has(tl.el.id)) warn(`${file} / 元素 ${tl.el.id}`, '定义了但从没画出来（没有任何 draw / pop / fade 用到它）');
       tls.push(tl);
@@ -412,7 +494,7 @@ export function compile(dir: string): Compiled {
   // 镜头：按时间排好
   camEvents.sort((a, b) => a.t0 - b.t0);
   const subs = meta.subtitles === false ? [] : buildSubtitles(al, meta.subtitleMaxChars ?? fmt.subMax);
-  const planHash = createHash('sha256').update(JSON.stringify({ format: fmt.name, scenes: srcScenes.map(s => [s.src.from, s.src.intent, s.src.enter, [].concat(s.src.pattern ?? []).map((x: any) => (typeof x === 'string' ? x : x?.kind)), (s.src.beats ?? []).map((b: any) => [b?.at, b?.intent])]) })).digest('hex').slice(0, 16);
+  const planHash = createHash('sha256').update(JSON.stringify({ format: fmt.name, scenes: srcScenes.map(s => [s.src.from, s.src.intent, s.src.enter, ...(s.src.recall != null ? [s.src.recall] : []), [].concat(s.src.pattern ?? []).map((x: any) => (typeof x === 'string' ? x : x?.kind)), (s.src.beats ?? []).map((b: any) => [b?.at, b?.intent])]) })).digest('hex').slice(0, 16);
   tls.sort((a, b) => a.order - b.order);
   return { dir, meta, fmt, fps, al, duration, scenes, tls, erases, cams: camEvents, subs, issues, planHash };
 }

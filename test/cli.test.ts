@@ -64,6 +64,13 @@ test('端到端：init → check → 两道确认闸 → 出图 → 带音频渲
   assert.notEqual(early.status, 0);
   assert.match(early.stderr, /文字分镜还没有得到用户确认/);
   assert.ok(!existsSync(join(dir, 'out')), '被拦下时不应该产生任何输出');
+  // 草稿关键帧：确认前可以出，给写分镜的人自查；单独存放，不解锁后面的闸
+  const draftRun = hj('stills', dir, '--draft', '--scene', '1');
+  assert.equal(draftRun.status, 0, draftRun.stderr);
+  assert.ok(existsSync(join(dir, 'out/draft/sheet-01-loop.png')));
+  assert.ok(!existsSync(join(dir, 'out/stills')), '草稿不应该写进正式关键帧目录');
+  assert.notEqual(hj('render', dir, '--draft').status, 0, '出过草稿不等于确认');
+  assert.notEqual(hj('approve', dir, 'keyframes', '--by', '可以').status, 0, '没确认文字分镜，不能确认关键帧');
 
   assert.equal(hj('plan', dir).status, 0);
   assert.match(readFileSync(join(dir, 'storyboard.md'), 'utf8'), /钞票转一圈回到公司/);

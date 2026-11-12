@@ -28,10 +28,11 @@ export interface El {
 }
 
 export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'shape', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
+const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap', '__rigid', '__seed'];
 const FIELDS: Record<string, string[]> = {
-  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], doodle: ['vars'], parts: ['box'],
+  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
 };
@@ -114,6 +115,26 @@ function hits(b: Box, obs: Box[], pad = 0): boolean {
   }
   return false;
 }
+/** 和 el 同时在板上的线（分隔线、箭头、连线）沿途的小占位框：字不该压在线上 */
+function lineBoxes(ctx: BuildCtx, el: { id: string }, skip: string[] = []): Box[] {
+  if (!ctx.life) return [];
+  const me = ctx.life.get(el.id);
+  if (!me) return [];
+  const out: Box[] = [];
+  for (const o of ctx.els.values()) {
+    if (o.id === el.id || !o.path || (o.kind !== 'line' && o.kind !== 'arrow') || skip.includes(o.id)) continue;
+    const lf = ctx.life.get(o.id);
+    if (!lf || Math.max(me[0], lf[0]) >= Math.min(me[1], lf[1])) continue;
+    const p = o.path;
+    for (let i = 2; i < p.length; i += 2) {
+      const n = Math.max(1, Math.ceil(Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]) / 12));
+      for (let k = 0; k <= n; k++) out.push({ x: p[i - 2] + ((p[i] - p[i - 2]) * k) / n - 13, y: p[i - 1] + ((p[i + 1] - p[i - 1]) * k) / n - 13, w: 26, h: 26 });
+    }
+  }
+  return out;
+}
+/** 自动拉回画板时留的边距；挪动超过 FAR_NUDGE 说明原位置根本不成立，升级为警告 */
+export const EDGE = 14, FAR_NUDGE = 80;
 const inBoard = (b: Box, B: Box, m = 0) => b.x >= -m && b.y >= -m && b.x + b.w <= B.w + m && b.y + b.h <= B.h + m;
 /** 离原位最近的空位：一圈一圈往外找 */
 function nearestFree(b: Box, obs: Box[], B: Box): Pt | null {
@@ -180,7 +201,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   if (!kind) throw new SrcError(where, `看不出这是什么元素。需要包含其中一个键：${KINDS.join(' ')}`);
   for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
   const B = ctx.fmt.board;
-  const seed = hash(ctx.scene + '/' + id);
+  const seed = hash((src.__seed ?? ctx.scene) + '/' + id); // 沿用过来的元素用原场景的种子，抖动才一模一样
   const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
   let placed = false; // arrow/line/mark 直接画在场景坐标里
@@ -208,16 +229,25 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     if (!iconExists(src.icon)) throw new SrcError(where, `没有叫 "${src.icon}" 的图标。用 hj assets icons <英文关键词> 搜索`);
     el.strokes = iconStrokes(src.icon, 0, 0, src.size ?? 200, { ...st, rough: src.rough ?? 0.6 });
   } else if (kind === 'doodle' || kind === 'parts') {
-    let parts = src.parts, box = src.box, vars = src.vars ?? {};
+    let parts = src.parts, box = src.box, vars = src.vars ?? {}, named = src.anchors;
     if (kind === 'doodle') {
       const d = loadDoodle(src.doodle, ctx.projectDir);
       if (!d) throw new SrcError(where, `没有叫 "${src.doodle}" 的手绘件。用 hj assets doodles 查看，或在项目的 doodles/ 目录里自己画一个`);
-      parts = d.parts; box = d.box; vars = { ...(d.vars ?? {}), ...vars };
+      parts = d.parts; box = d.box; vars = { ...(d.vars ?? {}), ...vars }; named = d.anchors;
     }
     if (!Array.isArray(parts)) throw new SrcError(where, 'parts 应该是图形列表');
     const k = src.size && box ? src.size / Math.max(box[0], box[1]) : 1;
     const r = buildParts(parts, k, st, vars, where);
     el.strokes = r.strokes; el.text = r.text || undefined;
+    // 手绘件自己声明的锚点（甲板、桌面、门口…）：让别的东西能“站上去”“放进去”，不用估坐标
+    if (named != null) {
+      if (typeof named !== 'object' || Array.isArray(named)) throw new SrcError(where, 'anchors 应该是 "名字: [x, y]" 的映射，坐标在 box 内');
+      for (const [an, pt] of Object.entries(named)) {
+        if (!Array.isArray(pt) || pt.length !== 2 || pt.some(v => typeof v !== 'number')) throw new SrcError(where, `锚点 "${an}" 要写成 [x, y]（box 内的坐标）`);
+        if (RESERVED_ANCHORS.includes(an)) throw new SrcError(where, `锚点名 "${an}" 是内置的，换一个名字（如 deck、door、seat）`);
+        el.anchors[an] = [(pt as number[])[0] * k, (pt as number[])[1] * k];
+      }
+    }
   } else if (kind === 'shape') {
     const w = src.w ?? src.size ?? 240, h = src.h ?? src.size ?? 160;
     if (src.shape === 'rect') el.strokes = R.rect(0, 0, w, h, st);
@@ -259,7 +289,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       let lx = mid[0] + nx * side * off, ly = mid[1] + ny * side * off;
       if (!bow && Math.abs(nx) < 0.3) ly = mid[1] - off; // 水平直线：字写在上面
       // 小字压到别的东西就换到线的另一侧
-      const lblObs = obstacles(ctx, el), lb = (x: number, y: number) => ({ x: x - t.w / 2, y: y - t.h / 2, w: t.w, h: t.h });
+      const lblObs = [...obstacles(ctx, el), ...lineBoxes(ctx, el)], lb = (x: number, y: number) => ({ x: x - t.w / 2, y: y - t.h / 2, w: t.w, h: t.h });
       if (hits(lb(lx, ly), lblObs, 6)) { const ax = 2 * mid[0] - lx, ay = 2 * mid[1] - ly; if (!hits(lb(ax, ay), lblObs, 6)) { lx = ax; ly = ay; } }
       translateStrokes(t.strokes, lx - t.w / 2, ly - t.h / 2);
       el.strokes.push(...t.strokes); el.text = String(src.label); el.missing = t.missing;
@@ -273,11 +303,15 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     const b = tg.el.box, gap = src.gap ?? 54, sideWant = src.side ?? 'right';
     if (!['right', 'left', 'top', 'bottom'].includes(sideWant)) throw new SrcError(where, 'note 的 side 只能是 right left top bottom');
     const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
-    const spot = (sd: string): Pt => [sd === 'right' ? b.x + b.w + gap : sd === 'left' ? b.x - gap - t.w : cx - t.w / 2, sd === 'top' ? b.y - gap - t.h : sd === 'bottom' ? b.y + b.h + gap : cy - t.h / 2];
+    // 贴在上/下时可以左右滑、贴在左/右时可以上下滑，免得一行长字顶到板沿
+    const slide = (v: number, size: number, total: number) => (size + EDGE * 2 <= total ? Math.min(Math.max(v, EDGE), total - size - EDGE) : v);
+    const spot = (sd: string): Pt => [sd === 'right' ? b.x + b.w + gap : sd === 'left' ? b.x - gap - t.w : slide(cx - t.w / 2, t.w, B.w), sd === 'top' ? b.y - gap - t.h : sd === 'bottom' ? b.y + b.h + gap : slide(cy - t.h / 2, t.h, B.h)];
     // 想放的那一侧放不下（出界或压到东西）就换一侧
-    const nObs = obstacles(ctx, el, [tg.el.id]);
-    const okSide = (sd: string) => { const q = spot(sd), bx = { x: q[0], y: q[1], w: t.w, h: t.h }; return inBoard(bx, B, 2) && !hits(bx, nObs, 8); };
-    const side = [sideWant, 'right', 'left', 'bottom', 'top'].find(okSide) ?? sideWant;
+    const nObs = [...obstacles(ctx, el, [tg.el.id]), ...lineBoxes(ctx, el, [tg.el.id])];
+    const okSide = (sd: string, m = 2) => { const q = spot(sd), bx = { x: q[0], y: q[1], w: t.w, h: t.h }; return inBoard(bx, B, m) && !hits(bx, nObs, 8); };
+    // 先找不贴板沿的一侧，实在没有再接受贴边的
+    const sides = [sideWant, 'right', 'left', 'bottom', 'top'];
+    const side = sides.find(sd => okSide(sd, -EDGE)) ?? sides.find(sd => okSide(sd)) ?? sideWant;
     let [tx, ty] = spot(side);
     if (ctx.life && !okSide(side)) { // 四边都放不下：就近找一块空地，细线照样牵回去
       tx = Math.min(Math.max(tx, 0), B.w - t.w); ty = Math.min(Math.max(ty, 0), B.h - t.h);
@@ -362,18 +396,26 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
         const near = src.near != null ? parseRef(ctx, src.near, where).pt : undefined;
         const sp = autoSpot(el.box, obs, B, near);
         if (sp) shiftEl(el, sp[0], sp[1]); else ctx.note?.(where, '板上已经没有放得下它的空地了（没写位置，由引擎自动找空位）。擦掉一些旧内容、缩小它，或换一块板');
-      } else {
+      } else if (src.__rigid !== true) { // 成组的元素整体定位，不单独挪
         // 出了画板就拉回来；压到同时存在的东西就挪到最近的空位
         const bx = el.box;
         if (!inBoard(bx, B) && bx.w <= B.w && bx.h <= B.h) {
-          const cx = Math.min(Math.max(bx.x, 0), B.w - bx.w) - bx.x, cy = Math.min(Math.max(bx.y, 0), B.h - bx.h) - bx.y;
+          // 拉回来时留一点边，不贴着板沿
+          const mx = Math.min(EDGE, Math.max(0, (B.w - bx.w) / 2)), my = Math.min(EDGE, Math.max(0, (B.h - bx.h) / 2));
+          const clamp = (m1: number, m2: number): Pt => [Math.min(Math.max(bx.x, m1), B.w - bx.w - m1) - bx.x, Math.min(Math.max(bx.y, m2), B.h - bx.h - m2) - bx.y];
+          let [cx, cy] = clamp(mx, my);
+          // 留边反而把它推到别的东西上时，就只拉回到板沿
+          if (hits({ x: bx.x + cx, y: bx.y + cy, w: bx.w, h: bx.h }, obs)) { const z = clamp(0, 0); if (!hits({ x: bx.x + z[0], y: bx.y + z[1], w: bx.w, h: bx.h }, obs)) [cx, cy] = z; }
           shiftEl(el, cx, cy); el.nudged = [cx, cy];
         }
         if (hits(el.box, obs)) {
           const sp = nearestFree(el.box, obs, B);
           if (sp) { shiftEl(el, sp[0], sp[1]); el.nudged = [(el.nudged?.[0] ?? 0) + sp[0], (el.nudged?.[1] ?? 0) + sp[1]]; }
         }
-        if (el.nudged && Math.hypot(el.nudged[0], el.nudged[1]) > 30) ctx.note?.(where, `按你写的位置它会${hits({ x: el.box.x - el.nudged[0], y: el.box.y - el.nudged[1], w: el.box.w, h: el.box.h }, obs) ? '压到别的元素' : '超出画板'}，已自动挪开 (${el.nudged[0].toFixed(0)}, ${el.nudged[1].toFixed(0)})。想自己定位置就改它的坐标；确实要叠放就写 overlap: true`);
+        if (el.nudged && Math.hypot(el.nudged[0], el.nudged[1]) > 30) {
+          const far = Math.hypot(el.nudged[0], el.nudged[1]) > FAR_NUDGE;
+          ctx.note?.(where, `按你写的位置它会${hits({ x: el.box.x - el.nudged[0], y: el.box.y - el.nudged[1], w: el.box.w, h: el.box.h }, obs) ? '压到别的元素' : '超出画板'}，已自动挪开 (${el.nudged[0].toFixed(0)}, ${el.nudged[1].toFixed(0)})。${far ? '挪得很远，它多半已经不在你想让它在的地方了（离开了原来挨着的东西）：改它的坐标，或给这块板腾地方；' : '想自己定位置就改它的坐标；'}确实要叠放就写 overlap: true`, far ? 'warn' : 'info');
+        }
       }
     }
     if (el.figure) {

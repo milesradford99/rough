@@ -6,6 +6,8 @@
 <项目>/
   project.yaml        项目设置
   voice/              alignment.json（时间表）、narration.wav（配音）
+  cast.yaml           （可选）角色表：全片反复出现的人和东西，长相只定义一次
+  outline.md          hj init 生成：写分镜前先填的提纲（故事、母图、每段三层放什么）
   scenes/             一个场景一个文件，按文件名排序：01-hook.yaml、02-xxx.yaml …
   doodles/            （可选）本项目自己画的手绘件
   brief.md            hj brief 生成：逐句时间简报
@@ -49,11 +51,41 @@
 | `from` | 第一个场景可省 | 场景开口的头几个字（口播锚点） |
 | `intent` | 是 | 这个场景要让观众看到什么。写给用户看的人话 |
 | `enter` | | `pan`（默认，镜头平移到新板面）/ `wipe`（把上一场擦掉）/ `cut` |
+| `recall` | | 沿用前面某个场景的画面，见下文 |
 | `pattern` | | 表现手法：自带构图和动作编排的场景骨架，见下文 |
 | `elements` | | `id: 定义` 的映射。id 只在本场景内有效 |
 | `beats` | | 节拍列表，按口播顺序 |
 | `id` | | 场景名，默认取文件名（去掉序号） |
 | `note` | | 随便写的备注，不参与任何计算 |
+
+## 沿用前面的画面（recall）
+
+母图第二次出现时，不要把元素抄一遍：
+
+```yaml
+from: "那被调去海军"
+recall: army-navy                 # 前面那个场景的名字（文件名去掉序号）
+# 或者只要其中一部分：
+# recall: { scene: army-navy, show: [land, office, boat, sea], except: [flow] }
+elements:
+  mid: { figure: slump, at: [520, 1000] }      # 这一场新加的东西，可以引用沿用过来的元素
+```
+
+- 被沿用的元素**定义和位置原样带过来**，进场时已经在板上，不占口播时间重画，和原场景一模一样。
+- 不写 `show` 时，带过来的是那个场景结束时还留在板上的东西（被擦掉、隐去、移动过的不带）。
+- 沿用过来的元素和自己的元素一样用：可以圈、可以擦、可以让小人走过去、可以当批注的目标。
+- 只能沿用前面的场景。改 `recall` 属于“画什么变了”，会让用户的确认失效。
+
+## 角色表（cast.yaml）
+
+```yaml
+# cast.yaml
+boss:   { figure: stand, face: smug, wear: [tophat] }
+worker: { figure: stand, size: 140 }
+money:  { doodle: banknote }
+```
+
+场景里写 `{ cast: boss, size: 300, at: [140, 240] }`，其余字段照常写，会覆盖角色表里的同名字段（换姿势写 `pose: think`，换表情写 `face: worried`）。手法的角色、`crowd` 的 `of`、`carry` 里也能用。
 
 ## 表现手法（pattern）
 
@@ -89,6 +121,7 @@ beats:
 - `area: [x, y, w, h]` 让手法只占画板的一部分（可用百分比），剩下的地方放自己的元素。
 - **一块板放多种手法**：`pattern` 写成列表，每种都写 `area`。这时步骤名要带前缀 `<kind>.<步骤>`（如 `cycle.go.1`、`bars.cut.1`）；同一种手法用两次时给它们各写一个 `name` 当前缀。
 - `cycle` 的 `flows`、`chain` 的 `links` 给每条箭头写小字；`timeline` 的事件可以带 `note`。
+- `bars` 的数值可以单独卡点：`col.N` 先立柱子，`value.N` 等口播说出那个数再写（`bar.N` 是两者一起）。`split` 的某一份写 `blank: true` 就留白打问号。
 - 手法展开后就是普通元素。位置不满意时，可以把 `hj check` 通过后的那个元素在 `elements` 里重新定义一个，或者干脆不用手法、照着它的布局自己摆。
 
 ## 口播锚点
@@ -133,7 +166,7 @@ beats:
 | 画 | `draw: id` 或 `draw: [a, b, c]` | 一笔一笔画出来。数组表示依次画 |
 | 画（内联） | `draw: { mark: circle, target: x }` | 直接在动作里定义一个元素，省得去 elements 里起名 |
 | 擦 | `erase: id` / `[ids]` / `all` | `style: wipe`（默认，板擦擦掉）或 `fade` |
-| 走过去 | `walk: 小人id`，配 `to` / `by` | 边移动边迈步，到了恢复原姿势。时长默认 1.1 秒，远的话写 `dur` |
+| 走过去 | `walk: 小人id`，配 `to` / `by` | 边移动边迈步，到了恢复原姿势。时长默认 1.1 秒，远的话写 `dur`。`to` 是**脚落在哪儿**（`to: boat.deck`）；几个人一起走（`walk: p6..p10`）会保持队形并收紧，不会叠成一个 |
 | 移动 | `move: id`，配 `to` / `by` / `along` | `to: gov` 或 `to: you.handR` 或 `to: [x, y]`；`by: [dx, dy]`；`along: 箭头id` 沿箭头走 |
 | 缩放 | `scale: id, to: 1.6` | 相对原始大小的倍数 |
 | 换姿势 | `pose: 小人id, to: shrug` | 可同时 `face: surprised` |
@@ -175,7 +208,11 @@ beats:
 | （都不写） | 引擎自动找空位。可加 `near: other` 指定靠近谁 |
 | `overlap: true` | 声明“我就是要压在别的东西上”，引擎不再挪它 |
 
-被引用的元素必须写在前面。锚点有：`center top bottom left right topLeft topRight bottomLeft bottomRight`，小人另有 `head handL handR hip feet`。
+被引用的元素必须写在前面。锚点有：`center top bottom left right topLeft topRight bottomLeft bottomRight`，小人另有 `head handL handR hip feet`，手绘件还可以有自己声明的锚点（见“自己画手绘件”）。
+
+**站上去、放进去，用锚点，不要估坐标。** 手绘件的外框往往比“能站人的地方”大得多（船的外框上半截是桅杆和帆）。让小人站在甲板上：`{ figure: stand, at: boat.deck, anchor: bottom }`；走过去：`{ walk: p1, to: boat.deck }`。
+
+**手里的东西用 `carry`，不要摆在 `小人.handR` 上。** 摆上去的东西会盖住身体，小人换姿势、走动时也不跟着。
 
 ### 通用外观
 
@@ -198,6 +235,9 @@ beats:
 | 标记 | `{ mark: circle, target: x }` | `circle box underline strike cross highlight check burst`。`target` 可以是数组；`pad` 调松紧；默认红色 |
 | 图表 | `{ chart: bar, data: [3800, 1200], labels: [法定, 实发], values: true }` | `bar` / `line`。`highlight: 1` 或 `highlight: {1: red}` 标红某项；`unit` 数值后缀；`w`、`h` |
 | 自由图形 | `{ parts: [ … ], box: [w, h], size: 200 }` | 就地用基本图形拼一个，格式同手绘件 |
+| 人群 | `{ crowd: 10, cols: 5, of: { figure: stand, size: 140 }, at: [250, 800] }` | 一群一样的东西。`at` 是整群的中心，`cols` 每排几个，`gap: 110` 或 `gap: [横, 竖]` 调间距。成员自动叫 `<id>1`…`<id>N`；整群作为一个整体定位，不会有谁被单独挪走 |
+
+**成组引用。** 人群的名字可以当全体成员用，`名字6..名字10` 取其中一段，动作和标记的目标里都能写：`draw: p`、`walk: p6..p10`、`erase: p6..p10`、`{ mark: box, target: p1..p5 }`。
 
 折线图和箭头、连线一样，可以当作 `move … along` 的轨迹。
 
@@ -209,6 +249,7 @@ beats:
 desc: 钞票
 box: [220, 120]              # 设计尺寸；使用时 size 对应长边
 vars: { text: "100", tint: green }   # 可调项及默认值
+anchors: { slot: [110, 0] }          # （可选）自己的锚点，坐标在 box 内；分镜里写 at: 元素id.slot
 parts:                       # 按书写顺序排列，坐标在 box 内
   - rect: [0, 0, 220, 120]   # x, y, w, h
     color: $tint
@@ -222,6 +263,8 @@ parts:                       # 按书写顺序排列，坐标在 box 内
 可用图形：`line: [x1,y1,x2,y2]`、`rect: [x,y,w,h]`、`ellipse: [cx,cy,w,h]`、`circle: [cx,cy,直径]`、`arc: [cx,cy,w,h,起始角,终止角]`、`poly: [[x,y],…]`（加 `close: true` 闭合）、`curve: [[x,y],…]`（过这些点的平滑曲线）、`path: "SVG 路径"`、`icon: 名字`（配 `at`、`size`）、`text`（配 `at`、`size`）。
 每个图形可带 `color fill fillStyle fillAlpha fillGap pen rough`。
 
+`anchors` 用来标出“别的东西该落在哪儿”：船的甲板、桌面、门口、保险箱的口。名字不能和内置锚点重名。就地拼的 `parts` 元素也可以写 `anchors`。
+
 画完用 `hj assets sheet` 看效果。内置的在仓库根目录 `doodles/`，可以照着写。
 
 ## 命令
@@ -231,9 +274,11 @@ parts:                       # 按书写顺序排列，坐标在 box 内
 | `hj init <目录> --voice <材料> [--format portrait\|landscape] [--title 标题]` | 建项目，导入时间表和配音 |
 | `hj brief <目录>` | 口播逐句时间简报 |
 | `hj check <目录> [--strict]` | 编译加质量检查。有错误时退出码为 1；`--strict` 时有警告也算失败 |
+| `hj layout <目录> [--scene 场景]` | 布局线框：每个元素最后落在哪儿（坐标表、占用图、线框 PNG）。不画笔画，不需要用户确认，写分镜时随时跑 |
 | `hj plan <目录>` | 生成文字分镜表 `storyboard.md` |
 | `hj approve <目录> plan\|keyframes --by "<用户原话>"` | 记录用户确认 |
-| `hj stills <目录> [--scene 场景] [--at 秒数或口播片段] [--guides]` | 关键帧。`--guides` 画出画板边界 |
+| `hj stills <目录> --draft [--scene 场景]` | 草稿关键帧：半分辨率、带“草稿 · 未确认”水印，输出到 `out/draft/`。给写分镜的人自查用，不需要用户确认，也不解锁后面的步骤 |
+| `hj stills <目录> [--scene 场景] [--at 秒数或口播片段] [--guides]` | 正式关键帧（需先确认文字分镜）。`--guides` 画出画板边界 |
 | `hj render <目录> [--scene 场景 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染。`--draft` 为半分辨率、15 帧 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |
 | `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件]` | 素材 |
@@ -243,5 +288,7 @@ parts:                       # 按书写顺序排列，坐标在 box 内
 
 | 级别 | 情况 |
 |---|---|
-| 错误 | 锚点在口播里找不到；引用了不存在的元素；缺 `intent`；板书照抄口播 ≥7 字；元素整个在画板外 |
-| 警告 | 画得太赶（超过自然速度 2.5 倍）；一拍的动作拖过了下一拍；画面静止超过 4.2 秒；元素重叠（引擎没能自动挪开时）；画面太空；纯文字场景；信息密度偏低（讲得久、东西少）；板书太多；字号太小；弹出/淡入用得太多；卡点落在时间不可靠的字上；锚点有歧义 |
+| 错误 | 锚点在口播里找不到；引用了不存在的元素；缺 `intent`；板书照抄口播 ≥7 字；元素整个在画板外；批注/标记比它的目标先出现（或目标从没画出来） |
+| 警告：摆放 | 标记（圈、框、叉）压到了目标以外的东西；字被线穿过；被引擎挪了很远（超过 80px）；一排东西里被单独挪走一个；贴着画板边缘；东西摆在小人手的位置上而不是 `carry`；元素重叠（引擎没能自动挪开时）；画面太空；板面有一整条横带是空的；字号太小 |
+| 警告：节奏 | 画得太赶（超过自然速度 2.5 倍）；一拍里赶着画一大群；一拍的动作拖过了下一拍；画面静止超过 4.2 秒；新板面空着超过 1.5 秒才落第一笔；连续 11 秒只有晃动、换姿势这类小动作；刚画完就被擦掉；小人走到一半原地消失；最后一个动作收在配音结束之后 |
+| 警告：内容 | 纯文字场景；信息密度偏低（讲得久、东西少；一模一样的东西重复画只算一组）；板书太多；一块板上红字超过四处；弹出/淡入用得太多；卡点落在时间不可靠的字上；锚点有歧义 |
