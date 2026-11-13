@@ -441,3 +441,44 @@ test('自动取景：内容没铺满就推近，铺满了不动，可以关', ()
   assert.equal(mk(small, 'frame: false\n').zoom, 1);
   assert.equal(mk(small, '', 'autoframe: false\n').zoom, 1);
 });
+
+test('一块板：分区、共用轴的坐标、镜头推近分区、比屏幕大的板', () => {
+  const mk = (scene: string, proj = '') => {
+    const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+    writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画第一条。再画第二条。最后看全景。')));
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n' + proj);
+    writeFileSync(join(d, 'scenes/01.yaml'), scene);
+    const c = compile(d); rmSync(d, { recursive: true }); return c;
+  };
+  const base = (extra = '', els = '') => `from: "先画"\nintent: 两条横条共用一根轴\n${extra}regions:\n  rows: [0, 200, 960, 400]\n  foot: ["0%", "70%", "100%", "20%"]\nelements:\n  a: { shape: rect, w: 400, h: 50, in: rows, at: [100, 50], anchor: left }\n  b: { shape: rect, w: 300, h: 50, at: [a.left, 420], anchor: left }\n  t: { text: "合计", size: 60, in: foot, at: ["50%", "50%"] }\n${els}beats:\n  - { at: "先画", intent: 第一条, do: [{ draw: a }] }\n  - { at: "再画", intent: 第二条, do: [{ camera: { focus: rows } }, { draw: b }] }\n  - { at: "最后", intent: 全景, do: [{ camera: home }, { draw: t }] }\n`;
+  const c = mk(base()), box = (id: string) => c.tls.find(t => t.el.id === id)!.el.box;
+  assert.deepEqual(c.issues.filter(i => i.level === 'error'), []);
+  assert.ok(Math.abs(box('a').x - 100) < 12 && Math.abs(box('a').y + 25 - 250) < 12, 'in: 分区后坐标相对分区');
+  assert.ok(Math.abs(box('a').x - box('b').x) < 12, '第二条的左端对着第一条的左端');
+  assert.ok(Math.abs(box('t').y + box('t').h / 2 - (1250 * 0.7 + 1250 * 0.1)) < 12, '百分比相对分区');
+  assert.equal(c.scenes[0].regions!.length, 2);
+  assert.ok(c.cams.length >= 3, '推近分区和回全景都排进了镜头');
+  assert.match(mk(base('', '  rows: { text: "撞名", size: 60 }\n')).issues.map(i => i.msg).join(), /分区和元素都叫/);
+  assert.match(mk(base().replace('in: foot', 'in: nowhere')).issues.map(i => i.msg).join(), /没有叫 "nowhere" 的分区/);
+  // 比屏幕大的板：全景把整块板缩进画面，板外的坐标不再算出界
+  const big = mk(base('board: 1.5\n').replace('at: [a.left, 420]', 'at: [1100, 1700]'));
+  assert.deepEqual(big.issues.filter(i => i.level !== 'info' && /出|超/.test(i.msg)), []);
+  assert.ok(big.scenes[0].home.zoom < 1 && big.scenes[0].home.zoom >= 1 / 1.5 - 1e-6);
+  assert.equal(big.scenes[0].board.w, 1440);
+});
+
+test('一块板：翻页、镜头不动、分区空着会被检查器指出来；layout: pages 可以明说要分页', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  const text = '先讲第一件事，它很重要，要讲清楚。再讲第二件事，它也重要，同样要讲清楚。最后讲第三件事，把前面的连起来。';
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment(text)));
+  const sc = (from: string) => `from: "${from}"\nintent: 一页\nregions:\n  spare: [0, 900, 960, 300]\nelements:\n  a: { doodle: bank, size: 300, at: [300, 300] }\nbeats:\n  - { at: "${from}", intent: 画, do: [{ draw: a }] }\n`;
+  writeFileSync(join(d, 'scenes/01.yaml'), sc('先讲第一件事')); writeFileSync(join(d, 'scenes/02.yaml'), sc('再讲第二件事')); writeFileSync(join(d, 'scenes/03.yaml'), sc('最后讲第三件事'));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const msgs = lint(compile(d)).map(i => i.msg).join('\n');
+  assert.match(msgs, /这是翻页/); assert.match(msgs, /分区 "spare" 到最后还是空的/);
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\nlayout: pages\n');
+  assert.doesNotMatch(lint(compile(d)).map(i => i.msg).join('\n'), /这是翻页/);
+  rmSync(d, { recursive: true });
+  const one = lint(compile('examples/one-board'));
+  assert.deepEqual(one.filter(i => i.level !== 'info'), []);
+});

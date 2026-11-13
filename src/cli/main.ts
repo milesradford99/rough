@@ -75,25 +75,30 @@ const CAST_TEMPLATE = `# 角色表：全片反复出现的人和东西，长相�
 `;
 const OUTLINE_TEMPLATE = `# 提纲（写分镜之前先填；填不出来说明还没想清楚，不要急着写 YAML）
 
-## 一句话
-这条片子讲完，观众记住的那一个画面是什么？（不是一句话，是一个画面）
+## 全景
+这条片子讲完，整块板是一张什么图？用几句话把它描述出来：有哪几块、各是什么形状（一排横条、一个圈、一条时间轴…）、块和块之间用什么连起来。
+观众最后看到的就是这张图；全片都是在一点点把它画出来。
 
-## 母图
-全片反复回来的那张图（两个阵营、一条流程、一杆天平…）。它在第几场立起来，在哪几场回来（recall），每次回来加了什么、破坏了什么？
+## 分区（写进场景的 regions）
+| 分区 | 在板上的位置 | 放什么 | 它和哪一块相连、怎么连（对齐、箭头、括号…） |
+|---|---|---|---|
+
+## 切入点
+从全景的哪一个点画起？（第一句话落地时板上就要有它）
 
 ## 角色表（同步写进 cast.yaml）
 | 角色 | 长相 | 代表什么 |
 |---|---|---|
 
-## 逐段
-| 场景 | 口播从哪句到哪句 | 这段在干什么（设问/说法/理由/算账/数据/转折/结论） | 手法 | 主体画什么 | 支撑：哪些数字、小账 | 批注：出处、名字、倍数 | 和前面哪个画面呼应 |
-|---|---|---|---|---|---|---|---|
+## 逐段：这段话往全景上添什么
+| 口播从哪句到哪句 | 这段在干什么（设问/说法/理由/算账/数据/转折/结论） | 画在哪个分区 | 添什么（主体 / 数字 / 批注） | 对着前面的哪样东西摆、连到哪儿 | 镜头：近景看谁，还是拉回全景 |
+|---|---|---|---|---|---|
 
-## 开头 5 秒
-第一句话落地时，板上是什么？（一个让人想看下去的画面，不是慢慢搭台）
+## 颜色分工
+墨色画什么、蓝色标什么、红色只留给哪一样（全片的答案）？
 
 ## 结尾
-最后一句话落下时，板上只多一样东西。是什么？
+最后一句话落下时，镜头回到全景，板上只多一样东西。是什么？
 `;
 
 function canvasFor(c: Compiled, scale: number) { const cv = createCanvas(Math.round(c.fmt.W * scale), Math.round(c.fmt.H * scale)); return { cv, ctx: cv.getContext('2d') }; }
@@ -180,7 +185,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const dir = args[0] ?? die('用法：hj layout <项目目录> [--scene 场景]');
     const c = load(dir, false);
     const out = join(dir, 'out', 'layout'); mkdirSync(out, { recursive: true });
-    const only = sceneArg(c), B = c.fmt.board, k = 0.6, M = 30;
+    const only = sceneArg(c), B = (only ?? c.scenes[0])?.board ?? c.fmt.board, k = 0.6, M = 30;
     const COL: Record<string, string> = { figure: '#2f6fb7', doodle: '#2f6fb7', icon: '#2f6fb7', parts: '#2f6fb7', text: '#3c8f4f', note: '#8a8580', shape: '#7556c2', chart: '#7556c2', mark: '#d9433a', arrow: '#e8792b', line: '#e8792b' };
     for (const sc of c.scenes) {
       if (only && sc !== only) continue;

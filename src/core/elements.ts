@@ -189,7 +189,17 @@ function shiftEl(el: El, dx: number, dy: number) {
 }
 
 function parseRef(ctx: BuildCtx, ref: any, where: string): { pt: Pt; el?: El; explicit: boolean } {
-  if (Array.isArray(ref)) return { pt: [num(ref[0], ctx.fmt.board.w, where), num(ref[1], ctx.fmt.board.h, where)], explicit: true };
+  if (Array.isArray(ref)) {
+    // 每个坐标可以是数字、百分比，或 "元素.锚点"（取那个锚点的 x 或 y）：和别的东西共用一根轴，不用抄坐标
+    const axis = (v: any, i: 0 | 1, total: number): number => {
+      if (typeof v !== 'string' || /^-?[\d.]+%?$/.test(v)) return num(v, total, where);
+      const [id, a = 'center'] = v.split('.'), el = ctx.els.get(id);
+      if (!el) throw new SrcError(where, `坐标里引用了不存在（或定义在它后面）的元素 "${id}"`);
+      if (!el.anchors[a]) throw new SrcError(where, `元素 "${id}" 没有锚点 "${a}"，可用：${Object.keys(el.anchors).join(' ')}`);
+      return el.anchors[a][i];
+    };
+    return { pt: [axis(ref[0], 0, ctx.fmt.board.w), axis(ref[1], 1, ctx.fmt.board.h)], explicit: true };
+  }
   if (typeof ref !== 'string') throw new SrcError(where, `位置引用要写元素 id、"id.锚点" 或 [x, y]，现在是 ${JSON.stringify(ref)}`);
   const [id, a] = ref.split('.');
   const el = ctx.els.get(id);

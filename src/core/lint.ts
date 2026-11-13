@@ -29,10 +29,10 @@ const fmtT = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStar
 export function lint(c: Compiled): Issue[] {
   const out: Issue[] = [...c.issues];
   const add = (level: Issue['level'], where: string, msg: string) => out.push({ level, where, msg });
-  const B = c.fmt.board;
   let figures = 0, draws = 0, appears = 0;
 
   for (const sc of c.scenes) {
+    const B = sc.board ?? c.fmt.board; // 这块板自己的画板（可能比屏幕大）
     const tls = c.tls.filter(t => t.scene === sc.index);
     const shown = tls.filter(t => t.drawT0 != null || t.appear);
     const say = stripPunct(sc.say);
@@ -78,7 +78,8 @@ export function lint(c: Compiled): Issue[] {
     }
     // 红色是用来指“此刻最要紧的那一样”的；满板红字等于没有重点
     const reds = shown.filter(t => (t.el.kind === 'text' || t.el.kind === 'note') && t.el.src.color === 'red' && !(t.gone != null && t.gone < sc.t1 - 0.7));
-    if (reds.length > 4) add('warn', sc.file, `这块板上有 ${reds.length} 处红字（${reds.slice(0, 6).map(t => `“${t.el.text}”`).join('、')}${reds.length > 6 ? '…' : ''}）。红色只留给否定、警示的数字和此刻的重点，一块板不超过三四处；其余改回墨色，次要的用灰色`);
+    // 一块板讲得越久，能容下的红字越多（每十秒左右一处），但总要远少于墨色
+    if (reds.length > Math.max(4, Math.round((sc.t1 - sc.t0) / 8))) add('warn', sc.file, `这块板上有 ${reds.length} 处红字（${reds.slice(0, 6).map(t => `“${t.el.text}”`).join('、')}${reds.length > 6 ? '…' : ''}）。红色只留给否定、警示的数字和此刻的重点，一块板不超过三四处；其余改回墨色，次要的用灰色`);
     // 构图：场景结束时，板上有没有一整条横带是空的
     if (visual.length && sc.t1 - sc.t0 >= 8) {
       const live = shown.filter(t => t.el.kind !== 'mark').map(t => { const b = t.el.kind === 'note' ? t.el.solid : t.el.box, mv = t.moves.length ? t.moves[t.moves.length - 1].to : [0, 0]; return [b.y + mv[1], b.y + mv[1] + b.h]; });
@@ -212,9 +213,27 @@ export function lint(c: Compiled): Issue[] {
         add('warn', sc.file, `${fmtT(worst)}–${fmtT(worst + WINDOW)} 这 ${WINDOW} 秒里板上几乎没有新东西（只有晃动、换姿势这类小动作），这段在说：“${said.slice(0, 44)}…”。小动作只能垫一两秒：这段话里一定有能画的东西（一个数、一个对比、一个后果），给它一拍`);
       }
     }
+    // 一块板讲了很久却始终是同一个景别：讲细节时该推近，讲完拉回全景
+    const camActs = acts.filter(a => a.verb === 'camera');
+    if (sc.t1 - sc.t0 >= 25 && !camActs.length) add('warn', sc.file, `这块板讲了 ${(sc.t1 - sc.t0).toFixed(0)} 秒，镜头一次都没动。全程一个远景，细节看不清，也没有节奏：讲到某一块的细节时推近（{ camera: { focus: 分区名或元素 } }），讲完、要看它和别处的关系时拉回全景（{ camera: home }）`);
+    // 分区是全景的骨架：划了地盘就得用上
+    for (const rg of sc.regions ?? []) {
+      const used = shown.some(t => { const b = t.el.box, cx = b.x + b.w / 2, cy = b.y + b.h / 2; return cx >= rg.box.x && cx <= rg.box.x + rg.box.w && cy >= rg.box.y && cy <= rg.box.y + rg.box.h; });
+      if (!used) add('warn', sc.file, `分区 "${rg.name}" 到最后还是空的。全景缺了一块：把该放这儿的内容补上，或者重新划分区`);
+    }
     // 6. 转场时上一场还没画完
     const next = c.scenes[sc.index + 1];
     if (next && acts.length) { const last = Math.max(...acts.map(a => a.t1)); if (last > next.t0 - 0.3) add('warn', sc.file, `最后一个动作 ${fmtT(last)} 才结束，但 ${fmtT(next.t0)} 就要转到下一个场景了，会画到一半被带走`); }
+  }
+  // 翻页：一条片子被切成一页页互不相干的小板。默认应该是一块板，从一个点切入、一点点展开、最后连成一张全景
+  if (c.scenes.length >= 2 && c.meta.layout !== 'pages') {
+    const avg = c.duration / c.scenes.length;
+    if (avg < 40) add('warn', '全片', `这条片子有 ${c.scenes.length} 块板，平均一块只讲 ${avg.toFixed(0)} 秒——这是翻页，不是边画边讲。两分钟以内的内容应该画在一块板上：先定全景和分区（regions），画过的东西留在原位，后面的内容对着前面的摆、用线连回去；靠镜头的远近（camera focus / home）换景，而不是换板。确实要分页（很长的片子分章、素材陈列）就在 project.yaml 里写 layout: pages`);
+  }
+  // 片尾停在全景上：最后观众要看到整张图
+  {
+    const ls = c.scenes[c.scenes.length - 1], seg = ls ? [...c.cams].filter(k => k.t0 >= ls.t0 - 0.5).pop() : null;
+    if (ls && seg && seg.to !== ls.home && ls.t1 - ls.t0 >= 25) add('warn', ls.file, '片子结束时镜头还推在局部。最后一拍拉回全景（{ camera: home }），让观众看到整块板连成的那一张图');
   }
   // 片尾：最后一笔要在配音说完之前落定
   const lastSc = c.scenes[c.scenes.length - 1], voiceEnd = c.al.units.length ? c.al.units[c.al.units.length - 1].end : c.duration;

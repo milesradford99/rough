@@ -6,3 +6,4 @@ voice: voice/alignment.json
 subtitles: true
 sfx: true
 pen: false
+layout: pages
