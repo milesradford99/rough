@@ -345,6 +345,7 @@ const commands: Record<string, () => Promise<void> | void> = {
   async import() {
     const usage = `用法：
   hj import excalidraw <素材库.excalidrawlib> --out <目录> [--only 名字,名字] [--prefix 前缀] [--text] [--source "出处"]
+  hj import svg <文件.svg> --out <目录> [--name 名字] [--desc 说明] [--source "出处"] [--pen 2] [--rough 0.3] [--paper]
   hj import quickdraw <类别.ndjson> --sheet <候选图.png> [--count 48]          先出候选图，挑编号
   hj import quickdraw <类别.ndjson> --pick <编号> --name <名字> --out <目录> [--desc 说明] [--color 颜色]
 导入的是几何形状，进来后由本项目的笔重新画；--out 一般是项目的 doodles/ 目录。导入前先核对素材的授权。`;
@@ -367,6 +368,11 @@ const commands: Record<string, () => Promise<void> | void> = {
       if (miss.length) die(`素材库里没有：${miss.join(' ')}。可选：${items.map(i => i.name).join(' ')}`);
       for (const it of items) if (!only || only.includes(it.name)) save(outDir, { ...it, name: (flags.prefix ? String(flags.prefix) : '') + it.name });
       console.log(`\n看长相：hj assets sheet --dir ${outDir} --out sheet.png。不好看的直接删掉文件；名字、desc、颜色可以手改。`);
+    } else if (kind === 'svg') {
+      const outDir = flags.out ? String(flags.out) : die(usage);
+      let it: any;
+      try { it = im.fromSvg(readFileSync(file, 'utf8'), { name: flags.name ? String(flags.name) : im.slug(basename(file, '.svg')) || undefined, desc: flags.desc ? String(flags.desc) : undefined, source: flags.source ? String(flags.source) : undefined, pen: flags.pen ? +flags.pen : undefined, rough: flags.rough ? +flags.rough : undefined, paper: !!flags.paper }); } catch (e: any) { return die(e.message); }
+      save(outDir, it);
     } else if (kind === 'quickdraw') {
       const all = im.parseQuickDraw(readFileSync(file, 'utf8')).filter(d => d.recognized);
       if (!all.length) die('文件里没有可用的画（需要 Quick Draw 的 simplified .ndjson）');
@@ -441,7 +447,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
   hj patterns [名字]                  表现手法：自带构图和动作编排的场景骨架
   hj assets doodles | figure | icons <关键词> | colors | sheet
-  hj import excalidraw|quickdraw <文件>   把外部手绘素材转成手绘件
+  hj import excalidraw|svg|quickdraw <文件>   把外部手绘素材转成手绘件
   hj fake-align <稿.txt>              没配音时造匀速时间表打草稿
 
 完整工作流见 AGENTS.md`);
