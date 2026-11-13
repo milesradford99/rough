@@ -5,7 +5,7 @@ import type { Drawable, Options } from '../rough/core';
 export type Pt = [number, number];
 export type Box = { x: number; y: number; w: number; h: number };
 
-export interface LineStroke { kind: 'line'; pts: number[]; w: number; color: string; len: number; under?: boolean; alpha?: number; cum?: number[]; /** 平头、等宽：马克笔涂色的宽笔道 */ flat?: boolean; wm?: Float32Array }
+export interface LineStroke { kind: 'line'; pts: number[]; w: number; color: string; len: number; under?: boolean; alpha?: number; cum?: number[]; /** 平头、等宽：马克笔涂色的宽笔道 */ flat?: boolean; wm?: Float32Array; /** 装饰笔画（阴影）：不算进元素的占位框 */ deco?: boolean }
 /** 汉字：整个字形 + 笔顺中线。笔沿中线走，走过的地方露出字形 */
 export interface GlyphStroke { kind: 'fglyph'; d: string; tx: number; ty: number; s: number; medians: number[][]; r: number; color: string; len: number; box: Box; mcum?: number[][] }
 /** 非汉字字形：整个字形轮廓，从左到右揭开 */
@@ -51,6 +51,7 @@ export function boxOf(strokes: Stroke[]): Box {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const add = (x: number, y: number) => { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; };
   for (const s of strokes) {
+    if (s.kind === 'line' && s.deco) continue;
     if (s.kind === 'line' || s.kind === 'fill') { for (let i = 0; i < s.pts.length; i += 2) add(s.pts[i], s.pts[i + 1]); }
     else { add(s.box.x, s.box.y); add(s.box.x + s.box.w, s.box.y + s.box.h); }
   }
@@ -79,26 +80,70 @@ export function cloneStrokes(strokes: Stroke[], dx = 0, dy = 0): Stroke[] {
   return out;
 }
 
-/** 笔触粗细曲线：落笔略重、行笔有轻微起伏、收笔带出一点笔锋。返回每个点的粗细倍数 */
+/** 笔触粗细曲线：模拟手上的轻重。落笔一顿（重）、长线中段走得快（细）、拐弯处慢下来（粗）、收笔带出笔锋。返回每个点的粗细倍数 */
 export function widthProfile(s: LineStroke): Float32Array {
   if (s.wm) return s.wm;
-  const cum = cumLen(s), L = cum[cum.length - 1] || 1, n = cum.length, wm = new Float32Array(n);
-  const r = rng(Math.round(L * 131 + s.pts[0] * 17 + s.pts[1] * 29) || 1);
+  const pts = s.pts, cum = cumLen(s), L = cum[cum.length - 1] || 1, n = cum.length, wm = new Float32Array(n);
+  const r = rng(Math.round(L * 131 + pts[0] * 17 + pts[1] * 29) || 1);
   const ph1 = r() * 6.28, ph2 = r() * 6.28, f1 = 0.018 + r() * 0.012, f2 = 0.05 + r() * 0.03;
-  const tail = Math.min(26, L * 0.3), head = Math.min(16, L * 0.2);
+  const tail = Math.min(34, L * 0.32), head = Math.min(18, L * 0.2), fast = Math.min(1, Math.max(0, (L - 90) / 260));
+  // 每个点前后约 14px 范围内转过的角度：越大说明笔在这里拐弯，手会慢、墨会多
+  const turn = new Float32Array(n);
+  for (let i = 1, a = 0, b = 0; i < n - 1; i++) {
+    while (cum[i] - cum[a] > 14) a++;
+    while (b < n - 1 && cum[b] - cum[i] < 14) b++;
+    const a0 = Math.max(0, a - 1), ux = pts[2 * i] - pts[2 * a0], uy = pts[2 * i + 1] - pts[2 * a0 + 1], vx = pts[2 * b] - pts[2 * i], vy = pts[2 * b + 1] - pts[2 * i + 1];
+    const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+    if (lu > 1 && lv > 1) turn[i] = Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (lu * lv))));
+  }
   for (let i = 0; i < n; i++) {
     const d = cum[i];
-    let m = 1 + 0.1 * Math.sin(ph1 + d * f1) + 0.05 * Math.sin(ph2 + d * f2);
-    if (d < head) m *= 1.16 - 0.16 * (d / head);
-    if (L - d < tail) m *= 0.52 + 0.48 * ((L - d) / tail);
+    let m = 1 + 0.12 * Math.sin(ph1 + d * f1) + 0.05 * Math.sin(ph2 + d * f2);
+    m *= 1 - 0.1 * fast * Math.sin((Math.PI * d) / L);
+    m *= 1 + 0.2 * Math.min(1, turn[i] / 0.9);
+    if (d < head) m *= 1.24 - 0.24 * (d / head);
+    if (L - d < tail) { const k = (L - d) / tail; m *= 0.4 + 0.6 * k * (2 - k); }
     wm[i] = m;
   }
   return (s.wm = wm);
 }
 
+/** 灰色马克笔阴影：光从左上来，在轮廓背光（右、下）的一侧贴着外沿扫一道。poly 是闭合轮廓，pen 是轮廓线宽 */
+export function shadeStrokes(poly: number[], pen: number): LineStroke[] {
+  const n = poly.length >> 1;
+  if (n < 3) return [];
+  let area = 0, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n, x = poly[2 * i], y = poly[2 * i + 1];
+    area += x * poly[2 * j + 1] - poly[2 * j] * y;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  const dim = Math.max(x1 - x0, y1 - y0), sgn = area > 0 ? 1 : -1;
+  if (dim < 44) return [];
+  const sw = Math.min(16, Math.max(8, dim * 0.05)), off = pen / 2 + sw / 2 - 1.5, DX = 0.6, DY = 0.8;
+  // 每条边朝不朝背光面
+  const lit: boolean[] = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n, ex = poly[2 * j] - poly[2 * i], ey = poly[2 * j + 1] - poly[2 * i + 1], l = Math.hypot(ex, ey) || 1;
+    lit.push(((ey * sgn) / l) * DX + ((-ex * sgn) / l) * DY > 0.3);
+  }
+  let start = lit.findIndex((v, i) => v && !lit[(i + n - 1) % n]);
+  if (start < 0) return [];
+  const out: LineStroke[] = [];
+  for (let c = 0, i = start; c < n; ) {
+    if (!lit[i]) { i = (i + 1) % n; c++; continue; }
+    const pts: number[] = [poly[2 * i] + DX * off, poly[2 * i + 1] + DY * off];
+    while (c < n && lit[i]) { i = (i + 1) % n; c++; pts.push(poly[2 * i] + DX * off, poly[2 * i + 1] + DY * off); }
+    const len = polyLen(pts);
+    if (len > dim * 0.18) out.push({ kind: 'line', pts, w: sw, color: SHADE.color, len: len * 0.15, /* 一扫而过，不占多少时间 */ under: true, alpha: SHADE.alpha, flat: true, deco: true });
+  }
+  return out;
+}
+export const SHADE = { color: '#77726c', alpha: 0.3 };
+
 const gen = new RoughGenerator();
 
-export interface Style { color: string; w: number; rough: number; seed: number; fill?: string; /** marker（默认，马克笔宽笔道涂色）/ hachure（细排线）/ solid / zigzag / cross-hatch / dots */ fillStyle?: string; fillGap?: number; fillAlpha?: number; double?: boolean; bow?: number }
+export interface Style { color: string; w: number; rough: number; seed: number; fill?: string; /** marker（默认，马克笔宽笔道涂色）/ hachure（细排线）/ solid / zigzag / cross-hatch / dots */ fillStyle?: string; fillGap?: number; fillAlpha?: number; double?: boolean; bow?: number; /** 画完后在背光一侧扫一道灰色阴影（只对闭合图形有效） */ shade?: boolean }
 
 const isMarker = (st: Style) => !!st.fill && (!st.fillStyle || st.fillStyle === 'marker');
 
@@ -159,7 +204,14 @@ function streaks(d: Drawable, st: Style): Stroke[] {
 
 const shape = (make: (o: Options) => Drawable, st: Style): Stroke[] => {
   const base = toStrokes(make(opts(st)), st);
-  return isMarker(st) ? [...base, ...streaks(make({ ...opts(st, 'hachure'), stroke: 'none' }), st)] : base;
+  const out = isMarker(st) ? [...base, ...streaks(make({ ...opts(st, 'hachure'), stroke: 'none' }), st)] : base;
+  if (st.shade) {
+    // 用同一个图形的平涂轮廓当剪影，只给面积最大的那一圈加阴影（不给镂空的洞加）
+    const sil = toStrokes(make({ ...opts({ ...st, fill: '#000', fillStyle: 'solid' }), stroke: 'none', roughness: Math.min(st.rough, 0.5) }), { ...st, fill: '#000', fillStyle: 'solid' }).filter(s => s.kind === 'fill') as FillStroke[];
+    const big = sil.sort((a, b) => b.len - a.len)[0];
+    if (big) out.push(...shadeStrokes(big.pts, st.w));
+  }
+  return out;
 };
 export const R = {
   line: (x1: number, y1: number, x2: number, y2: number, st: Style) => toStrokes(gen.line(x1, y1, x2, y2, opts(st)), st),

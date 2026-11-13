@@ -50,7 +50,7 @@ export function naturalDraw(el: El): number {
 }
 /** 一笔占多少“时间份额”：上色的排线是快速涂抹，只算三分之一 */
 const weight = (s: any) => ((s.under ? 0.2 : 1) * s.len + penUp(s) * (s.under ? 0.4 : 1));
-const penUp = (s: { kind: string; len: number }) => (s.kind === 'fglyph' ? 40 : s.kind === 'wipe' ? 10 : (s as any).flat ? 10 : Math.min(75, 18 + s.len * 0.3));
+const penUp = (s: { kind: string; len: number }) => ((s as any).deco ? 0 : s.kind === 'fglyph' ? 40 : s.kind === 'wipe' ? 10 : (s as any).flat ? 10 : Math.min(75, 18 + s.len * 0.3));
 
 export function loadProject(dir: string): { meta: any; scenes: { file: string; src: any }[] } {
   const pf = join(dir, 'project.yaml');
@@ -140,7 +140,7 @@ export function compile(dir: string): Compiled {
     const local = new Map<string, TL>();
     const life = new Map<string, [number, number]>();
     const pending: [string, any][] = [];
-    const ctx: BuildCtx = { scene: id, fmt, els, projectDir: dir, life, note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
+    const ctx: BuildCtx = { scene: id, fmt, els, projectDir: dir, life, shade: meta.shade, note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
     const addEl = (eid: string, esrc: any): TL | null => {
       if (els.has(eid)) { err(`${file} / 元素 ${eid}`, 'id 重复了'); return local.get(eid)!; }
       try {

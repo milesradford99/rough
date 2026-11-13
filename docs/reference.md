@@ -31,6 +31,7 @@
 | `sfxVolume` | 1 | 音效音量倍数 |
 | `sfxSamples` | 无 | 用真实录音替换合成音：`{ pen: sfx/pen.wav, mark: sfx/circle.wav, erase: sfx/wipe.wav }`（16-bit WAV，路径相对项目目录）。合成音不如录音自然，有条件就换 |
 | `pen` | `false` | 显示一个极小的笔尖 |
+| `shade` | `true` | 灰色马克笔阴影：手绘件、形状、柱状图的柱子画完后在右下侧扫一道灰，小人脚下有一小团影子。`false` 关掉全片的阴影 |
 | `tail` | 0.6 | 口播结束后多留几秒 |
 
 ## 画板坐标
@@ -218,6 +219,8 @@ beats:
 
 `size`（大小）、`color`、`fill`（填充色）、`fillAlpha`（填充浓度）、`fillStyle`（`marker` 马克笔涂色，默认 / `hachure` 细排线 / `solid` 平涂 / `zigzag` / `cross-hatch` / `dots`）、`pen`（线宽，默认 5.5）、`rough`（抖动程度，默认 0.9）、`label` + `labelSize`（写在元素正下方的标签，随元素一起画）。
 
+`shade: false`：这个元素不要灰色阴影（默认有，见项目设置的 `shade`）。阴影是引擎自动加的，只加在外轮廓上，不占位置、不参与避让；光永远从左上来，全片一致。
+
 颜色名：`ink red blue green yellow orange purple gray paper`，也可以直接写 `"#rrggbb"`。
 
 ### 各类元素
@@ -262,6 +265,7 @@ parts:                       # 按书写顺序排列，坐标在 box 内
 
 可用图形：`line: [x1,y1,x2,y2]`、`rect: [x,y,w,h]`、`ellipse: [cx,cy,w,h]`、`circle: [cx,cy,直径]`、`arc: [cx,cy,w,h,起始角,终止角]`、`poly: [[x,y],…]`（加 `close: true` 闭合）、`curve: [[x,y],…]`（过这些点的平滑曲线）、`path: "SVG 路径"`、`icon: 名字`（配 `at`、`size`）、`text`（配 `at`、`size`）。
 每个图形可带 `color fill fillStyle fillAlpha fillGap pen rough`。
+自己画手绘件时不用管阴影：闭合的图形（`rect ellipse circle`、`close: true` 的 `poly`、以 `Z` 结尾的 `path`）里，够大且没被别的图形包住的那几个会自动得到阴影；某个图形不想要就给它写 `shade: false`。
 
 `anchors` 用来标出“别的东西该落在哪儿”：船的甲板、桌面、门口、保险箱的口。名字不能和内置锚点重名。就地拼的 `parts` 元素也可以写 `anchors`。
 

@@ -302,3 +302,19 @@ beats:
   writeFileSync(f, readFileSync(f, 'utf8').replace('show: [boat, p1..p5]', 'show: [boat]'));
   assert.notEqual(compile(d).planHash, h0);
 });
+
+test('灰色阴影：默认有、只加在外轮廓、不改变占位框、可以关', async () => {
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const mk = (src: any, shade?: boolean) => buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map(), shade }, 'e', src);
+  const deco = (el: any) => el.strokes.filter((s: any) => s.deco);
+  const on = mk({ doodle: 'factory', size: 280, at: [300, 300] }), off = mk({ doodle: 'factory', size: 280, at: [300, 300], shade: false });
+  assert.ok(deco(on).length >= 1 && deco(on).length <= 2, '工厂只有外轮廓有阴影，门窗没有');
+  assert.equal(deco(off).length, 0);
+  assert.deepEqual(on.box, off.box);
+  assert.ok(deco(on).every((s: any) => s.under && s.flat));
+  assert.equal(deco(mk({ doodle: 'factory', size: 280, at: [300, 300] }, false)).length, 0, '项目级开关');
+  assert.equal(deco(mk({ figure: 'stand', at: [300, 600] })).length, 1, '小人脚下一团影子');
+  assert.ok(deco(mk({ shape: 'rect', w: 300, h: 160, at: [300, 300] })).length >= 1);
+  assert.equal(deco(mk({ text: '复利', at: [300, 300] })).length, 0);
+});

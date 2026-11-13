@@ -1,5 +1,5 @@
 // 火柴人：可摆姿势、可换表情、可加配饰的参数化小人。它是“讲的人”的替身。
-import { R, type Stroke, type Style, type Pt } from './strokes';
+import { R, SHADE, polyLen, type Stroke, type Style, type Pt } from './strokes';
 
 export interface Pose {
   /** [上臂角, 肘部再弯多少]。0=垂下，90=向外平举，180=举过头。左右对称定义 */
@@ -59,7 +59,7 @@ export const lerpPose = (a: Pose, b: Pose, k: number): Pose => {
   return { armL: l2(a.armL, b.armL), armR: l2(a.armR, b.armR), legL: l2(a.legL, b.legL), legR: l2(a.legR, b.legR), lean: l(a.lean, b.lean), head: l(a.head, b.head) };
 };
 
-export interface FigureSpec { size: number; color: string; pose: Pose; face: string; accessories?: string[]; accent?: string; seed: number; faceless?: boolean }
+export interface FigureSpec { size: number; color: string; pose: Pose; face: string; accessories?: string[]; accent?: string; seed: number; faceless?: boolean; /** 脚下的灰色阴影（默认有） */ shade?: boolean }
 
 const rad = (d: number) => (d * Math.PI) / 180;
 
@@ -95,6 +95,13 @@ export function figureStrokes(f: FigureSpec): { strokes: Stroke[]; anchors: Reco
   draw(legL); draw(legR);
   // 脚：一小横
   for (const [leg, side] of [[legL, -1], [legR, 1]] as const) out.push(...R.line(leg[2][0], leg[2][1], leg[2][0] + side * 0.045 * H, leg[2][1], st({ rough: 0.3 })));
+  // 脚下的影子：灰色马克笔来回扫的一小团，人就“站在地上”了
+  const shadow: Stroke[] = [];
+  if (f.shade !== false) {
+    const gy = Math.max(legL[2][1], legR[2][1]) + 0.02 * H, gx = (legL[2][0] + legR[2][0]) / 2 + 0.03 * H, rx = 0.13 * H;
+    const pts = [gx - rx, gy, gx + rx * 0.9, gy - 0.004 * H, gx - rx * 0.55, gy + 0.012 * H, gx + rx, gy + 0.01 * H];
+    shadow.push({ kind: 'line', pts, w: Math.max(7, 0.026 * H), color: SHADE.color, len: polyLen(pts), under: true, alpha: SHADE.alpha, flat: true, deco: true });
+  }
   const armL = limb(shoulder, -1, p.armL, 0.155 * H, 0.155 * H), armR = limb(shoulder, 1, p.armR, 0.155 * H, 0.155 * H);
   draw(armL); draw(armR);
 
@@ -147,5 +154,5 @@ export function figureStrokes(f: FigureSpec): { strokes: Stroke[]; anchors: Reco
     else if (a === 'tie') { const t0: Pt = [neck[0], neck[1] + 0.02 * H]; out.push(...R.poly([t0, [t0[0] - 0.03 * H, t0[1] + 0.13 * H], [t0[0], t0[1] + 0.17 * H], [t0[0] + 0.03 * H, t0[1] + 0.13 * H]], true, st({ color: acc, fill: acc, fillStyle: 'solid', fillAlpha: 0.85, w: fw }))); }
     else if (a === 'briefcase') { const h = armL[2]; out.push(...R.rect(h[0] - 0.09 * H, h[1] + 0.02 * H, 0.18 * H, 0.13 * H, st({ fill: acc === f.color ? '#8a8580' : acc, fillGap: 14 }))); out.push(...R.poly([[h[0] - 0.035 * H, h[1] + 0.02 * H], [h[0] - 0.035 * H, h[1] - 0.015 * H], [h[0] + 0.035 * H, h[1] - 0.015 * H], [h[0] + 0.035 * H, h[1] + 0.02 * H]], false, st({ w: fw }))); }
   }
-  return { strokes: out, anchors: { head: headC, handL: armL[2], handR: armR[2], hip, feet: [(legL[2][0] + legR[2][0]) / 2, Math.max(legL[2][1], legR[2][1])] } };
+  return { strokes: [...out, ...shadow], anchors: { head: headC, handL: armL[2], handR: armR[2], hip, feet: [(legL[2][0] + legR[2][0]) / 2, Math.max(legL[2][1], legR[2][1])] } };
 }

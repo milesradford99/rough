@@ -30,7 +30,7 @@ export interface El {
 export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'shape', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap', '__rigid', '__seed'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap', 'shade', '__rigid', '__seed'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
@@ -57,11 +57,12 @@ export function buildParts(parts: any[], k: number, base: Style, vars: Record<st
   let text = '';
   const sub = (v: any): any => (typeof v === 'string' && v.startsWith('$') ? vars[v.slice(1)] ?? '' : v);
   const P = (a: any[]): Pt[] => a.map(p => [p[0] * k, p[1] * k]);
-  parts.forEach((p, i) => {
+  const build = (p: any, i: number, shade: boolean): Stroke[] => {
+    const out: Stroke[] = [];
     const w0 = `${where} 第 ${i + 1} 个图形`;
     if (!p || typeof p !== 'object') throw new SrcError(w0, '应该是一个对象，例如 {rect: [0,0,100,60]}');
     const st: Style = { ...base, seed: base.seed + i * 7 + 1, color: p.color ? color(sub(p.color)) : base.color, w: p.pen ?? base.w, rough: p.rough ?? base.rough,
-      fill: p.fill ? color(sub(p.fill)) : undefined, fillStyle: p.fillStyle, fillAlpha: p.fillAlpha, fillGap: p.fillGap };
+      fill: p.fill ? color(sub(p.fill)) : undefined, fillStyle: p.fillStyle, fillAlpha: p.fillAlpha, fillGap: p.fillGap, shade };
     const need = (key: string, n: number) => { if (!Array.isArray(p[key]) || p[key].length < n) throw new SrcError(w0, `${key} 需要 ${n} 个数字`); return p[key].map((x: number) => x * k); };
     if ('line' in p) { const a = need('line', 4); out.push(...R.line(a[0], a[1], a[2], a[3], st)); }
     else if ('rect' in p) { const a = need('rect', 4); out.push(...R.rect(a[0], a[1], a[2], a[3], st)); }
@@ -74,17 +75,35 @@ export function buildParts(parts: any[], k: number, base: Style, vars: Record<st
     else if ('icon' in p) { if (!iconExists(p.icon)) throw new SrcError(w0, `没有叫 ${p.icon} 的图标，用 hj assets icons <关键词> 搜索`); out.push(...iconStrokes(p.icon, p.at[0] * k, p.at[1] * k, (p.size ?? 24) * k, st)); }
     else if ('text' in p) {
       const s = String(sub(p.text));
-      if (!s) return;
+      if (!s) return out;
       const t = textStrokes(s, { size: (p.size ?? 40) * k, color: st.color });
       translateStrokes(t.strokes, p.at[0] * k - t.w / 2, p.at[1] * k - t.h / 2);
-      out.push(...t.strokes); text += s;
+      out.push(...t.strokes); if (!shade) text += s;
     } else throw new SrcError(w0, `不认识的图形 ${JSON.stringify(Object.keys(p))}，可用：line rect ellipse circle arc poly curve path icon text`);
+    return out;
+  };
+  // 阴影只给“外轮廓”加：闭合、够大、没有被别的闭合图形包住。门窗这类里面的小件不加
+  const built = parts.map((p, i) => build(p, i, false));
+  const closed = (p: any) => 'rect' in p || 'ellipse' in p || 'circle' in p || ('poly' in p && !!p.close) || ('path' in p && /z\s*$/i.test(String(p.path)));
+  const boxes = built.map((ss, i) => (closed(parts[i]) ? boxOf(ss.filter(s => !(s as any).under)) : null));
+  const all = boxOf(built.flat()), big = Math.max(all.w, all.h) * 0.3;
+  const inside = (a: Box, b: Box) => a.x >= b.x - 4 && a.y >= b.y - 4 && a.x + a.w <= b.x + b.w + 4 && a.y + a.h <= b.y + b.h + 4;
+  const shades: Stroke[] = [];
+  built.forEach((ss, i) => {
+    const b = boxes[i];
+    out.push(...ss);
+    if (!base.shade || !b || parts[i].shade === false || Math.max(b.w, b.h) < big) return;
+    if (boxes.some((o, j) => o && j !== i && inside(b, o) && !(inside(o, b) && j > i))) return;
+    shades.push(...build(parts[i], i, true).filter(s => (s as any).deco));
   });
+  out.push(...shades); // 整个东西画完、涂完色，最后才扫阴影
   return { strokes: out, text };
 }
 
 export interface BuildCtx {
   scene: string; fmt: Format; els: Map<string, El>; projectDir?: string;
+  /** 项目级开关：false 关掉全片的灰色阴影 */
+  shade?: boolean;
   /** 每个元素在画面上存在的时间段 [出现, 消失]。有它才启用自动避让 */
   life?: Map<string, [number, number]>;
   note?: (where: string, msg: string, level?: 'info' | 'warn') => void;
@@ -203,6 +222,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   const B = ctx.fmt.board;
   const seed = hash((src.__seed ?? ctx.scene) + '/' + id); // 沿用过来的元素用原场景的种子，抖动才一模一样
   const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
+  const shade = (src.shade ?? ctx.shade) !== false;
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
   let placed = false; // arrow/line/mark 直接画在场景坐标里
 
@@ -215,7 +235,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     if (!POSES[poseName]) throw new SrcError(where, `没有姿势 "${poseName}"。可用：${Object.keys(POSES).join(' ')}`);
     if (!FACES[face]) throw new SrcError(where, `没有表情 "${face}"。可用：${Object.keys(FACES).join(' ')}`);
     for (const a of wear) if (!ACCESSORIES.includes(a)) throw new SrcError(where, `没有配饰 "${a}"。可用：${ACCESSORIES.join(' ')}`);
-    const spec: FigureSpec = { size: src.size ?? 320, color: st.color, pose: POSES[poseName], face, accessories: wear, accent: src.accent ? color(src.accent) : undefined, seed };
+    const spec: FigureSpec = { size: src.size ?? 320, color: st.color, pose: POSES[poseName], face, accessories: wear, accent: src.accent ? color(src.accent) : undefined, seed, shade };
     const r = figureStrokes(spec);
     el.strokes = r.strokes; el.anchors = r.anchors; el.figure = { spec, dx: 0, dy: 0, labelStrokes: [] };
     if (src.carry) { // 手里拿的东西：跟着手走
@@ -237,7 +257,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     }
     if (!Array.isArray(parts)) throw new SrcError(where, 'parts 应该是图形列表');
     const k = src.size && box ? src.size / Math.max(box[0], box[1]) : 1;
-    const r = buildParts(parts, k, st, vars, where);
+    const r = buildParts(parts, k, { ...st, shade }, vars, where);
     el.strokes = r.strokes; el.text = r.text || undefined;
     // 手绘件自己声明的锚点（甲板、桌面、门口…）：让别的东西能“站上去”“放进去”，不用估坐标
     if (named != null) {
@@ -249,13 +269,13 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       }
     }
   } else if (kind === 'shape') {
-    const w = src.w ?? src.size ?? 240, h = src.h ?? src.size ?? 160;
-    if (src.shape === 'rect') el.strokes = R.rect(0, 0, w, h, st);
-    else if (src.shape === 'ellipse') el.strokes = R.ellipse(0, 0, w, h, st);
-    else if (src.shape === 'circle') el.strokes = R.ellipse(0, 0, w, w, st);
-    else if (src.shape === 'diamond') el.strokes = R.poly([[0, -h / 2], [w / 2, 0], [0, h / 2], [-w / 2, 0]], true, st);
-    else if (src.shape === 'triangle') el.strokes = R.poly([[0, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]], true, st);
-    else if (src.shape === 'cloud') { const d = `M${-w * 0.3},${h * 0.3} C${-w * 0.62},${h * 0.3} ${-w * 0.6},${-h * 0.15} ${-w * 0.33},${-h * 0.12} C${-w * 0.32},${-h * 0.5} ${w * 0.08},${-h * 0.55} ${w * 0.13},${-h * 0.22} C${w * 0.4},${-h * 0.42} ${w * 0.62},${-h * 0.05} ${w * 0.4},${h * 0.08} C${w * 0.6},${h * 0.2} ${w * 0.45},${h * 0.32} ${w * 0.3},${h * 0.3} Z`; el.strokes = R.path(d, st); }
+    const w = src.w ?? src.size ?? 240, h = src.h ?? src.size ?? 160, sst = { ...st, shade };
+    if (src.shape === 'rect') el.strokes = R.rect(0, 0, w, h, sst);
+    else if (src.shape === 'ellipse') el.strokes = R.ellipse(0, 0, w, h, sst);
+    else if (src.shape === 'circle') el.strokes = R.ellipse(0, 0, w, w, sst);
+    else if (src.shape === 'diamond') el.strokes = R.poly([[0, -h / 2], [w / 2, 0], [0, h / 2], [-w / 2, 0]], true, sst);
+    else if (src.shape === 'triangle') el.strokes = R.poly([[0, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]], true, sst);
+    else if (src.shape === 'cloud') { const d = `M${-w * 0.3},${h * 0.3} C${-w * 0.62},${h * 0.3} ${-w * 0.6},${-h * 0.15} ${-w * 0.33},${-h * 0.12} C${-w * 0.32},${-h * 0.5} ${w * 0.08},${-h * 0.55} ${w * 0.13},${-h * 0.22} C${w * 0.4},${-h * 0.42} ${w * 0.62},${-h * 0.05} ${w * 0.4},${h * 0.08} C${w * 0.6},${h * 0.2} ${w * 0.45},${h * 0.32} ${w * 0.3},${h * 0.3} Z`; el.strokes = R.path(d, sst); }
     else throw new SrcError(where, `没有形状 "${src.shape}"。可用：rect ellipse circle diamond triangle cloud`);
   } else if (kind === 'arrow' || kind === 'line') {
     const refs = src[kind];
@@ -346,7 +366,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     placed = true;
   } else if (kind === 'chart') {
     const csrc = { ...src };
-    el.strokes = chartStrokes(csrc, st, where); el.text = (src.labels ?? []).join('') || undefined;
+    el.strokes = chartStrokes(csrc, { ...st, shade }, where); el.text = (src.labels ?? []).join('') || undefined;
     if (csrc.__path) el.path = csrc.__path;
   }
 
@@ -356,7 +376,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   let labelStrokes: Stroke[] = [];
   if (src.label && kind !== 'arrow' && kind !== 'line') {
     const t = textStrokes(String(src.label), { size: src.labelSize ?? 46, color: st.color });
-    translateStrokes(t.strokes, core.x + core.w / 2 - t.w / 2, core.y + core.h + 14);
+    translateStrokes(t.strokes, core.x + core.w / 2 - t.w / 2, core.y + core.h + (el.strokes.some(s => (s as any).deco) ? 24 : 14)); // 有阴影就让开一点
     labelStrokes = t.strokes; el.text = (el.text ?? '') + String(src.label); el.missing = [...(el.missing ?? []), ...t.missing];
     el.strokes.push(...labelStrokes);
   }
