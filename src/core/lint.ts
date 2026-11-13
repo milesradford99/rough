@@ -193,7 +193,8 @@ export function lint(c: Compiled): Issue[] {
       add('warn', sc.file, `${fmtT(from)}–${fmtT(to)} 有 ${(to - from).toFixed(1)} 秒画面没有任何变化，这段在说：“${said.slice(0, 40)}${said.length > 40 ? '…' : ''}”。真人讲到这里手不会停：加一拍（画点东西、小人换个动作、圈一下重点、推一下镜头）`);
     };
     // 镜头换了景，观众要花一两秒看新的画面：镜头移动之后的 2 秒不算静止
-    for (const a of acts) { idle(cursor, a.t0); cursor = Math.max(cursor, a.t1 + (a.verb === 'camera' ? 2 : 0)); }
+    const moves = [...acts.map(a => ({ t0: a.t0, t1: a.t1 + (a.verb === 'camera' ? 2 : 0) })), ...c.cams.filter(k => k.t0 >= sc.t0 && k.t0 < sc.t1 && !k.cut).map(k => ({ t0: k.t0, t1: k.t1 + 2 }))].sort((x, y) => x.t0 - y.t0);
+    for (const a of moves) { idle(cursor, a.t0); cursor = Math.max(cursor, a.t1); }
     idle(cursor, sc.t1);
     // 换到新板面后，板子空着等人
     const firstInk = Math.min(...shown.map(t => t.drawT0 ?? t.appear!.t));
@@ -215,7 +216,8 @@ export function lint(c: Compiled): Issue[] {
       }
     }
     // 一块板讲了很久却始终是同一个景别：讲细节时该推近，讲完拉回全景
-    const camActs = acts.filter(a => a.verb === 'camera');
+    const homesAll = new Set(c.scenes.map(x => x.home)), camSegs = c.cams.filter(k => k.t0 >= sc.t0 - 1e-6 && k.t0 < sc.t1 && !k.cut && !(homesAll.has(k.to) && k.to !== sc.home)); // 含引擎跟拍的镜头
+    const camActs = camSegs;
     if (sc.t1 - sc.t0 >= 25 && !camActs.length) add('warn', sc.file, `这块板讲了 ${(sc.t1 - sc.t0).toFixed(0)} 秒，镜头一次都没动。全程一个远景，细节看不清，也没有节奏：讲到某一块的细节时推近（{ camera: { focus: 分区名或元素 } }），讲完、要看它和别处的关系时拉回全景（{ camera: home }）`);
     // 推近却几乎没放大：竖屏里横贯全宽的东西推不近，近景要对准局部的几样东西
     {

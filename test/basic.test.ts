@@ -550,3 +550,21 @@ test('数轴和区间条：数值落在轴上，长度由数轴算；"名字@数
   assert.throws(() => add('bad', { span: [0, 1], on: 'b1' }), /不是数轴/);
   assert.throws(() => add('bad2', { shape: 'circle', at: 'b1@2' }), /不是数轴/);
 });
+
+test('跟拍：一块板没写镜头时，引擎推近正在画的东西、结尾回全景；写了镜头或 camera: still 就不跟', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  const text = '先画左上角的银行，它是故事的起点。再画右下角的工厂，那里在生产东西。然后中间写一个数字，一百块钱。最后把它们连起来，看清楚全貌，这就是整个故事。';
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment(text)));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const scene = (extra = '', cam = '') => `from: "先画"\nintent: 四样东西散在板上\n${extra}elements:\n  a: { doodle: bank, size: 160, at: [150, 150] }\n  b: { doodle: factory, size: 160, at: [800, 1050] }\n  n: { text: "100", size: 80, at: [480, 600] }\n  l: { arrow: [a, b] }\nbeats:\n  - { at: "先画", intent: 银行, do: [${cam}{ draw: a }] }\n  - { at: "再画", intent: 工厂, do: [{ draw: b }] }\n  - { at: "然后", intent: 数字, do: [{ draw: n }] }\n  - { at: "最后", intent: 连起来, do: [{ draw: l }] }\n`;
+  const run = (sc: string) => { writeFileSync(join(d, 'scenes/01.yaml'), sc); const c = compile(d); return { c, segs: c.cams.filter(k => k.t0 >= 0) }; };
+  const f = run(scene());
+  assert.ok(f.segs.length >= 3, '跟拍动了镜头');
+  assert.ok(f.segs.some(k => k.to.zoom >= f.c.scenes[0].home.zoom * 1.35), '有真正的近景');
+  assert.equal(f.segs[f.segs.length - 1].to, f.c.scenes[0].home, '最后回全景');
+  for (let i = 1; i < f.segs.length; i++) assert.ok(f.segs[i].t0 - f.segs[i - 1].t0 >= 3.4, '两次移动至少隔 3.5 秒');
+  assert.doesNotMatch(lint(f.c).map(i => i.msg).join(), /镜头一次都没动/);
+  assert.equal(run(scene('camera: still\n')).segs.length, 0);
+  assert.equal(run(scene('', '{ camera: { focus: [a] } }, ')).segs.length, 1, '写了镜头就以写的为准');
+  rmSync(d, { recursive: true });
+});
