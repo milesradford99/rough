@@ -216,6 +216,12 @@ export function lint(c: Compiled): Issue[] {
     // 一块板讲了很久却始终是同一个景别：讲细节时该推近，讲完拉回全景
     const camActs = acts.filter(a => a.verb === 'camera');
     if (sc.t1 - sc.t0 >= 25 && !camActs.length) add('warn', sc.file, `这块板讲了 ${(sc.t1 - sc.t0).toFixed(0)} 秒，镜头一次都没动。全程一个远景，细节看不清，也没有节奏：讲到某一块的细节时推近（{ camera: { focus: 分区名或元素 } }），讲完、要看它和别处的关系时拉回全景（{ camera: home }）`);
+    // 推近却几乎没放大：竖屏里横贯全宽的东西推不近，近景要对准局部的几样东西
+    {
+      const hz = sc.home.zoom || 1, segs = c.cams.filter(k => k.t0 >= sc.t0 - 1e-6 && k.t0 < sc.t1 && k.to !== sc.home && !k.cut);
+      const flat = segs.filter(k => k.to.zoom / hz < 1.2);
+      if (flat.length) add('warn', sc.file, `有 ${flat.length} 次推近几乎没有放大（${flat.slice(0, 4).map(k => `${fmtT(k.t0)} 放大 ${(k.to.zoom / hz).toFixed(2)} 倍`).join('、')}）：它对准的东西几乎和整块板一样宽，推了等于没推。近景对准局部的两三样东西（如 { camera: { focus: [n1, r1], pad: 60 } }），放大到 1.5 倍以上才看得出是近景`);
+    }
     // 分区是全景的骨架：划了地盘就得用上
     for (const rg of sc.regions ?? []) {
       const used = shown.some(t => { const b = t.el.box, cx = b.x + b.w / 2, cy = b.y + b.h / 2; return cx >= rg.box.x && cx <= rg.box.x + rg.box.w && cy >= rg.box.y && cy <= rg.box.y + rg.box.h; });

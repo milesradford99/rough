@@ -38,7 +38,7 @@ export interface Compiled {
   planHash: string;
 }
 
-const NATURAL: Record<string, number> = { move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 0.7, shake: 0.5, pulse: 0.45, nod: 0.5 };
+const NATURAL: Record<string, number> = { move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
 const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
 const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay'];
 const SCENE_GAP = 260;
