@@ -179,6 +179,20 @@ export function compile(dir: string): Compiled {
       if (o.camera && typeof o.camera === 'object' && o.camera.focus != null) o.camera = { ...o.camera, focus: [].concat(idsOf(o.camera.focus)) };
       return o;
     };
+    // 分区：先把板面划成几块有名字的地盘（全景的骨架）。元素写 in: 区名 后，at 的数字和百分比都相对这一块
+    const regions = new Map<string, Box>();
+    {
+      const pcr = (v: any, total: number) => (typeof v === 'string' && v.endsWith('%') ? (parseFloat(v) / 100) * total : +v), Bd = sfmt.board;
+      if (src.regions != null && (typeof src.regions !== 'object' || Array.isArray(src.regions))) err(file, 'regions 应该是 "区名: [x, y, w, h]" 的映射（数字或百分比）');
+      else for (const [rn, rv] of Object.entries(src.regions ?? {}) as [string, any][]) {
+        if (!Array.isArray(rv) || rv.length !== 4) { err(file, `分区 "${rn}" 要写成 [x, y, w, h]`); continue; }
+        const b = { x: pcr(rv[0], Bd.w), y: pcr(rv[1], Bd.h), w: pcr(rv[2], Bd.w), h: pcr(rv[3], Bd.h) };
+        if ([b.x, b.y, b.w, b.h].some(v => !Number.isFinite(v)) || b.w <= 0 || b.h <= 0) { err(file, `分区 "${rn}" 的 [x, y, w, h] 要是数字或百分比`); continue; }
+        if (b.x < -1 || b.y < -1 || b.x + b.w > Bd.w + 1 || b.y + b.h > Bd.h + 1) warn(file, `分区 "${rn}" 超出了画板（画板 ${Bd.w}×${Bd.h}）`);
+        regions.set(rn, b);
+      }
+      scene.regions = [...regions].map(([name, box]) => ({ name, box }));
+    }
     // 沿用前面某个场景的画面：定义和位置原样带过来，进场时已经在板上，不占口播时间重画
     const recalled = new Set<string>();
     if (src.recall != null) {
@@ -208,8 +222,10 @@ export function compile(dir: string): Compiled {
         const pat = PATTERNS[ps?.kind];
         if (!pat) { err(file, `pattern.kind 写一种表现手法：${Object.keys(PATTERNS).join(' ')}（hj patterns 查看说明）`); return; }
         const name = String(ps.name ?? ps.kind);
-        if (multi && !(Array.isArray(ps.area) && ps.area.length === 4)) { err(file, `一块板上放多种手法时，每种都要写 area: [x, y, w, h] 划出自己的地盘（手法 ${name}）`); return; }
-        const a = Array.isArray(ps.area) && ps.area.length === 4 ? { x: pc(ps.area[0], B.w), y: pc(ps.area[1], B.h), w: pc(ps.area[2], B.w), h: pc(ps.area[3], B.h) } : { x: 20, y: 20, w: B.w - 40, h: B.h - 40 };
+        if (typeof ps.area === 'string' && !regions.has(ps.area)) { err(file, `手法 ${name} 的 area 写了 "${ps.area}"，但没有这个分区。本场景的分区：${[...regions.keys()].join(' ') || '（还没有定义 regions）'}`); return; }
+        const rgA = typeof ps.area === 'string' ? regions.get(ps.area)! : null;
+        if (multi && !rgA && !(Array.isArray(ps.area) && ps.area.length === 4)) { err(file, `一块板上放多种手法时，每种都要写 area: 分区名 或 [x, y, w, h] 划出自己的地盘（手法 ${name}）`); return; }
+        const a = rgA ? { ...rgA } : Array.isArray(ps.area) && ps.area.length === 4 ? { x: pc(ps.area[0], B.w), y: pc(ps.area[1], B.h), w: pc(ps.area[2], B.w), h: pc(ps.area[3], B.h) } : { x: 20, y: 20, w: B.w - 40, h: B.h - 40 };
         try {
           const out = pat.build(ps, { fmt: sfmt, A: a, portrait: a.h > a.w, fail: (m: string) => { throw new SrcError(`${file} / 手法 ${name}`, m); } });
           // 手法自己算出来的字号不能小到手机上看不清（柱子多、地盘小时会算得很小）
@@ -228,20 +244,6 @@ export function compile(dir: string): Compiled {
           for (const [sn, acts] of Object.entries(out.steps)) { const fixed = fix(acts); steps[`${name}.${sn}`] = fixed; if (!multi) steps[sn] = fixed; }
         } catch (e: any) { if (e instanceof SrcError) err(file, e.message); else throw e; }
       });
-    }
-    // 分区：先把板面划成几块有名字的地盘（全景的骨架）。元素写 in: 区名 后，at 的数字和百分比都相对这一块
-    const regions = new Map<string, Box>();
-    {
-      const pcr = (v: any, total: number) => (typeof v === 'string' && v.endsWith('%') ? (parseFloat(v) / 100) * total : +v), Bd = sfmt.board;
-      if (src.regions != null && (typeof src.regions !== 'object' || Array.isArray(src.regions))) err(file, 'regions 应该是 "区名: [x, y, w, h]" 的映射（数字或百分比）');
-      else for (const [rn, rv] of Object.entries(src.regions ?? {}) as [string, any][]) {
-        if (!Array.isArray(rv) || rv.length !== 4) { err(file, `分区 "${rn}" 要写成 [x, y, w, h]`); continue; }
-        const b = { x: pcr(rv[0], Bd.w), y: pcr(rv[1], Bd.h), w: pcr(rv[2], Bd.w), h: pcr(rv[3], Bd.h) };
-        if ([b.x, b.y, b.w, b.h].some(v => !Number.isFinite(v)) || b.w <= 0 || b.h <= 0) { err(file, `分区 "${rn}" 的 [x, y, w, h] 要是数字或百分比`); continue; }
-        if (b.x < -1 || b.y < -1 || b.x + b.w > Bd.w + 1 || b.y + b.h > Bd.h + 1) warn(file, `分区 "${rn}" 超出了画板（画板 ${Bd.w}×${Bd.h}）`);
-        regions.set(rn, b);
-      }
-      scene.regions = [...regions].map(([name, box]) => ({ name, box }));
     }
     const inRegion = (eid: string, esrc: any): any => {
       if (!esrc || typeof esrc !== 'object' || esrc.in == null) return esrc;

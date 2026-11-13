@@ -257,13 +257,30 @@ export function printIssues(issues: Issue[]): { errors: number; warns: number } 
 /** 给用户确认用的文字分镜表 */
 export function planMarkdown(c: Compiled): string {
   const L: string[] = [];
+  const paged = c.meta.layout === 'pages', n = c.scenes.length;
   L.push(`# 分镜表：${c.meta.title ?? '未命名'}`, '');
-  L.push(`画幅 ${c.fmt.name === 'portrait' ? '竖屏 9:16' : '横屏 16:9'} · 时长 ${fmtT(c.duration)} · ${c.scenes.length} 个场景 · 分镜版本 \`${c.planHash}\``, '');
-  L.push('> 请逐场景看“画面”一栏：它是否在**演示**口播讲的事，而不是把话再写一遍。确认前不会渲染任何画面。', '');
+  L.push(`画幅 ${c.fmt.name === 'portrait' ? '竖屏 9:16' : '横屏 16:9'} · 时长 ${fmtT(c.duration)} · ${n} 块板${paged ? '（分页写法）' : ''} · 分镜版本 \`${c.planHash}\``, '');
+  L.push('> 请按这个顺序看：先看**全景**（整块板讲完是一张什么图、分成哪几块），再看**镜头**怎么走，最后逐行看“画面”一栏是否在**演示**口播讲的事，而不是把话再写一遍。确认前不会渲染任何画面。', '');
   for (const sc of c.scenes) {
-    L.push(`## ${sc.index + 1}. ${sc.id}　${fmtT(sc.t0)}–${fmtT(sc.t1)}`, '');
-    L.push(`**这个场景要让人看到：** ${sc.intent || '（未填写）'}`, '');
-    L.push(`进场方式：${{ pan: '镜头平移到新板面', wipe: '板擦擦净后重画', cut: '直接切换' }[sc.enter] ?? sc.enter}${sc.recall ? `；板上已经有场景 ${sc.recall} 留下的画面（不重画），在它上面接着讲` : ''}`, '');
+    const B = sc.board ?? c.fmt.board, tls = c.tls.filter(t => t.scene === sc.index && (t.drawT0 != null || t.appear));
+    L.push(`## ${n > 1 ? `第 ${sc.index + 1} 块板：` : ''}${sc.id}　${fmtT(sc.t0)}–${fmtT(sc.t1)}`, '');
+    L.push(`**全景：** ${sc.intent || '（未填写）'}`, '');
+    if (B.w > c.fmt.board.w + 1) L.push(`这块板是屏幕的 ${(B.w / c.fmt.board.w).toFixed(1)} 倍大：全景是缩小的整块板，近景才是原大。`, '');
+    if (sc.index > 0 || sc.recall) L.push(`进场方式：${{ pan: '镜头平移到新板面', wipe: '板擦擦净后重画', cut: '直接切换' }[sc.enter] ?? sc.enter}${sc.recall ? `；板上已经有场景 ${sc.recall} 留下的画面（不重画），在它上面接着讲` : ''}`, '');
+    // 分区：在板上的位置、讲完时里面有什么
+    if (sc.regions?.length) {
+      const where = (b: Box) => { const cx = (b.x + b.w / 2) / B.w, cy = (b.y + b.h / 2) / B.h, v = cy < 0.34 ? '上' : cy > 0.66 ? '下' : '中', h = b.w / B.w > 0.7 ? '' : cx < 0.4 ? '左' : cx > 0.6 ? '右' : '中'; return h ? `${v}部${h}侧` : `${v}部，横贯`; };
+      const name = (t: TL) => t.el.src?.label ? String(t.el.src.label) : t.el.src?.doodle ? String(t.el.src.doodle) : t.el.kind === 'figure' ? '小人' : t.el.text ? `“${t.el.text.replace(/\n/g, ' ').slice(0, 10)}”` : '';
+      L.push('| 分区 | 位置 | 讲完时这里有什么 |', '|---|---|---|');
+      for (const rg of sc.regions) {
+        const inside = tls.filter(t => !['arrow', 'line', 'mark'].includes(t.el.kind) && !(t.gone != null && t.gone < sc.t1 - 0.7)).filter(t => { const b = t.el.box, cx = b.x + b.w / 2, cy = b.y + b.h / 2; return cx >= rg.box.x && cx <= rg.box.x + rg.box.w && cy >= rg.box.y && cy <= rg.box.y + rg.box.h; });
+        const names = [...new Set(inside.map(name).filter(Boolean))];
+        L.push(`| ${rg.name} | ${where(rg.box)} | ${names.slice(0, 8).join('、')}${names.length > 8 ? ` 等 ${names.length} 样` : ''}${names.length ? '' : '（空）'} |`);
+      }
+      L.push('');
+    }
+    const cams = sc.beats.flatMap(b => b.actions.filter(a => a.verb === 'camera').map(a => `${fmtT(a.t0)} ${a.desc.replace(/^镜头/, '')}`));
+    L.push(`**镜头：** ${cams.length ? cams.join(' → ') : '全程停在全景，没有推近'}`, '');
     L.push('| 时间 | 口播 | 画面 | 板书文字 |', '|---|---|---|---|');
     const first = sc.beats[0];
     if (first && first.t - sc.t0 > 0.4) { const pre = c.al.units.filter(u => u.start >= sc.t0 - 1e-6 && u.start < first.t - 1e-6).map(u => u.display).join(''); if (pre) L.push(`| ${fmtT(sc.t0)} | ${pre} | （承接上一拍，画面不变） | |`); }

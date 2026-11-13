@@ -482,3 +482,22 @@ test('一块板：翻页、镜头不动、分区空着会被检查器指出来�
   const one = lint(compile('examples/one-board'));
   assert.deepEqual(one.filter(i => i.level !== 'info'), []);
 });
+
+test('手法可以放进一个分区；分镜表先给全景、分区和镜头', async () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('很多人觉得钱会越来越多。可是每个人只能拿到一千二。')));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const scene = (area: string) => `from: "很多人觉得"\nintent: 上面是想法，下面是数字\nregions:\n  claim: [0, 0, 960, 560]\n  fact: [0, 620, 960, 600]\npattern:\n  - { kind: thought, area: claim, who: { figure: think, id: me }, content: { doodle: moneybag } }\n  - { kind: bars, area: ${area}, items: [{ label: 每人, value: 1200 }] }\nbeats:\n  - { at: "很多人觉得", intent: 小人和泡泡, do: [{ step: thought.who }, { step: thought.bubble }] }\n  - { at: "可是", intent: 推近下半块，立起柱子, do: [{ camera: { focus: fact } }, { step: bars.axis }, { step: bars.bar.1 }] }\n`;
+  writeFileSync(join(d, 'scenes/01.yaml'), scene('fact'));
+  const c = compile(d); c.issues = lint(c);
+  assert.deepEqual(c.issues.filter(i => i.level === 'error'), []);
+  const by = (id: string) => c.tls.find(t => t.el.id === id)!.el.box;
+  assert.ok(by('me').y + by('me').h <= 580, '想法画在上面的分区里');
+  assert.ok(by('bars_b1').y >= 600, '柱子画在下面的分区里');
+  const { planMarkdown } = await import('../src/core/lint');
+  const md = planMarkdown(c);
+  assert.match(md, /\*\*全景：\*\* 上面是想法/); assert.match(md, /\| claim \| 上部/); assert.match(md, /\*\*镜头：\*\* .*推近 fact/);
+  writeFileSync(join(d, 'scenes/01.yaml'), scene('nowhere'));
+  assert.match(compile(d).issues.map(i => i.msg).join(), /没有这个分区/);
+  rmSync(d, { recursive: true });
+});

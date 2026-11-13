@@ -195,7 +195,14 @@ const commands: Record<string, () => Promise<void> | void> = {
       x.strokeStyle = '#212529'; x.lineWidth = 2; x.setLineDash([8, 6]); x.strokeRect(M, M, B.w * k, B.h * k); x.setLineDash([]);
       const flagged = new Set(c.issues.filter(i => i.level !== 'info' && i.where.startsWith(sc.file + ' / 元素 ')).map(i => i.where.split('元素 ')[1]));
       const label = (txt: string, px: number, py: number, col: string) => { const t = textStrokes(txt, { size: 17, color: col }); x.save(); x.translate(px, py); drawStrokes(x, env, t.strokes); x.restore(); };
+      // 分区：浅色底加名字，核对每样东西落在了哪一块
+      for (const rg of sc.regions ?? []) {
+        x.fillStyle = 'rgba(242,184,48,0.10)'; x.fillRect(M + rg.box.x * k, M + rg.box.y * k, rg.box.w * k, rg.box.h * k);
+        x.strokeStyle = '#c9a227'; x.lineWidth = 1.5; x.setLineDash([4, 5]); x.strokeRect(M + rg.box.x * k, M + rg.box.y * k, rg.box.w * k, rg.box.h * k); x.setLineDash([]);
+        label(rg.name, M + (rg.box.x + rg.box.w) * k - rg.name.length * 11 - 8, M + rg.box.y * k + 4, '#a07d00');
+      }
       console.log(`\n■ ${sc.index + 1}. ${sc.id}（画板 ${B.w}×${B.h}，坐标是元素的外框）`);
+      if (sc.regions?.length) console.log('  分区：' + sc.regions.map(rg => `${rg.name} [${rg.box.x.toFixed(0)}, ${rg.box.y.toFixed(0)}, ${rg.box.w.toFixed(0)}, ${rg.box.h.toFixed(0)}]`).join('  '));
       for (const t of shown) {
         const e = t.el, b = e.kind === 'note' ? e.solid : e.box, gone = t.gone != null && t.gone < sc.t1 - 0.7, mv = t.moves.length ? t.moves[t.moves.length - 1].to : [0, 0];
         const bx = M + (b.x + mv[0]) * k, by = M + (b.y + mv[1]) * k;
