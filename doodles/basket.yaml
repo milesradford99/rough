@@ -1,0 +1,10 @@
+desc: 购物篮
+source: "Excalidraw Libraries / Awesome Icons (ferminrp), MIT"
+box: [ 200, 162 ]
+parts:
+  - poly: [ [ 6, 69.4 ], [ 49.6, 153.5 ], [ 143.1, 155.6 ], [ 194, 71.4 ] ]
+    close: true
+    fill: orange
+  - line: [ 139, 72.5, 105.7, 6 ]
+  - line: [ 134.5, 76.2, 179.6, 17.1 ]
+  - ellipse: [ 101.6, 117.1, 27, 27 ]

@@ -254,7 +254,7 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
   let curScene = -1;
   for (const tl of c.tls) {
     const sc = c.scenes[tl.scene];
-    if (sc.origin[0] > vx1 || sc.origin[0] + W < vx0) continue;
+    if (sc.origin[0] > vx1 || sc.origin[0] + (sc.span ?? W) < vx0) continue;
     const st = stateAt(tl, t);
     if (!st.visible) continue;
     if (tl.erase != null) { const g = c.erases[tl.erase]; if (t >= g.t0) { if (!groups.has(tl.erase)) groups.set(tl.erase, []); groups.get(tl.erase)!.push({ tl, st }); continue; } }

@@ -302,3 +302,271 @@ beats:
   writeFileSync(f, readFileSync(f, 'utf8').replace('show: [boat, p1..p5]', 'show: [boat]'));
   assert.notEqual(compile(d).planHash, h0);
 });
+
+test('灰色阴影：默认有、只加在外轮廓、不改变占位框、可以关', async () => {
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const mk = (src: any, shade?: boolean) => buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map(), shade }, 'e', src);
+  const deco = (el: any) => el.strokes.filter((s: any) => s.deco);
+  const on = mk({ doodle: 'factory', size: 280, at: [300, 300] }), off = mk({ doodle: 'factory', size: 280, at: [300, 300], shade: false });
+  assert.ok(deco(on).length >= 1 && deco(on).length <= 2, '工厂只有外轮廓有阴影，门窗没有');
+  assert.equal(deco(off).length, 0);
+  assert.deepEqual(on.box, off.box);
+  assert.ok(deco(on).every((s: any) => s.under && s.flat));
+  assert.equal(deco(mk({ doodle: 'factory', size: 280, at: [300, 300] }, false)).length, 0, '项目级开关');
+  assert.equal(deco(mk({ figure: 'stand', at: [300, 600] })).length, 1, '小人脚下一团影子');
+  assert.ok(deco(mk({ shape: 'rect', w: 300, h: 160, at: [300, 300] })).length >= 1);
+  assert.equal(deco(mk({ text: '复利', at: [300, 300] })).length, 0);
+});
+
+test('导入：Excalidraw 素材库和 Quick Draw 都能转成可用的手绘件', async () => {
+  const im = await import('../src/core/importers');
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const base = { angle: 0, strokeColor: '#1e1e1e', backgroundColor: 'transparent' };
+  const lib = { libraryItems: [{ name: 'Price Tag!', elements: [
+    { ...base, type: 'rectangle', x: 100, y: 100, width: 400, height: 200, backgroundColor: '#ffc9c9' },
+    { ...base, type: 'ellipse', x: 150, y: 150, width: 50, height: 50, strokeColor: '#1971c2' },
+    { ...base, type: 'line', x: 200, y: 200, width: 100, height: 0, points: [[0, 0], [100, 0]] },
+    { ...base, type: 'text', x: 0, y: 0, width: 90, height: 20, text: 'label' },
+    { ...base, type: 'image', x: 0, y: 0, width: 10, height: 10 },
+  ] }, { elements: [{ ...base, type: 'diamond', x: 0, y: 0, width: 50, height: 80, isDeleted: true }] }] };
+  const [it, ...rest] = im.fromExcalidraw(lib, { source: 'test' });
+  assert.equal(rest.length, 0, '只有已删除元素的素材被丢掉');
+  assert.equal(it.name, 'price-tag');
+  assert.deepEqual(it.doodle.box, [200, 106]);
+  assert.equal(it.doodle.parts.length, 3, '文字默认不要，图片不支持');
+  assert.equal(it.doodle.parts[0].fill, 'red');
+  assert.equal(it.doodle.parts[1].color, 'blue');
+  assert.ok(it.skipped.some(s => s.includes('image')));
+  assert.throws(() => im.fromExcalidraw({}), /不是 Excalidraw/);
+  const q = im.parseQuickDraw('{"word":"tree","recognized":true,"drawing":[[[0,255,128],[0,10,255]],[[5,9],[5,9]]]}\n{"word":"tree","recog');
+  assert.equal(q.length, 1, '截断的最后一行跳过');
+  const qd = im.fromQuickDraw(q[0]);
+  assert.equal(qd.doodle.parts.length, 2);
+  for (const d of [it.doodle, qd.doodle]) {
+    const y = (await import('yaml')).default.parse(im.doodleYaml(d));
+    const el = buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map() }, 'e', { parts: y.parts, box: y.box, size: 200, at: [300, 300] });
+    assert.ok(el.strokes.length > 0 && el.box.w <= 215 && el.box.h <= 215);
+  }
+});
+
+test('导入：SVG 的墨块保留镂空，纸色丢掉，其他颜色并进调色板，变换生效', async () => {
+  const im = await import('../src/core/importers');
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><title>Test Peep</title>
+    <g transform="translate(100 0)">
+      <path fill="#FFFFFF" d="M0 0H200V200H0Z"/>
+      <path fill="#000000" fill-rule="evenodd" d="M0 0H200V200H0Z M60 60V140H140V60Z"/>
+      <circle cx="100" cy="300" r="40" fill="#2f6fb7"/>
+      <path d="M0 380H200" stroke="#d9433a" stroke-width="6" fill="none"/>
+    </g><defs><linearGradient id="g"/></defs><text>x</text></svg>`;
+  const it = im.fromSvg(svg, { source: 'test' });
+  assert.equal(it.name, 'test-peep');
+  assert.equal(it.doodle.source, 'test');
+  assert.ok(it.skipped.some(s => s.includes('text')));
+  const p = it.doodle.parts;
+  assert.equal(p.length, 3, '白块丢掉；墨块、蓝圆、红线各一个');
+  assert.equal(p[0].fill, 'ink'); assert.equal(p[0].fillStyle, 'solid'); assert.equal(p[0].shade, false);
+  assert.ok(p[0].poly.length >= 10, '洞用桥并进了外轮廓（4 + 4 个角再加桥的两端）');
+  assert.equal(p[1].fill, 'blue'); assert.equal(p[2].color, 'red');
+  assert.equal(im.fromSvg(svg, { paper: true }).doodle.parts.length, 4, '--paper 保留纸色填充');
+  // translate 生效：整体外框是 200 宽 × 约 380 高的比例
+  assert.ok(it.doodle.box[1] > it.doodle.box[0]);
+  // 带洞的环：外环 4 点 + 洞 4 点 + 桥的 2 个重复端点
+  const polys = im.fillPolys([[[0, 0], [10, 0], [10, 10], [0, 10]], [[3, 3], [3, 7], [7, 7], [7, 3]]], 'evenodd');
+  assert.equal(polys.length, 1);
+  assert.equal(polys[0].length, 4 + 4 + 2);
+  const y = (await import('yaml')).default.parse(im.doodleYaml(it.doodle));
+  const el = buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map() }, 'e', { parts: y.parts, box: y.box, size: 300, at: [300, 300] });
+  assert.ok(el.strokes.length > 0);
+  assert.throws(() => im.fromSvg('<html/>'), /不是 SVG/);
+  assert.throws(() => im.fromSvg('<svg><defs/></svg>'), /没有可画/);
+});
+
+test('内置手绘件：每一个都画得出来，导入的都带出处', async () => {
+  const { buildElement, doodleDirs } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const YAML = (await import('yaml')).default;
+  const dir = doodleDirs()[0], files = readdirSync(dir).filter(f => f.endsWith('.yaml'));
+  assert.ok(files.length >= 120);
+  for (const f of files) {
+    const el = buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map() }, 'e', { doodle: f.replace('.yaml', ''), size: 200, at: [300, 300] });
+    assert.ok(el.strokes.length > 0, f);
+    assert.ok(YAML.parse(readFileSync(join(dir, f), 'utf8')).desc, f + ' 缺 desc');
+  }
+});
+
+test('试跑暴露的缺口：手法字号不小于 36、thought 的小人可起名并被批注、算式不算长板书、细线墨块不慢', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  const text = '每一圈都比上一圈少一成。很多人觉得这样下去就没了。可是加起来有一千块。';
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment(text)));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  writeFileSync(join(d, 'scenes/01.yaml'), `
+from: "每一圈"
+intent: 五根柱子挤在小地盘里
+pattern:
+  - { kind: bars, area: ["5%", "5%", "60%", "40%"], items: [{ label: 存入, value: 100 }, { label: 一圈, value: 90 }, { label: 二圈, value: 81 }, { label: 三圈, value: 73 }, { label: 四圈, value: 66 }] }
+  - { kind: thought, area: ["5%", "50%", "90%", "48%"], who: { figure: think, id: me }, content: { doodle: bowl } }
+elements:
+  tip: { note: 饿了, target: me }
+  sum: { text: "100 × 10 = 1000", size: 60, at: ["75%", "20%"] }
+  guy: { doodle: peep-bust-plain, size: 260, at: ["78%", "38%"] }
+beats:
+  - { at: "每一圈", intent: 画柱子, do: [{ step: bars.axis }, { step: bars.bar.1 }, { step: bars.bar.2 }, { step: bars.bar.3 }, { step: bars.bar.4 }, { step: bars.bar.5 }] }
+  - { at: "很多人觉得", intent: 小人和泡泡, do: [{ step: thought.who }, { draw: tip }, { step: thought.bubble }, { draw: guy }] }
+  - { at: "可是加起来", intent: 写算式, do: [{ draw: sum }] }
+`);
+  const c = compile(d), issues = lint(c);
+  assert.deepEqual(issues.filter(i => i.level === 'error'), []);
+  for (const tl of c.tls) if (tl.el.kind === 'text') assert.ok((tl.el.src.size ?? 72) >= 36, tl.el.id);
+  assert.ok(c.tls.some(t => t.el.id === 'me'));
+  for (const bad of ['字号', '偏长', '倍才画得完']) assert.equal(issues.filter(i => i.msg.includes(bad)).length, 0, bad);
+  rmSync(d, { recursive: true });
+});
+
+test('自动取景：内容没铺满就推近，铺满了不动，可以关', () => {
+  const mk = (els: string, extra = '', proj = '') => {
+    const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+    writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画一个工厂。再画一个银行。')));
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n' + proj);
+    writeFileSync(join(d, 'scenes/01.yaml'), `from: "先画"\nintent: 两样东西\n${extra}elements:\n${els}beats:\n  - { at: "先画", intent: 画, do: [{ draw: [a, b] }] }\n`);
+    const c = compile(d); rmSync(d, { recursive: true }); return c.scenes[0].home;
+  };
+  const small = '  a: { doodle: factory, size: 200, at: [380, 500] }\n  b: { doodle: bank, size: 200, at: [600, 700] }\n';
+  const full = '  a: { doodle: factory, size: 300, at: [170, 170] }\n  b: { doodle: bank, size: 300, at: [790, 1080] }\n';
+  assert.equal(mk(small).zoom, 1.4);
+  assert.equal(mk(full).zoom, 1);
+  assert.equal(mk(small, 'frame: false\n').zoom, 1);
+  assert.equal(mk(small, '', 'autoframe: false\n').zoom, 1);
+});
+
+test('一块板：分区、共用轴的坐标、镜头推近分区、比屏幕大的板', () => {
+  const mk = (scene: string, proj = '') => {
+    const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+    writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画第一条。再画第二条。最后看全景。')));
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n' + proj);
+    writeFileSync(join(d, 'scenes/01.yaml'), scene);
+    const c = compile(d); rmSync(d, { recursive: true }); return c;
+  };
+  const base = (extra = '', els = '') => `from: "先画"\nintent: 两条横条共用一根轴\n${extra}regions:\n  rows: [0, 200, 960, 400]\n  foot: ["0%", "70%", "100%", "20%"]\nelements:\n  a: { shape: rect, w: 400, h: 50, in: rows, at: [100, 50], anchor: left }\n  b: { shape: rect, w: 300, h: 50, at: [a.left, 420], anchor: left }\n  t: { text: "合计", size: 60, in: foot, at: ["50%", "50%"] }\n${els}beats:\n  - { at: "先画", intent: 第一条, do: [{ draw: a }] }\n  - { at: "再画", intent: 第二条, do: [{ camera: { focus: rows } }, { draw: b }] }\n  - { at: "最后", intent: 全景, do: [{ camera: home }, { draw: t }] }\n`;
+  const c = mk(base()), box = (id: string) => c.tls.find(t => t.el.id === id)!.el.box;
+  assert.deepEqual(c.issues.filter(i => i.level === 'error'), []);
+  assert.ok(Math.abs(box('a').x - 100) < 12 && Math.abs(box('a').y + 25 - 250) < 12, 'in: 分区后坐标相对分区');
+  assert.ok(Math.abs(box('a').x - box('b').x) < 12, '第二条的左端对着第一条的左端');
+  assert.ok(Math.abs(box('t').y + box('t').h / 2 - (1250 * 0.7 + 1250 * 0.1)) < 12, '百分比相对分区');
+  assert.equal(c.scenes[0].regions!.length, 2);
+  assert.ok(c.cams.length >= 3, '推近分区和回全景都排进了镜头');
+  assert.match(mk(base('', '  rows: { text: "撞名", size: 60 }\n')).issues.map(i => i.msg).join(), /分区和元素都叫/);
+  assert.match(mk(base().replace('in: foot', 'in: nowhere')).issues.map(i => i.msg).join(), /没有叫 "nowhere" 的分区/);
+  // 比屏幕大的板：全景把整块板缩进画面，板外的坐标不再算出界
+  const big = mk(base('board: 1.5\n').replace('at: [a.left, 420]', 'at: [1100, 1700]'));
+  assert.deepEqual(big.issues.filter(i => i.level !== 'info' && /出|超/.test(i.msg)), []);
+  assert.ok(big.scenes[0].home.zoom < 1 && big.scenes[0].home.zoom >= 1 / 1.5 - 1e-6);
+  assert.equal(big.scenes[0].board.w, 1440);
+});
+
+test('一块板：翻页、镜头不动、分区空着会被检查器指出来；layout: pages 可以明说要分页', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  const text = '先讲第一件事，它很重要，要讲清楚。再讲第二件事，它也重要，同样要讲清楚。最后讲第三件事，把前面的连起来。';
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment(text)));
+  const sc = (from: string) => `from: "${from}"\nintent: 一页\nregions:\n  spare: [0, 900, 960, 300]\nelements:\n  a: { doodle: bank, size: 300, at: [300, 300] }\nbeats:\n  - { at: "${from}", intent: 画, do: [{ draw: a }] }\n`;
+  writeFileSync(join(d, 'scenes/01.yaml'), sc('先讲第一件事')); writeFileSync(join(d, 'scenes/02.yaml'), sc('再讲第二件事')); writeFileSync(join(d, 'scenes/03.yaml'), sc('最后讲第三件事'));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const msgs = lint(compile(d)).map(i => i.msg).join('\n');
+  assert.match(msgs, /这是翻页/); assert.match(msgs, /分区 "spare" 到最后还是空的/);
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\nlayout: pages\n');
+  assert.doesNotMatch(lint(compile(d)).map(i => i.msg).join('\n'), /这是翻页/);
+  rmSync(d, { recursive: true });
+  const one = lint(compile('examples/one-board'));
+  assert.deepEqual(one.filter(i => i.level !== 'info'), []);
+});
+
+test('手法可以放进一个分区；分镜表先给全景、分区和镜头', async () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('很多人觉得钱会越来越多。可是每个人只能拿到一千二。')));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const scene = (area: string) => `from: "很多人觉得"\nintent: 上面是想法，下面是数字\nregions:\n  claim: [0, 0, 960, 560]\n  fact: [0, 620, 960, 600]\npattern:\n  - { kind: thought, area: claim, who: { figure: think, id: me }, content: { doodle: moneybag } }\n  - { kind: bars, area: ${area}, items: [{ label: 每人, value: 1200 }] }\nbeats:\n  - { at: "很多人觉得", intent: 小人和泡泡, do: [{ step: thought.who }, { step: thought.bubble }] }\n  - { at: "可是", intent: 推近下半块，立起柱子, do: [{ camera: { focus: fact } }, { step: bars.axis }, { step: bars.bar.1 }] }\n`;
+  writeFileSync(join(d, 'scenes/01.yaml'), scene('fact'));
+  const c = compile(d); c.issues = lint(c);
+  assert.deepEqual(c.issues.filter(i => i.level === 'error'), []);
+  const by = (id: string) => c.tls.find(t => t.el.id === id)!.el.box;
+  assert.ok(by('me').y + by('me').h <= 580, '想法画在上面的分区里');
+  assert.ok(by('bars_b1').y >= 600, '柱子画在下面的分区里');
+  const { planMarkdown } = await import('../src/core/lint');
+  const md = planMarkdown(c);
+  assert.match(md, /\*\*全景：\*\* 上面是想法/); assert.match(md, /\| claim \| 上部/); assert.match(md, /\*\*镜头：\*\* .*推近 fact/);
+  writeFileSync(join(d, 'scenes/01.yaml'), scene('nowhere'));
+  assert.match(compile(d).issues.map(i => i.msg).join(), /没有这个分区/);
+  rmSync(d, { recursive: true });
+});
+
+test('叉、划线只盖目标的本体，不盖住它的标签', async () => {
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const els = new Map<string, any>(), ctx = { scene: 's', fmt: FORMATS.portrait, els };
+  const court = buildElement(ctx, 'court', { doodle: 'bank', size: 200, at: [400, 400], label: '法院' }); els.set('court', court);
+  assert.ok(court.body); const label = { y0: court.box.y + court.body!.y + court.body!.h };
+  for (const m of ['cross', 'strike']) {
+    const mk = buildElement(ctx, 'x' + m, { mark: m, target: 'court', pad: 10 });
+    assert.ok(mk.box.y + mk.box.h <= label.y0 + 14, `${m} 不伸进标签`);
+  }
+  const ring = buildElement(ctx, 'ring', { mark: 'circle', target: 'court' });
+  assert.ok(ring.box.y + ring.box.h >= court.box.y + court.box.h, '圈连标签一起圈');
+});
+
+test('镜头移动不占画画的时间；元素被挤出自己的分区会提示', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先看这里。然后看那边。')));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  writeFileSync(join(d, 'scenes/01.yaml'), `from: "先看"\nintent: 镜头和画同时开始\nregions:\n  tiny: [0, 0, 300, 200]\nelements:\n  a: { doodle: bank, size: 180, in: tiny, at: [150, 100] }\n  b: { doodle: factory, size: 180, in: tiny, at: [160, 110] }\nbeats:\n  - { at: "先看", intent: 推近再画, do: [{ camera: { focus: [a], pad: 80 } }, { draw: a }] }\n  - { at: "然后", intent: 再画一个, do: [{ draw: b }] }\n`);
+  const c = compile(d), cam = c.cams.find(k => k.t0 > -1)!, a = c.tls.find(t => t.el.id === 'a')!;
+  assert.ok(Math.abs(a.drawT0! - cam.t0) < 0.05, '画和镜头同时开始');
+  assert.match(c.issues.map(i => i.msg).join(), /被引擎挪出了这个分区/);
+  rmSync(d, { recursive: true });
+});
+
+test('数轴和区间条：数值落在轴上，长度由数轴算；"名字@数值" 可以当坐标', async () => {
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const els = new Map<string, any>(), ctx = { scene: 's', fmt: FORMATS.portrait, els };
+  const add = (id: string, src: any) => { const e = buildElement(ctx, id, src); els.set(id, e); return e; };
+  const t = add('t', { axis: [0, 4], length: 800, at: [80, 600], unit: '年' });
+  assert.equal(t.text, undefined);
+  assert.ok(t.strokes.length > 10, '画出了线、刻度和数字');
+  const b1 = add('b1', { span: [0, 3], on: 't', color: 'blue', inside: '3年' });
+  assert.ok(Math.abs(b1.anchors.from[0] - 80) < 1 && Math.abs(b1.anchors.to[0] - 680) < 1, '0 到 3 年 = 80 到 680');
+  assert.ok(b1.box.y + b1.box.h <= 600, '默认贴在数轴上方');
+  const b2 = add('b2', { span: [2, 4], on: 't', at: [0, 400], h: 40 });
+  assert.ok(Math.abs(b2.box.y + b2.box.h / 2 - 400) < 6 && Math.abs(b2.anchors.from[0] - 480) < 1);
+  const dot = add('dot', { shape: 'circle', size: 24, at: 't@2', fill: 'red' });
+  assert.ok(Math.abs(dot.anchors.center[0] - 480) < 4 && Math.abs(dot.anchors.center[1] - 600) < 4, '点落在数轴的 2 上');
+  const drop = add('drop', { arrow: [['t@2', 600], ['t@2', 400]] });
+  assert.ok(Math.abs(drop.path![0] - 480) < 2);
+  add('v', { axis: [0, 100], length: 500, at: [100, 900], dir: 'up', labels: false });
+  const col = add('col', { span: [0, 50], on: 'v', h: 60 });
+  assert.ok(Math.abs(col.box.h - 250) < 8 && col.box.x > 100, '竖轴：条从下往上，贴在轴右侧');
+  assert.throws(() => add('bad', { span: [0, 1], on: 'b1' }), /不是数轴/);
+  assert.throws(() => add('bad2', { shape: 'circle', at: 'b1@2' }), /不是数轴/);
+});
+
+test('跟拍：引擎推近正在画的东西、结尾回全景；自己写的镜头优先，camera: still 关掉', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  const text = '先画左上角的银行，它是故事的起点。再画右下角的工厂，那里在生产东西。然后中间写一个数字，一百块钱。最后把它们连起来，看清楚全貌，这就是整个故事。';
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment(text)));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const scene = (extra = '', cam = '') => `from: "先画"\nintent: 四样东西散在板上\n${extra}elements:\n  a: { doodle: bank, size: 160, at: [150, 150] }\n  b: { doodle: factory, size: 160, at: [800, 1050] }\n  n: { text: "100", size: 80, at: [480, 600] }\n  l: { arrow: [a, b] }\nbeats:\n  - { at: "先画", intent: 银行, do: [${cam}{ draw: a }] }\n  - { at: "再画", intent: 工厂, do: [{ draw: b }] }\n  - { at: "然后", intent: 数字, do: [{ draw: n }] }\n  - { at: "最后", intent: 连起来, do: [{ draw: l }] }\n`;
+  const run = (sc: string) => { writeFileSync(join(d, 'scenes/01.yaml'), sc); const c = compile(d); return { c, segs: c.cams.filter(k => k.t0 >= 0) }; };
+  const f = run(scene());
+  assert.ok(f.segs.length >= 3, '跟拍动了镜头');
+  assert.ok(f.segs.some(k => k.to.zoom >= f.c.scenes[0].home.zoom * 1.35), '有真正的近景');
+  assert.equal(f.segs[f.segs.length - 1].to, f.c.scenes[0].home, '最后回全景');
+  for (let i = 1; i < f.segs.length; i++) assert.ok(f.segs[i].t0 - f.segs[i - 1].t0 >= 3.4, '两次移动至少隔 3.5 秒');
+  assert.doesNotMatch(lint(f.c).map(i => i.msg).join(), /镜头一次都没动/);
+  assert.equal(run(scene('camera: still\n')).segs.length, 0);
+  const e = run(scene('', '{ camera: { focus: [a], pad: 40 } }, '));
+  assert.ok(e.segs[0].t0 < 0.5 && e.segs[0].to.zoom > 1.5, '写了的那一拍照写的走');
+  assert.ok(e.segs.length >= 2, '之后接着跟拍');
+  rmSync(d, { recursive: true });
+});

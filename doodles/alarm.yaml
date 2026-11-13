@@ -1,0 +1,15 @@
+desc: 闹钟
+source: "Excalidraw Libraries / Awesome Icons (ferminrp), MIT"
+box: [ 200, 188 ]
+parts:
+  - ellipse: [ 102.5, 103.8, 156.8, 156.8 ]
+    fill: red
+  - ellipse: [ 103, 104.2, 118.9, 118.8 ]
+  - line: [ 102.1, 108.2, 139.6, 71 ]
+  - line: [ 103, 147.9, 105.1, 104.5 ]
+  - poly: [ [ 6, 55.3 ], [ 57.6, 7.4 ], [ 65.2, 15.6 ], [ 13.6, 63.5 ] ]
+    close: true
+    fill: red
+  - poly: [ [ 138.7, 6 ], [ 194, 49.5 ], [ 187.1, 58.2 ], [ 131.8, 14.8 ] ]
+    close: true
+    fill: red

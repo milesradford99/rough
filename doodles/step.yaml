@@ -1,0 +1,7 @@
+desc: 流程步骤箭头块
+source: "Excalidraw Libraries / Artem's icons (Artem Anufrij), MIT"
+box: [ 200, 162 ]
+parts:
+  - poly: [ [ 6, 6 ], [ 43.6, 81.2 ], [ 6, 156.4 ], [ 156.4, 156.4 ], [ 194, 81.2 ], [ 156.4, 6 ] ]
+    close: true
+    fill: blue

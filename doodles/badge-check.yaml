@@ -1,0 +1,8 @@
+desc: 对勾徽章（通过、成立）
+source: "Excalidraw Libraries / Artem's icons (Artem Anufrij), MIT"
+box: [ 200, 200 ]
+parts:
+  - ellipse: [ 100, 100, 188, 188 ]
+    fill: green
+  - poly: [ [ 84.5, 114 ], [ 111.9, 129.5 ], [ 139.5, 80.5 ], [ 166.9, 96 ], [ 125.5, 169.4 ], [ 70.7, 138.5 ] ]
+    close: true

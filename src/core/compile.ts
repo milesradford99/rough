@@ -31,17 +31,19 @@ export interface CamSeg { t0: number; t1: number; to: Cam; cut?: boolean }
 export interface Cam { cx: number; cy: number; zoom: number }
 export interface CAction { verb: string; ids: string[]; t0: number; t1: number; natural: number; desc: string }
 export interface CBeat { at: string | number; t: number; tEnd: number; intent: string; actions: CAction[]; say: string; shaky: boolean; compress: number }
-export interface CScene { recall?: string; id: string; file: string; index: number; t0: number; t1: number; origin: Pt; intent: string; enter: string; beats: CBeat[]; els: string[]; say: string; home: Cam }
+export interface CScene { recall?: string; id: string; file: string; index: number; t0: number; t1: number; origin: Pt; intent: string; enter: string; beats: CBeat[]; els: string[]; say: string; home: Cam; regions?: { name: string; box: Box }[]; /** 这块板的画板（可能比屏幕大） */ board: Box; /** 这块板在世界里占的宽度 */ span: number }
 export interface Compiled {
   dir: string; meta: any; fmt: Format; fps: number; al: Alignment; duration: number;
   scenes: CScene[]; tls: TL[]; erases: EraseGroup[]; cams: CamSeg[]; subs: SubLine[]; issues: Issue[];
   planHash: string;
 }
 
-const NATURAL: Record<string, number> = { move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 0.7, shake: 0.5, pulse: 0.45, nod: 0.5 };
+const NATURAL: Record<string, number> = { move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
 const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
 const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay'];
 const SCENE_GAP = 260;
+/** 自动取景最多推近多少：再大线条会显得粗笨 */
+const FRAME_MAX = 1.4;
 
 export function naturalDraw(el: El): number {
   let d = 0;
@@ -49,8 +51,9 @@ export function naturalDraw(el: El): number {
   return Math.max(THEME.pace.min, d);
 }
 /** 一笔占多少“时间份额”：上色的排线是快速涂抹，只算三分之一 */
-const weight = (s: any) => ((s.under ? 0.2 : 1) * s.len + penUp(s) * (s.under ? 0.4 : 1));
-const penUp = (s: { kind: string; len: number }) => (s.kind === 'fglyph' ? 40 : s.kind === 'wipe' ? 10 : (s as any).flat ? 10 : Math.min(75, 18 + s.len * 0.3));
+// 很细的线（导入的墨块人物的描边）一带而过，不按正常落笔算
+const weight = (s: any) => ((s.under ? 0.2 : s.kind === 'line' && s.w < 3 ? 0.3 : 1) * s.len + penUp(s) * (s.under ? 0.4 : 1));
+const penUp = (s: { kind: string; len: number }) => ((s as any).deco ? 0 : s.kind === 'line' && (s as any).w < 3 ? 1.5 : s.kind === 'fglyph' ? 40 : s.kind === 'wipe' ? 10 : (s as any).flat ? 10 : Math.min(75, 18 + s.len * 0.3));
 
 export function loadProject(dir: string): { meta: any; scenes: { file: string; src: any }[] } {
   const pf = join(dir, 'project.yaml');
@@ -107,6 +110,8 @@ export function compile(dir: string): Compiled {
   });
 
   const scenes: CScene[] = [], tls: TL[] = [], erases: EraseGroup[] = [], camEvents: CamSeg[] = [];
+  const framed = new Map<string, Box>();
+  let nextX = 0;
   const screenC: Pt = [fmt.W / 2, fmt.H / 2], boardC: Pt = [fmt.board.x + fmt.board.w / 2, fmt.board.y + fmt.board.h / 2];
   let order = 0;
   const seenIds = new Set<string>();
@@ -118,14 +123,19 @@ export function compile(dir: string): Compiled {
     const id = String(src.id ?? basename(file).replace(/\.ya?ml$/, '').replace(/^\d+[-_]?/, '') ?? `s${si + 1}`);
     if (seenIds.has(id)) err(file, `场景 id "${id}" 重复了`);
     seenIds.add(id);
-    for (const k of Object.keys(src)) if (!['id', 'from', 'intent', 'enter', 'recall', 'pattern', 'elements', 'beats', 'note'].includes(k)) err(file, `场景不认识字段 "${k}"。可用：from intent enter recall pattern elements beats note`);
+    for (const k of Object.keys(src)) if (!['id', 'from', 'intent', 'enter', 'recall', 'pattern', 'elements', 'beats', 'note', 'frame', 'regions', 'board', 'camera'].includes(k)) err(file, `场景不认识字段 "${k}"。可用：from intent enter recall pattern board camera regions elements beats note frame`);
     const t0 = starts[si], t1 = si + 1 < N ? starts[si + 1] : duration;
-    const origin: Pt = [si * (fmt.W + SCENE_GAP), 0];
-    const home: Cam = { cx: origin[0] + fmt.W / 2, cy: fmt.H / 2, zoom: 1 };
+    // 比屏幕大的板：board: 1.6 表示这块板的宽高都是屏幕画板的 1.6 倍。全景（home）把整块板缩进画面，推近时才是原大
+    let bk = +(src.board ?? meta.board ?? 1);
+    if (!(bk >= 1 && bk <= 3)) { err(file, 'board 写画板相对屏幕的倍数，1 到 3 之间（如 1.5）'); bk = 1; }
+    const sfmt: Format = bk === 1 ? fmt : { ...fmt, board: { ...fmt.board, w: Math.round(fmt.board.w * bk), h: Math.round(fmt.board.h * bk) } };
+    const origin: Pt = [nextX, 0];
+    nextX += Math.round(fmt.W * bk) + SCENE_GAP;
+    const home: Cam = { cx: origin[0] + fmt.board.x + sfmt.board.w / 2 + (screenC[0] - boardC[0]) * bk, cy: fmt.board.y + sfmt.board.h / 2 + (screenC[1] - boardC[1]) * bk, zoom: 1 / bk };
     const enter = src.enter ?? (si === 0 ? 'cut' : 'pan');
     if (!['pan', 'wipe', 'cut'].includes(enter)) err(file, `enter 只能是 pan（镜头平移到新板面）/ wipe（擦掉重来）/ cut（直接切）`);
     const sayUnits = al.units.filter(u => u.start >= t0 - 1e-6 && u.start < t1 - 1e-6);
-    const scene: CScene = { id, file, index: si, t0, t1, origin, intent: String(src.intent ?? ''), enter, beats: [], els: [], say: sayUnits.map(u => u.display).join(''), home };
+    const scene: CScene = { id, file, index: si, t0, t1, origin, intent: String(src.intent ?? ''), enter, beats: [], els: [], say: sayUnits.map(u => u.display).join(''), home, board: sfmt.board, span: Math.round(fmt.W * bk) };
     scenes.push(scene);
     if (!scene.intent) err(file, '缺少 intent：用一两句人话说明这个场景要让观众看到什么（给用户确认分镜用）');
 
@@ -140,7 +150,7 @@ export function compile(dir: string): Compiled {
     const local = new Map<string, TL>();
     const life = new Map<string, [number, number]>();
     const pending: [string, any][] = [];
-    const ctx: BuildCtx = { scene: id, fmt, els, projectDir: dir, life, note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
+    const ctx: BuildCtx = { scene: id, fmt: sfmt, els, projectDir: dir, life, shade: meta.shade, note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
     const addEl = (eid: string, esrc: any): TL | null => {
       if (els.has(eid)) { err(`${file} / 元素 ${eid}`, 'id 重复了'); return local.get(eid)!; }
       try {
@@ -169,6 +179,20 @@ export function compile(dir: string): Compiled {
       if (o.camera && typeof o.camera === 'object' && o.camera.focus != null) o.camera = { ...o.camera, focus: [].concat(idsOf(o.camera.focus)) };
       return o;
     };
+    // 分区：先把板面划成几块有名字的地盘（全景的骨架）。元素写 in: 区名 后，at 的数字和百分比都相对这一块
+    const regions = new Map<string, Box>();
+    {
+      const pcr = (v: any, total: number) => (typeof v === 'string' && v.endsWith('%') ? (parseFloat(v) / 100) * total : +v), Bd = sfmt.board;
+      if (src.regions != null && (typeof src.regions !== 'object' || Array.isArray(src.regions))) err(file, 'regions 应该是 "区名: [x, y, w, h]" 的映射（数字或百分比）');
+      else for (const [rn, rv] of Object.entries(src.regions ?? {}) as [string, any][]) {
+        if (!Array.isArray(rv) || rv.length !== 4) { err(file, `分区 "${rn}" 要写成 [x, y, w, h]`); continue; }
+        const b = { x: pcr(rv[0], Bd.w), y: pcr(rv[1], Bd.h), w: pcr(rv[2], Bd.w), h: pcr(rv[3], Bd.h) };
+        if ([b.x, b.y, b.w, b.h].some(v => !Number.isFinite(v)) || b.w <= 0 || b.h <= 0) { err(file, `分区 "${rn}" 的 [x, y, w, h] 要是数字或百分比`); continue; }
+        if (b.x < -1 || b.y < -1 || b.x + b.w > Bd.w + 1 || b.y + b.h > Bd.h + 1) warn(file, `分区 "${rn}" 超出了画板（画板 ${Bd.w}×${Bd.h}）`);
+        regions.set(rn, b);
+      }
+      scene.regions = [...regions].map(([name, box]) => ({ name, box }));
+    }
     // 沿用前面某个场景的画面：定义和位置原样带过来，进场时已经在板上，不占口播时间重画
     const recalled = new Set<string>();
     if (src.recall != null) {
@@ -191,17 +215,21 @@ export function compile(dir: string): Compiled {
     if (src.pattern != null) {
       // 一块板上可以放多种手法（写成列表，各占一块 area）。多于一种时，步骤名要带前缀：<name>.<步骤>
       const specs: any[] = (Array.isArray(src.pattern) ? src.pattern : [src.pattern]).map((x: any) => (typeof x === 'string' ? { kind: x } : x));
-      const multi = specs.length > 1, B = fmt.board;
+      const multi = specs.length > 1, B = sfmt.board;
       const pc = (v: any, total: number) => (typeof v === 'string' && v.endsWith('%') ? (parseFloat(v) / 100) * total : +v);
       const REF_KEYS = new Set(['draw', 'erase', 'move', 'hide', 'shake', 'pulse', 'nod', 'pop', 'fade', 'target', 'along', 'at', 'arrow', 'line', 'above', 'below', 'rightOf', 'leftOf', 'to']);
       specs.forEach(ps => {
         const pat = PATTERNS[ps?.kind];
         if (!pat) { err(file, `pattern.kind 写一种表现手法：${Object.keys(PATTERNS).join(' ')}（hj patterns 查看说明）`); return; }
         const name = String(ps.name ?? ps.kind);
-        if (multi && !(Array.isArray(ps.area) && ps.area.length === 4)) { err(file, `一块板上放多种手法时，每种都要写 area: [x, y, w, h] 划出自己的地盘（手法 ${name}）`); return; }
-        const a = Array.isArray(ps.area) && ps.area.length === 4 ? { x: pc(ps.area[0], B.w), y: pc(ps.area[1], B.h), w: pc(ps.area[2], B.w), h: pc(ps.area[3], B.h) } : { x: 20, y: 20, w: B.w - 40, h: B.h - 40 };
+        if (typeof ps.area === 'string' && !regions.has(ps.area)) { err(file, `手法 ${name} 的 area 写了 "${ps.area}"，但没有这个分区。本场景的分区：${[...regions.keys()].join(' ') || '（还没有定义 regions）'}`); return; }
+        const rgA = typeof ps.area === 'string' ? regions.get(ps.area)! : null;
+        if (multi && !rgA && !(Array.isArray(ps.area) && ps.area.length === 4)) { err(file, `一块板上放多种手法时，每种都要写 area: 分区名 或 [x, y, w, h] 划出自己的地盘（手法 ${name}）`); return; }
+        const a = rgA ? { ...rgA } : Array.isArray(ps.area) && ps.area.length === 4 ? { x: pc(ps.area[0], B.w), y: pc(ps.area[1], B.h), w: pc(ps.area[2], B.w), h: pc(ps.area[3], B.h) } : { x: 20, y: 20, w: B.w - 40, h: B.h - 40 };
         try {
-          const out = pat.build(ps, { fmt, A: a, portrait: a.h > a.w, fail: (m: string) => { throw new SrcError(`${file} / 手法 ${name}`, m); } });
+          const out = pat.build(ps, { fmt: sfmt, A: a, portrait: a.h > a.w, fail: (m: string) => { throw new SrcError(`${file} / 手法 ${name}`, m); } });
+          // 手法自己算出来的字号不能小到手机上看不清（柱子多、地盘小时会算得很小）
+          for (const [, e] of out.elements) if (e && typeof e === 'object' && 'text' in e && typeof e.size === 'number' && e.size < 36) e.size = 36;
           // 多种手法并存时，给自动起名的元素加前缀，避免撞名
           const userIds = new Set<string>(); JSON.stringify(ps, (k, v) => { if (k === 'id' && typeof v === 'string') userIds.add(v); return v; });
           const ren = new Map<string, string>();
@@ -217,6 +245,14 @@ export function compile(dir: string): Compiled {
         } catch (e: any) { if (e instanceof SrcError) err(file, e.message); else throw e; }
       });
     }
+    const inRegion = (eid: string, esrc: any): any => {
+      if (!esrc || typeof esrc !== 'object' || esrc.in == null) return esrc;
+      const rg = regions.get(String(esrc.in)), { in: _in, ...rest } = esrc;
+      if (!rg) { err(`${file} / 元素 ${eid}`, `没有叫 "${esrc.in}" 的分区。本场景的分区：${[...regions.keys()].join(' ') || '（还没有定义 regions）'}`); return rest; }
+      if (Array.isArray(rest.at) && rest.at.length === 2) rest.at = rest.at.map((v: any, i: number) => (typeof v === 'number' ? (i ? rg.y : rg.x) + v : typeof v === 'string' && /^-?[\d.]+%$/.test(v) ? (i ? rg.y : rg.x) + (parseFloat(v) / 100) * (i ? rg.h : rg.w) : v));
+      else if (rest.at == null && !['rightOf', 'leftOf', 'above', 'below'].some(k => k in rest) && !('arrow' in rest || 'line' in rest || 'mark' in rest || 'note' in rest)) rest.at = [rg.x + rg.w / 2, rg.y + rg.h / 2];
+      return rest;
+    };
     if (src.elements && typeof src.elements !== 'object') err(file, 'elements 应该是 "id: 定义" 的映射');
     for (const [eid, esrc] of Object.entries(src.elements ?? {}) as [string, any][]) {
       if (esrc && typeof esrc === 'object' && 'crowd' in esrc) {
@@ -228,7 +264,7 @@ export function compile(dir: string): Compiled {
         const cols = Math.max(1, Math.min(n, +(esrc.cols ?? (n <= 6 ? n : Math.ceil(n / 2))))), rows = Math.ceil(n / cols), size = +(of.size ?? ('figure' in of ? 150 : 140));
         const g = Array.isArray(esrc.gap) ? esrc.gap : [esrc.gap, esrc.gap];
         const gx = +(g[0] ?? ('figure' in of ? size * 0.72 : size * 1.18)), gy = +(g[1] ?? size * 1.14);
-        const cx = pcv(esrc.at[0], fmt.board.w), cy = pcv(esrc.at[1], fmt.board.h), members: string[] = [];
+        const cx = pcv(esrc.at[0], sfmt.board.w), cy = pcv(esrc.at[1], sfmt.board.h), members: string[] = [];
         for (let i = 0; i < n; i++) {
           const r0 = Math.floor(i / cols), c0 = i % cols, mid = `${eid}${i + 1}`;
           pending.push([mid, { ...of, size, at: [Math.round(cx + (c0 - (cols - 1) / 2) * gx), Math.round(cy + (r0 - (rows - 1) / 2) * gy)], __rigid: true }]);
@@ -285,7 +321,15 @@ export function compile(dir: string): Compiled {
         });
       });
     });
-    for (const [eid, esrc] of pending) addEl(eid, esrc);
+    for (const [eid, esrc] of pending) addEl(eid, inRegion(eid, esrc));
+    // 写了 in: 的元素被引擎挪出了自己的分区：多半是这个分区太挤
+    for (const [eid, esrc] of pending) {
+      const rn = esrc && typeof esrc === 'object' ? esrc.in : null, rg = rn != null ? regions.get(String(rn)) : null, el = els.get(eid);
+      if (!rg || !el?.nudged) continue;
+      const b = el.box, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      if (cx < rg.x || cx > rg.x + rg.w || cy < rg.y || cy > rg.y + rg.h) warn(`${file} / 元素 ${eid}`, `它写了 in: ${rn}，但压到别的东西后被引擎挪出了这个分区（挪了 ${el.nudged[0].toFixed(0)}, ${el.nudged[1].toFixed(0)}）。分区 ${rn} 放不下了：缩小这一区里的东西、把分区划大，或者用 board 把整块板放大`);
+    }
+    for (const rn of regions.keys()) if (els.has(rn)) err(file, `分区和元素都叫 "${rn}"，镜头不知道该推近哪个。给其中一个换个名字`);
     for (const eid of recalled) { const tl = local.get(eid); if (tl) { tl.appear = { t: t0 - 0.02, kind: 'fade', dur: 0.3 }; tl.order = order++; tl.recalled = true; } }
     let pos = new Map<string, Pt>(); // 元素当前位移
     const poseNow = new Map<string, { pose: Pose; face: string }>();
@@ -348,8 +392,10 @@ export function compile(dir: string): Compiled {
         const start = ch[0].atTime ?? bt;
         const nextStart = chains[ci + 1]?.[0].atTime ?? next;
         const seq = ch.filter(a => a.chain !== -1);
+        // 镜头移动不占画画的时间：后面还有动作时，镜头和它同时开始（真人一边走过去一边已经抬手了）
+        const glide = new Set(seq.filter((a, i) => a.verb === 'camera' && i < seq.length - 1));
         const avail = Math.max(0.1, nextStart - start - 0.04);
-        const fixedSum = seq.filter(a => a.fixed || a.verb !== 'draw').reduce((n, a) => n + a.natural + (a.opt.delay ?? 0), 0);
+        const fixedSum = seq.filter(a => !glide.has(a) && (a.fixed || a.verb !== 'draw')).reduce((n, a) => n + a.natural + (a.opt.delay ?? 0), 0);
         const flex = seq.filter(a => !a.fixed && a.verb === 'draw');
         const flexSum = flex.reduce((n, a) => n + a.natural, 0);
         let f = 1;
@@ -364,7 +410,7 @@ export function compile(dir: string): Compiled {
           else { a.t0 = t + (a.opt.delay ?? 0); prevStart = a.t0; }
           const d = a.verb === 'draw' && !a.fixed ? a.natural * f : a.natural;
           a.t1 = a.t0 + d;
-          if (a.chain !== -1) t = a.t1;
+          if (a.chain !== -1 && !glide.has(a)) t = a.t1;
         }
         const over = t - nextStart;
         if (over > 0.25) warn(where, `这一拍的动作要到 ${t.toFixed(2)}s 才做完，比下一拍开始晚了 ${over.toFixed(1)} 秒，会和后面的画面抢。减少这一拍的内容、把一部分提前（lead）或挪到上一拍`);
@@ -415,7 +461,7 @@ export function compile(dir: string): Compiled {
             try {
               if (o.along) { const ar = els.get(String(o.along)); if (!ar?.path) throw new SrcError(aw, `along 要写一个 arrow、line 或折线图元素的 id，"${o.along}" 不是`); path = ar.path; base = c; to = [path[path.length - 2] - c[0], path[path.length - 1] - c[1]]; }
               else if (o.to != null) {
-                const r = refPoint(els, pos, o.to, fmt, aw);
+                const r = refPoint(els, pos, o.to, sfmt, aw);
                 // 小人走到某处，是脚落在那儿；几个人一起走，保持队形（收紧一半）而不是叠成一个
                 const foot: Pt = walking && tl.el.anchors.feet ? tl.el.anchors.feet : c;
                 to = [r[0] - foot[0], r[1] - foot[1]];
@@ -459,10 +505,10 @@ export function compile(dir: string): Compiled {
           if (c === 'home') { camEvents.push({ t0: a.t0, t1: a.t1, to: home }); desc = '镜头回到全景'; }
           else if (c && typeof c === 'object' && c.focus != null) {
             const fids: string[] = Array.isArray(c.focus) ? c.focus : [c.focus];
-            const bad = fids.find(i => !local.has(i));
-            if (bad) err(aw, `camera.focus 里没有叫 "${bad}" 的元素`);
+            const bad = fids.find(i => !local.has(i) && !regions.has(i));
+            if (bad) err(aw, `camera.focus 里没有叫 "${bad}" 的元素或分区`);
             else {
-              const b = unionBox(fids.map(i => shifted(local.get(i)!.el.box, pos.get(i)))), pad = c.pad ?? 90;
+              const b = unionBox(fids.map(i => (regions.has(i) ? regions.get(i)! : shifted(local.get(i)!.el.box, pos.get(i))))), pad = c.pad ?? (fids.every(i => regions.has(i)) ? 20 : 90);
               const zoom = Math.min(c.maxZoom ?? 2.4, fmt.board.w / (b.w + pad * 2), fmt.board.h / (b.h + pad * 2));
               const wx = origin[0] + fmt.board.x + b.x + b.w / 2, wy = fmt.board.y + b.y + b.h / 2;
               camEvents.push({ t0: a.t0, t1: a.t1, to: { cx: wx + (screenC[0] - boardC[0]) / zoom, cy: wy + (screenC[1] - boardC[1]) / zoom, zoom } });
@@ -479,14 +525,77 @@ export function compile(dir: string): Compiled {
     if (nextSrc && nextSrc.enter === 'wipe') {
       const live = [...local.values()].filter(tl => (tl.drawT0 != null || tl.appear) && tl.gone == null);
       if (live.length) {
-        const g = { t0: t1 - 0.62, t1: t1 - 0.1, style: 'wipe' as const, ...wipePath({ x: -fmt.board.x, y: -fmt.board.y, w: fmt.W, h: fmt.H }, 260), scene: si };
+        const g = { t0: t1 - 0.62, t1: t1 - 0.1, style: 'wipe' as const, ...wipePath({ x: -fmt.board.x, y: -fmt.board.y, w: fmt.W * bk, h: fmt.H * bk }, 260 * bk), scene: si };
         erases.push(g);
         for (const tl of live) { tl.erase = erases.length - 1; tl.gone = g.t1; }
       }
     }
     boards.set(id, { srcs: [...local.values()].map(tl => [tl.el.id, { ...tl.el.src, __seed: tl.el.src.__seed ?? id }] as [string, any]), left: [...local.values()].filter(tl => (tl.drawT0 != null || tl.appear) && (tl.gone == null || tl.gone >= t1 - 0.7) && !tl.moves.length).map(tl => tl.el.id), groups: new Map(groups) });
+    // 自动取景：这块板上所有东西（含它们移动到过的位置）没铺满画板时，镜头推近到刚好装满。
+    // 位置关系一点不变，只是整体放大；东西和字在手机上都更大，板面不再空一截。home 是同一个对象，前面排好的镜头跟着变
+    let contentBox: Box | null = null;
+    if (meta.autoframe !== false && src.frame !== false) {
+      const bs: Box[] = [];
+      for (const tl of local.values()) {
+        if (tl.drawT0 == null && !tl.appear) continue;
+        bs.push(tl.el.box);
+        for (const m of tl.moves) bs.push(shifted(tl.el.box, m.to as Pt));
+      }
+      // 沿用（recall）的场景和原场景取同一个景，母图再出现时不跳
+      const rcId = src.recall != null ? String(typeof src.recall === 'string' ? src.recall : src.recall?.scene ?? '') : '';
+      if (rcId && framed.has(rcId)) bs.push(framed.get(rcId)!);
+      if (bs.length) {
+        const b = unionBox(bs), B = fmt.board, pad = 36;
+        framed.set(id, b); contentBox = b;
+        const zoom = Math.min(FRAME_MAX, B.w / (b.w + pad * 2), B.h / (b.h + pad * 2));
+        if (zoom >= 1.05 / bk) {
+          // 内容中心对到画板中心。zoom 不超过“装得下”的倍数，所以内容仍然全在画板（安全区）里
+          const ccx = b.x + b.w / 2, ccy = b.y + b.h / 2;
+          home.zoom = zoom;
+          home.cx = origin[0] + fmt.board.x + ccx + (screenC[0] - boardC[0]) / zoom;
+          home.cy = fmt.board.y + ccy + (screenC[1] - boardC[1]) / zoom;
+        }
+      }
+    }
+    // 跟拍：引擎像摄像师一样跟着笔走。正在画的东西小就推近；要画的东西跑出画面就跟过去；切换太密就拉回全景；结尾回到全景。
+    // 自己写的 camera 动作优先：写了的那一拍按写的来，之后接着跟
+    const camMode = src.camera ?? meta.camera ?? (meta.layout === 'pages' ? 'still' : 'follow');
+    if (!['follow', 'still'].includes(camMode)) err(file, 'camera 写 follow（跟着笔走，默认）或 still（镜头不动，除非自己写 camera 动作）');
+    if (camMode === 'follow' && t1 - t0 >= 12) {
+      const mine = camEvents.filter(k => k.t0 >= t0 - 1e-6 && k.t0 < t1); // 这块板里自己写的镜头（进场的平移在 t0 之前，不算）
+      const FB = fmt.board, FMAX = 1.9, PAD = 70, GAP = 3.5;
+      const CB = contentBox;
+      const camOf = (b: Box): Cam => {
+        const z = Math.min(FMAX, FB.w / (b.w + PAD * 2), FB.h / (b.h + PAD * 2));
+        // 近景别越过板上内容的边：对准板边上的东西时，画面往里收，不留半屏空白
+        let cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        if (CB) { const hw = FB.w / z / 2, hh = FB.h / z / 2, m = 30; if (CB.w + 2 * m > 2 * hw) cx = Math.min(Math.max(cx, CB.x - m + hw), CB.x + CB.w + m - hw); if (CB.h + 2 * m > 2 * hh) cy = Math.min(Math.max(cy, CB.y - m + hh), CB.y + CB.h + m - hh); }
+        return { cx: origin[0] + FB.x + cx + (screenC[0] - boardC[0]) / z, cy: FB.y + cy + (screenC[1] - boardC[1]) / z, zoom: z };
+      };
+      const viewOf = (cm: Cam): Box => { const w = FB.w / cm.zoom, h = FB.h / cm.zoom, cx = cm.cx - origin[0] - FB.x - (screenC[0] - boardC[0]) / cm.zoom, cy = cm.cy - FB.y - (screenC[1] - boardC[1]) / cm.zoom; return { x: cx - w / 2, y: cy - h / 2, w, h }; };
+      const inside = (a: Box, v: Box, m = 24) => a.x >= v.x + m && a.y >= v.y + m && a.x + a.w <= v.x + v.w - m && a.y + a.h <= v.y + v.h - m;
+      let cur: Cam = home, lastMove = -Infinity, lastHome = t0;
+      const go = (t: number, to: Cam) => { if (to === cur) return; camEvents.push({ t0: t, t1: t + 1.1, to }); cur = to; lastMove = t; if (to === home) lastHome = t; };
+      for (const b of scene.beats) {
+        const own = mine.filter(k => k.t0 >= b.t - 1e-6 && k.t0 < b.tEnd);
+        if (own.length) { cur = own[own.length - 1].to; lastMove = own[own.length - 1].t0; if (cur === home) lastHome = lastMove; continue; } // 自己写的镜头：照写的走
+        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => ['draw', 'pop', 'fade'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
+        const tgt = boxOfBeat(b);
+        if (!tgt) continue;
+        // 往后看一小段：接下来几秒要画的东西一起框进去，免得刚推近就得拉开
+        const ahead = scene.beats.filter(x => x.t > b.t && x.t < b.t + GAP && !mine.some(k => k.t0 >= x.t - 1e-6 && k.t0 < x.tEnd)).map(boxOfBeat).filter((x): x is Box => !!x);
+        const near = camOf(unionBox([tgt, ...ahead])), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
+        if (cur === home) { if (worth && calm) go(b.t, near); continue; }        // 全景里：要画的东西小，就推近去画
+        if (inside(tgt, viewOf(cur))) continue;                                  // 近景里：还在画面里，不动
+        // 跑出画面了：能推近就跟过去；东西本来就宽（一条连起两处的线）或者刚动过镜头，就拉回全景看关系
+        // 在近景里待太久（15 秒以上）就先回一次全景，让观众知道现在在整张图的哪儿
+        go(b.t, worth && calm && b.t - lastHome < 15 ? near : home);
+      }
+      // 结尾：最后几秒回到全景，看整张图
+      if (cur !== home) go(Math.max(lastMove + GAP, t1 - 3.5), home);
+    }
     for (const tl of local.values()) {
-      if (tl.drawT0 == null && !tl.appear && !fromPattern.has(tl.el.id)) warn(`${file} / 元素 ${tl.el.id}`, '定义了但从没画出来（没有任何 draw / pop / fade 用到它）');
+      if (tl.drawT0 == null && !tl.appear && !fromPattern.has(tl.el.id) && tl.el.kind !== 'axis') warn(`${file} / 元素 ${tl.el.id}`, '定义了但从没画出来（没有任何 draw / pop / fade 用到它）');
       tls.push(tl);
     }
   });

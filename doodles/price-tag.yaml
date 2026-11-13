@@ -1,0 +1,8 @@
+desc: 价签
+source: "Excalidraw Libraries / Awesome Icons (ferminrp), MIT"
+box: [ 199, 200 ]
+parts:
+  - poly: [ [ 6, 6 ], [ 19.9, 99.1 ], [ 123.3, 194 ], [ 192.9, 113.7 ], [ 95.6, 22.4 ] ]
+    close: true
+    fill: orange
+  - ellipse: [ 52, 29.2, 25.7, 20.6 ]

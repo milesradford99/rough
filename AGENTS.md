@@ -3,8 +3,9 @@
 这个仓库是一个底座：把**带逐字时间表的口播**做成“边画边讲”的手绘视频。
 你的任务通常是：用户给你一份口播稿、时间表和配音，你来决定画面上画什么、什么时候画，然后交出成片。
 
-成片的标准只有一条：**看起来像一个真人站在白板前，一边讲一边画给你看。**
-不是 PPT，不是带插图的字幕。
+成片的标准只有一条：**看起来像一个真人站在一块白板前，一边讲一边画给你看。**
+从一个点切入，在同一块板上把全部内容一点点展开、连到一起，讲完时整块板是一张全景。
+不是 PPT 翻页，不是带插图的字幕。
 
 ## 铁律
 
@@ -13,8 +14,8 @@
 2. **画面演示口播，不抄写口播。** 板书只允许关键词、数字、标签。完整的话只出现在字幕里。检查器会拦截照抄口播 7 个字以上的板书。
 3. **卡点写口播原文，不写秒数。** `at: "收走一百块税"`，而不是 `at: 31.2`。这样换配音、改语速后分镜自动跟随。
 4. **`hj check` 零错误才能往下走**；警告要么修掉，要么向用户说明为什么保留。
-5. **先讲故事，再画图。** 写 YAML 之前先填 `outline.md`：观众记住哪个画面、母图是什么、角色是谁、每段三层各放什么。见 directing.md 第二节。
-6. **画面要有料。** 每个场景结束时，板上应该是一张信息丰富、值得截图的图解：主体、支撑数字、批注三层都有。稀疏的画面显得内容单薄。见 directing.md 第四节。
+5. **先定全景，再动笔。** 写 YAML 之前先填 `outline.md`：整块板最后是一张什么图、分成哪几个区、区和区怎么连、从哪个点切入。见 directing.md 第二节。
+6. **一条片子一块板。** 两分钟以内的内容画在同一块板上：画过的东西留在原位，后面的内容对着前面的摆、用线连回去。讲完时整块板是一张信息丰富、值得截图的全景（主体、支撑数字、批注三层都有）。换景靠镜头的远近，不靠换板；擦除可以用，但只在“推翻前面的说法”时用。见 directing.md 第二、四、十一节。
 7. **改动要小。** 用户提修改意见时，改对应的那几行，不要重写场景。见 [docs/revising.md](docs/revising.md)。
 
 ## 工作流
@@ -22,12 +23,13 @@
 ```bash
 npm install                                   # 首次
 npx hj init work/<项目名> --voice <配音材料目录> --format portrait
-npx hj brief work/<项目名>                    # 逐句时间、停顿、不可靠的字
-# 读 docs/directing.md；填 outline.md（故事、母图、每段三层放什么）和 cast.yaml（角色表）
+npx hj brief work/<项目名>                    # 逐句时间、停顿、不可靠的字；分句卡点（直接能写进 at: 的片段、哪些词会重复）
+# 读 docs/directing.md；填 outline.md（全景、分区、怎么连、从哪儿切入）和 cast.yaml（角色表）
 # 然后在 work/<项目名>/scenes/ 里一个场景一个文件地写分镜；每写完一个场景：
 npx hj layout work/<项目名> --scene <场景>    # 看每个元素落在哪儿、哪儿空哪儿挤（不需要确认，随时跑）
 npx hj check work/<项目名>                    # 编译 + 质量检查，随时跑
-npx hj stills work/<项目名> --draft           # 草稿关键帧（带水印）：自己逐张看，改到满意。不需要确认
+npx hj stills work/<项目名> --draft --guides  # 草稿关键帧（带水印）：自己逐张看，改到满意。不需要确认
+                                              # --guides 画出画板边界：画板只占画面中间一块，上下是平台界面和字幕
 npx hj plan work/<项目名>                     # 生成 storyboard.md
 # ── 把 storyboard.md 交给用户，等用户确认 ──
 npx hj approve work/<项目名> plan --by "<用户原话>"
@@ -43,44 +45,62 @@ npx hj render work/<项目名>                   # 正式成片 out/video.mp4
 **确认之后还能改吗？** 能。只调位置、大小、颜色、时长、动作细节，不会让确认失效。
 改了场景划分、`from`、`intent` 或某一拍的 `at`（也就是“画什么、什么时候画”变了），确认自动失效，需要用户重新确认。
 
-## 一个场景长什么样
+## 一块板长什么样
 
-大多数场景应该从一种**表现手法**起步（见 directing.md 第三节和 reference 的“表现手法”），下面是不用手法、从零摆元素的写法：
+一个场景文件就是一块板，一条片子通常只有一个。完整的例子在 [examples/one-board/](examples/one-board/)，下面是它的骨架：
 
 ```yaml
-# scenes/03-loop.yaml
-from: "咱们跟着一百块钱"          # 这个场景从哪句口播开始
-intent: 公司、政府、你站成三角，一张钞票绕一圈回到原点，公司一分没多赚。
-enter: pan                        # pan 镜头平移到新板面 / wipe 擦掉重来 / cut 直接切
+# scenes/01-board.yaml
+from: "你有没有想过"              # 这块板从哪句口播开始
+intent: 每一圈的存款是一条横条，左对齐、逐条变短；借出的钱从右侧绕回来变成下一条；最后往下汇成 1000。
+
+regions:                          # 先把板面分区：这是全景的骨架
+  top:    [0, 0, 960, 180]        # 谁、往哪儿存
+  loop:   [0, 190, 960, 350]      # 第一圈
+  stair:  [0, 540, 960, 420]      # 后面几圈
+  bottom: [0, 980, 960, 270]      # 汇总
 
 elements:                         # 画什么、放哪儿
-  company: { doodle: factory, size: 280, at: [200, 300], label: 公司 }
-  gov:     { doodle: gov, size: 280, at: [760, 300], label: 政府 }
-  you:     { figure: stand, size: 420, at: [480, 950] }
-  bill:    { doodle: banknote, size: 190, at: company.bottom, dy: 80 }
-  tax:     { arrow: [company, gov], curve: -0.2 }
+  bank: { doodle: bank, size: 140, in: top, at: [120, 100] }     # in: 坐标相对这个分区
+  money: { axis: [0, 100], length: 500, at: [250, 250] }       # 比例尺：100 块 = 500 像素（不画出来）
+  n1:   { text: "100", size: 60, at: [225, 250], anchor: right }
+  r1:   { span: [0, 10],  on: money, at: [0, 250], color: red }   # 长度、对齐都由比例尺算
+  l1:   { span: [10, 100], on: money, at: [0, 250], color: blue }
+  r2:   { span: [0, 9],   on: money, at: [0, 440], color: red }   # 第二条：和第一条共用一根轴
 
-beats:                            # 什么时候、怎么动
-  - at: "政府从公司"
-    intent: 画出公司和政府
+beats:                            # 什么时候、怎么动、镜头看哪儿
+  - at: "假设你存进"
+    intent: 板上出现第一条：100
     do:
-      - draw: [company, gov]
-  - at: "收走一百块税"
-    intent: 钞票沿箭头从公司滑到政府
+      - draw: n1
+  - at: "也就是十块"
+    intent: 近景：推到第一条的左端，涂出红色的一小段
     do:
-      - draw: tax
-      - { move: bill, along: tax, with: prev }
+      - { camera: { focus: [n1, r1], pad: 60 } }
+      - draw: r1
+  - at: "就这样一圈一圈"
+    intent: 拉回全景，后面几条接连长出来
+    do:
+      - { camera: home }
+      - draw: [r2]
 ```
 
-`elements` 管“是什么、在哪儿”，`beats` 管“什么时候、怎么动”。两者分开，改位置不碰时间，改时间不碰位置。
+`regions` 管“板面怎么分”，`elements` 管“是什么、在哪儿”，`beats` 管“什么时候、怎么动、镜头看哪儿”。
+坐标可以引用前面的东西（`at: [r1.left, 440]`），也可以落在数轴的数值上（`at: [t@2, 400]`）：后画的对着先画的摆，位置本身就在说话。**涉及长短、时间、比例的，一律用数轴和区间条，不要自己算像素。**
+
+内容多、一屏放不下时，把板放大而不是换板：场景里写 `board: 1.6`，全景是缩小的整块板，近景才是原大。
+很长的片子可以分章，一章一块板；确实要一页页陈列（素材展示）就在 `project.yaml` 里写 `layout: pages`。
 
 **框架替你兜底的事**（不需要你自己盯）：
 
 - 元素不会互相重叠、不会出画板：压到了引擎自动挪开，连线自动绕路，批注自动换边。
-- 一排人用 `crowd`，永远对齐；前面的图再出现用 `recall`，位置永远一致；角色长相写在 `cast.yaml`，全片一个样；人站在东西上用锚点（`boat.deck`），脚一定落在上面。
+- 一排人用 `crowd`，永远对齐；分章的片子里前面的图再出现用 `recall`，位置永远一致；角色长相写在 `cast.yaml`，全片一个样；人站在东西上用锚点（`boat.deck`），脚一定落在上面。
 - 位置可以不写，引擎自动找空位。拿不准坐标时不写比乱写好。
 - 用表现手法时，构图、大小、动作顺序都是现成的。
 - 画的速度自动匹配语速。
+- 镜头会自己跟着笔走：推近正在画的东西、连线时拉回全景、结尾回全景。某一刻想要特别的景别就自己写 `camera: { focus: 分区或元素 }` / `camera: home`，那一拍按你写的来，其余时间引擎接着跟。
+- 长短、时间、比例用数轴（`axis`）和区间条（`span`），位置和长度由引擎算。
+- 翻页（切成很多块小板）、一块板从头到尾镜头不动、划了分区却空着、结尾没回全景，检查器都会指出来。
 - 没处理的质量警告会原样出现在给用户的分镜表里。
 
 ## 该读什么
@@ -93,19 +113,20 @@ beats:                            # 什么时候、怎么动
 | 用户提了修改意见 | [docs/revising.md](docs/revising.md) |
 | 要给配音方提要求 / 自己生成配音 | [docs/voice-guide.md](docs/voice-guide.md) |
 | 看九种表现手法各长什么样 | [examples/patterns/](examples/patterns/) |
-| 看一个从零摆元素的完整例子 | [examples/compound/](examples/compound/) |
+| 看一块板讲完一条片子的完整例子（**照这个写**） | [examples/one-board/](examples/one-board/) |
+| 看分页写法的例子（只在分章、陈列时用） | [examples/compound/](examples/compound/) |
 
 找手法和素材：
 
 ```bash
 npx hj patterns                    # 九种表现手法：自带构图和动作编排（先看这个）
-npx hj assets doodles              # 52 个手绘件，和小人同一画风（首选）
+npx hj assets doodles              # 123 个手绘件，和小人同一画风（首选）；`peep-` 开头的是坐、蹲、站、半身的真人插画
 npx hj assets icons factory        # 5000+ 线条图标，英文关键词搜索（兜底）
 npx hj assets figure               # 小人的姿势、表情、配饰
 npx hj assets sheet --out sheet.png   # 把上面这些画成一张图，直接看长相
 ```
 
-没有合适的素材时，在项目的 `doodles/` 目录里用基本图形自己画一个（格式见 reference），不要用文字顶替。
+没有合适的素材时，在项目的 `doodles/` 目录里用基本图形自己画一个，或用 `hj import` 从外部素材库转一个进来（两种做法都见 reference），不要用文字顶替。
 
 ## 代码地图
 

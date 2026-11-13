@@ -4,3 +4,4 @@ fps: 30
 voice: voice/alignment.json
 subtitles: true
 sfx: true
+layout: pages

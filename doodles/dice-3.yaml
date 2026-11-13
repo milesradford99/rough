@@ -1,0 +1,12 @@
+desc: 骰子（三点）
+source: "Excalidraw Libraries / Boardgame (pocomane), MIT"
+box: [ 190, 200 ]
+parts:
+  - rect: [ 6, 53, 139, 139 ]
+  - poly: [ [ 6, 51 ], [ 51, 6 ], [ 181.7, 10.1 ], [ 142.9, 55 ] ]
+    close: true
+  - poly: [ [ 147, 194 ], [ 183.8, 142.9 ], [ 183.8, 8 ], [ 142.9, 59.1 ] ]
+    close: true
+  - ellipse: [ 112.2, 158.7, 30.6, 30.6 ]
+  - ellipse: [ 37.7, 89.8, 30.7, 30.6 ]
+  - ellipse: [ 76.5, 126.6, 30.6, 30.7 ]

@@ -1,0 +1,20 @@
+desc: 终点格子旗
+source: "Excalidraw Libraries / Artem's icons (Artem Anufrij), MIT"
+box: [ 169, 200 ]
+parts:
+  - rect: [ 6, 6, 156.7, 94 ]
+  - rect: [ 37.3, 6, 31.4, 31.3 ]
+    fill: gray
+  - rect: [ 37.3, 68.7, 31.4, 31.3 ]
+    fill: gray
+  - rect: [ 68.7, 37.3, 31.3, 31.4 ]
+    fill: gray
+  - rect: [ 100, 68.7, 31.3, 31.3 ]
+    fill: gray
+  - rect: [ 131.3, 37.3, 31.4, 31.4 ]
+    fill: gray
+  - rect: [ 100, 6, 31.3, 31.3 ]
+    fill: gray
+  - rect: [ 6, 37.3, 31.3, 31.4 ]
+    fill: gray
+  - line: [ 6, 6, 6, 194 ]

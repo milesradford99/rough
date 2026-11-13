@@ -1,0 +1,13 @@
+desc: 带柱状图的报表
+source: "Excalidraw Libraries / Awesome Icons (ferminrp), MIT"
+box: [ 199, 200 ]
+parts:
+  - rect: [ 6, 6, 186.7, 188 ]
+    fill: blue
+  - rect: [ 30, 24.1, 129.9, 151.1 ]
+  - rect: [ 51.9, 83.2, 17.9, 89.1 ]
+    fill: blue
+  - rect: [ 84.9, 54.5, 18.3, 116.9 ]
+    fill: blue
+  - rect: [ 117.5, 100.2, 16.5, 72.1 ]
+    fill: blue

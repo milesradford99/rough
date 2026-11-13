@@ -35,7 +35,7 @@ function load(dir: string, strict = true): Compiled {
   try { c = compile(dir); } catch (e: any) { return die(e.message); }
   c.issues = lint(c);
   const errors = c.issues.filter(i => i.level === 'error');
-  if (strict && errors.length) { printIssues(c.issues); die('分镜有错误，先修掉再继续（hj check 可随时重查）'); }
+  if (strict && errors.length) { printIssues(c.issues); die('分镜有错误，先修掉再继续（hj check 可随时重查）。这次什么都没有生成：输出目录里如果有图，是上一次的旧图'); }
   return c;
 }
 const approvalsFile = (dir: string) => join(dir, 'approvals.json');
@@ -59,6 +59,7 @@ function layers(c: Compiled, sc: CScene) {
     if (['figure', 'doodle', 'icon', 'parts'].includes(k)) { const sig = k + JSON.stringify([e.src.figure, e.src.doodle, e.src.icon, e.src.wear, e.src.size]); if (!seen.has(sig)) { seen.add(sig); main++; } if (e.src.label) notes++; }
     else if (k === 'note') notes++;
     else if (k === 'text') { if (/[0-9０-９%％½¼¾×÷=≠+＋]/.test(e.text ?? '')) support++; else if ((e.src.size ?? 72) <= 60) notes++; else main++; }
+    else if (k === 'span') main++; // 区间条是图本身（横条、时间段），算主体
     else if (k === 'chart' || k === 'shape') support++;
     else if (k === 'arrow' || k === 'line') { support++; if (e.src.label) notes++; }
   }
@@ -75,25 +76,30 @@ const CAST_TEMPLATE = `# 角色表：全片反复出现的人和东西，长相�
 `;
 const OUTLINE_TEMPLATE = `# 提纲（写分镜之前先填；填不出来说明还没想清楚，不要急着写 YAML）
 
-## 一句话
-这条片子讲完，观众记住的那一个画面是什么？（不是一句话，是一个画面）
+## 全景
+这条片子讲完，整块板是一张什么图？用几句话把它描述出来：有哪几块、各是什么形状（一排横条、一个圈、一条时间轴…）、块和块之间用什么连起来。
+观众最后看到的就是这张图；全片都是在一点点把它画出来。
 
-## 母图
-全片反复回来的那张图（两个阵营、一条流程、一杆天平…）。它在第几场立起来，在哪几场回来（recall），每次回来加了什么、破坏了什么？
+## 分区（写进场景的 regions）
+| 分区 | 在板上的位置 | 放什么 | 它和哪一块相连、怎么连（对齐、箭头、括号…） |
+|---|---|---|---|
+
+## 切入点
+从全景的哪一个点画起？（第一句话落地时板上就要有它）
 
 ## 角色表（同步写进 cast.yaml）
 | 角色 | 长相 | 代表什么 |
 |---|---|---|
 
-## 逐段
-| 场景 | 口播从哪句到哪句 | 这段在干什么（设问/说法/理由/算账/数据/转折/结论） | 手法 | 主体画什么 | 支撑：哪些数字、小账 | 批注：出处、名字、倍数 | 和前面哪个画面呼应 |
-|---|---|---|---|---|---|---|---|
+## 逐段：这段话往全景上添什么
+| 口播从哪句到哪句 | 这段在干什么（设问/说法/理由/算账/数据/转折/结论） | 画在哪个分区 | 添什么（主体 / 数字 / 批注） | 对着前面的哪样东西摆、连到哪儿 | 镜头：近景看谁，还是拉回全景 |
+|---|---|---|---|---|---|
 
-## 开头 5 秒
-第一句话落地时，板上是什么？（一个让人想看下去的画面，不是慢慢搭台）
+## 颜色分工
+墨色画什么、蓝色标什么、红色只留给哪一样（全片的答案）？
 
 ## 结尾
-最后一句话落下时，板上只多一样东西。是什么？
+最后一句话落下时，镜头回到全景，板上只多一样东西。是什么？
 `;
 
 function canvasFor(c: Compiled, scale: number) { const cv = createCanvas(Math.round(c.fmt.W * scale), Math.round(c.fmt.H * scale)); return { cv, ctx: cv.getContext('2d') }; }
@@ -133,6 +139,27 @@ const commands: Record<string, () => Promise<void> | void> = {
       for (let k = s.from; k < s.to; k++) { const u = al.units[k]; txt += u.shaky ? `~${u.display}~` : u.display; }
       L.push(`| ${i + 1} | ${s.start.toFixed(2)} | ${s.end.toFixed(2)} | ${(s.end - s.start).toFixed(1)}s | ${gap > 0.02 ? gap.toFixed(2) + 's' : ''} | ${txt.replace(/~~/g, '')} |`);
     });
+    // 分句：按逗号、顿号再切一层，每一小句的开口时间就是现成的卡点。
+    // 在整条口播里出现不止一次的词组标出来：卡点写它要加 #2，或者换一个更长、只出现一次的片段
+    const plain = al.units.map(u => u.display).join('');
+    const count = (w: string) => { let n = 0, i = -1; while ((i = plain.indexOf(w, i + 1)) >= 0) n++; return n; };
+    L.push('', '## 分句卡点', '', '每一小句开口的时间。`卡点` 一栏是可以直接写进 `at:` 的片段（在整条口播里只出现一次）；标了“重复”的词组在口播里不止一次，写它要加 `#2`、`#3`。', '', '| 起 | 分句 | 卡点 | 重复的词组 |', '|--:|---|---|---|');
+    for (const sn of al.sentences) {
+      let k = sn.from;
+      while (k < sn.to) {
+        let e = k; while (e < sn.to && !/[，、；：,;:]$/.test(al.units[e].display)) e++;
+        e = Math.min(e + 1, sn.to);
+        const txt = al.units.slice(k, e).map(u => u.display).join(''), core = txt.replace(/[，。、；：？！,.;:?!“”"' ]/g, '');
+        if (core) {
+          let anchor = '';
+          for (let n = 3; n <= core.length && !anchor; n++) { const w = core.slice(0, n); if (count(w) === 1) anchor = w; }
+          const reps: string[] = [];
+          for (let n = 4; n >= 3; n--) for (let i = 0; i + n <= core.length; i++) { const w = core.slice(i, i + n); if (/^[\u4e00-\u9fff\d]+$/.test(w) && count(w) > 1 && !reps.some(r => r.includes(w) || w.includes(r))) reps.push(w); }
+          L.push(`| ${al.units[k].start.toFixed(2)} | ${txt} | ${anchor ? '`' + anchor + '`' : '（整句都重复，用 #2）'} | ${reps.slice(0, 4).map(r => `${r}×${count(r)}`).join('、')} |`);
+        }
+        k = e;
+      }
+    }
     const out = L.join('\n') + '\n';
     writeFileSync(join(dir, 'brief.md'), out);
     console.log(out + `\n（已写入 ${join(dir, 'brief.md')}）`);
@@ -180,7 +207,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const dir = args[0] ?? die('用法：hj layout <项目目录> [--scene 场景]');
     const c = load(dir, false);
     const out = join(dir, 'out', 'layout'); mkdirSync(out, { recursive: true });
-    const only = sceneArg(c), B = c.fmt.board, k = 0.6, M = 30;
+    const only = sceneArg(c), B = (only ?? c.scenes[0])?.board ?? c.fmt.board, k = 0.6, M = 30;
     const COL: Record<string, string> = { figure: '#2f6fb7', doodle: '#2f6fb7', icon: '#2f6fb7', parts: '#2f6fb7', text: '#3c8f4f', note: '#8a8580', shape: '#7556c2', chart: '#7556c2', mark: '#d9433a', arrow: '#e8792b', line: '#e8792b' };
     for (const sc of c.scenes) {
       if (only && sc !== only) continue;
@@ -190,7 +217,14 @@ const commands: Record<string, () => Promise<void> | void> = {
       x.strokeStyle = '#212529'; x.lineWidth = 2; x.setLineDash([8, 6]); x.strokeRect(M, M, B.w * k, B.h * k); x.setLineDash([]);
       const flagged = new Set(c.issues.filter(i => i.level !== 'info' && i.where.startsWith(sc.file + ' / 元素 ')).map(i => i.where.split('元素 ')[1]));
       const label = (txt: string, px: number, py: number, col: string) => { const t = textStrokes(txt, { size: 17, color: col }); x.save(); x.translate(px, py); drawStrokes(x, env, t.strokes); x.restore(); };
+      // 分区：浅色底加名字，核对每样东西落在了哪一块
+      for (const rg of sc.regions ?? []) {
+        x.fillStyle = 'rgba(242,184,48,0.10)'; x.fillRect(M + rg.box.x * k, M + rg.box.y * k, rg.box.w * k, rg.box.h * k);
+        x.strokeStyle = '#c9a227'; x.lineWidth = 1.5; x.setLineDash([4, 5]); x.strokeRect(M + rg.box.x * k, M + rg.box.y * k, rg.box.w * k, rg.box.h * k); x.setLineDash([]);
+        label(rg.name, M + (rg.box.x + rg.box.w) * k - rg.name.length * 11 - 8, M + rg.box.y * k + 4, '#a07d00');
+      }
       console.log(`\n■ ${sc.index + 1}. ${sc.id}（画板 ${B.w}×${B.h}，坐标是元素的外框）`);
+      if (sc.regions?.length) console.log('  分区：' + sc.regions.map(rg => `${rg.name} [${rg.box.x.toFixed(0)}, ${rg.box.y.toFixed(0)}, ${rg.box.w.toFixed(0)}, ${rg.box.h.toFixed(0)}]`).join('  '));
       for (const t of shown) {
         const e = t.el, b = e.kind === 'note' ? e.solid : e.box, gone = t.gone != null && t.gone < sc.t1 - 0.7, mv = t.moves.length ? t.moves[t.moves.length - 1].to : [0, 0];
         const bx = M + (b.x + mv[0]) * k, by = M + (b.y + mv[1]) * k;
@@ -315,14 +349,19 @@ const commands: Record<string, () => Promise<void> | void> = {
       if (!r.length) console.log('没有匹配的图标，换个英文近义词试试');
       for (const it of r) console.log(`${it.name.padEnd(30)} ${it.category.padEnd(14)} ${it.tags}`);
     } else if (what === 'doodles') {
-      for (const d of doodleDirs(args[1])) for (const f of readdirSync(d).filter(f => f.endsWith('.yaml')).sort()) { const y = YAML.parse(readFileSync(join(d, f), 'utf8')); console.log(`${f.replace('.yaml', '').padEnd(18)} ${String(y.desc ?? '').padEnd(30)} ${y.vars ? '可调：' + Object.keys(y.vars).join(' ') : ''}`); }
+      console.log('名字                size 200 时的宽×高   说明（写了 label 的，下面再多出约 70px 的字）');
+      for (const d of doodleDirs(args[1])) for (const f of readdirSync(d).filter(f => f.endsWith('.yaml')).sort()) {
+        const y = YAML.parse(readFileSync(join(d, f), 'utf8')), bx = Array.isArray(y.box) ? y.box : [200, 200], k = 200 / Math.max(bx[0], bx[1]);
+        const wh = `${Math.round(bx[0] * k)}×${Math.round(bx[1] * k)}`;
+        console.log(`${f.replace('.yaml', '').padEnd(20)}${wh.padEnd(19)}${String(y.desc ?? '')}${y.vars ? '  可调：' + Object.keys(y.vars).join(' ') : ''}${y.anchors ? '  锚点：' + Object.keys(y.anchors).join(' ') : ''}`);
+      }
     } else if (what === 'figure') {
       console.log('姿势 pose：' + Object.keys(POSES).join('  '));
       console.log('表情 face：' + Object.keys(FACES).filter(f => f !== 'none').join('  '));
       console.log('配饰 wear：' + ACCESSORIES.join('  '));
     } else if (what === 'colors') console.log(Object.entries(THEME.colors).map(([k, v]) => `${k} ${v}`).join('\n'));
     else if (what === 'sheet') return assetSheet();
-    else die('用法：hj assets icons <关键词> | doodles [项目目录] | figure | colors | sheet [--out 文件]');
+    else die('用法：hj assets icons <关键词> | doodles [项目目录] | figure | colors | sheet [--out 文件] [--dir 手绘件目录]');
   },
 
   patterns() {
@@ -334,6 +373,15 @@ const commands: Record<string, () => Promise<void> | void> = {
       if (name) { // 附上一个能直接照着改的完整场景
         const ex = join(fileURLToPath(new URL('../../examples/patterns/scenes', import.meta.url)));
         const f = existsSync(ex) ? readdirSync(ex).find(x => x.includes('-' + k + '.')) : undefined;
+        if (f) {
+          // 手法自动起的元素名：照例子展开一遍，列出来。批注、标记、动作里引用它们时用这些名字
+          try {
+            const ps = YAML.parse(readFileSync(join(ex, f), 'utf8')).pattern, fmt = FORMATS.portrait, B = fmt.board;
+            const out = p.build(ps, { fmt, A: { x: 20, y: 20, w: B.w - 40, h: B.h - 40 }, portrait: true, fail: (m: string) => { throw new Error(m); } });
+            const what = (e: any) => ('figure' in e ? '小人' : 'text' in e ? `字“${String(e.text).slice(0, 6)}”` : 'doodle' in e ? `手绘件 ${e.doodle}` : 'arrow' in e ? '箭头' : 'line' in e ? '线' : 'shape' in e ? '形状' : 'mark' in e ? '标记' : 'note' in e ? '批注' : '元素');
+            console.log('  例子展开后的元素名（给角色写了 id 的用你写的 id，其余是手法自动起的；第 N 项的名字里带 N）：\n    ' + out.elements.map(([id, e]) => `${id}（${what(e)}）`).join('  ') + '\n');
+          } catch { /* 例子展开失败不影响说明 */ }
+        }
         if (f) console.log(`  照着改的完整例子（examples/patterns/scenes/${f}）：\n\n` + readFileSync(join(ex, f), 'utf8').split('\n').map(l => '    ' + l).join('\n'));
       }
       console.log('');
@@ -342,26 +390,84 @@ const commands: Record<string, () => Promise<void> | void> = {
     else if (!PATTERNS[name]) die(`没有叫 "${name}" 的手法。可用：${Object.keys(PATTERNS).join(' ')}`);
   },
 
+  async import() {
+    const usage = `用法：
+  hj import excalidraw <素材库.excalidrawlib> --out <目录> [--only 名字,名字] [--prefix 前缀] [--text] [--source "出处"]
+  hj import svg <文件.svg> --out <目录> [--name 名字] [--desc 说明] [--source "出处"] [--pen 2] [--rough 0.3] [--paper]
+  hj import quickdraw <类别.ndjson> --sheet <候选图.png> [--count 48]          先出候选图，挑编号
+  hj import quickdraw <类别.ndjson> --pick <编号> --name <名字> --out <目录> [--desc 说明] [--color 颜色]
+导入的是几何形状，进来后由本项目的笔重新画；--out 一般是项目的 doodles/ 目录。导入前先核对素材的授权。`;
+    const kind = args[0], file = args[1];
+    if (!file || !existsSync(file)) die(usage);
+    const im = await import('../core/importers');
+    const save = (outDir: string, it: { name: string; doodle: any; skipped: string[] }) => {
+      mkdirSync(outDir, { recursive: true });
+      const f = join(outDir, it.name + '.yaml');
+      if (existsSync(f) && !flags.force) { console.log(`- 跳过 ${it.name}：${f} 已存在（--force 覆盖）`); return; }
+      writeFileSync(f, im.doodleYaml(it.doodle));
+      console.log(`✓ ${it.name.padEnd(22)} ${it.doodle.parts.length} 个图形${it.skipped.length ? '  注意：' + it.skipped.join('；') : ''}`);
+    };
+    if (kind === 'excalidraw') {
+      const outDir = flags.out ? String(flags.out) : die(usage);
+      let items: any[];
+      try { items = im.fromExcalidraw(JSON.parse(readFileSync(file, 'utf8')), { text: !!flags.text, source: flags.source ? String(flags.source) : undefined }); } catch (e: any) { return die(e.message); }
+      const only = flags.only ? String(flags.only).split(',').map(s => s.trim()) : null;
+      const miss = only?.filter(n => !items.some(i => i.name === n)) ?? [];
+      if (miss.length) die(`素材库里没有：${miss.join(' ')}。可选：${items.map(i => i.name).join(' ')}`);
+      for (const it of items) if (!only || only.includes(it.name)) save(outDir, { ...it, name: (flags.prefix ? String(flags.prefix) : '') + it.name });
+      console.log(`\n看长相：hj assets sheet --dir ${outDir} --out sheet.png。不好看的直接删掉文件；名字、desc、颜色可以手改。`);
+    } else if (kind === 'svg') {
+      const outDir = flags.out ? String(flags.out) : die(usage);
+      let it: any;
+      try { it = im.fromSvg(readFileSync(file, 'utf8'), { name: flags.name ? String(flags.name) : im.slug(basename(file, '.svg')) || undefined, desc: flags.desc ? String(flags.desc) : undefined, source: flags.source ? String(flags.source) : undefined, pen: flags.pen ? +flags.pen : undefined, rough: flags.rough ? +flags.rough : undefined, paper: !!flags.paper }); } catch (e: any) { return die(e.message); }
+      save(outDir, it);
+    } else if (kind === 'quickdraw') {
+      const all = im.parseQuickDraw(readFileSync(file, 'utf8')).filter(d => d.recognized);
+      if (!all.length) die('文件里没有可用的画（需要 Quick Draw 的 simplified .ndjson）');
+      if (flags.sheet) {
+        const n = Math.min(all.length, +(flags.count ?? 48));
+        await drawSheet(all.slice(0, n).map((d, i) => { const it = im.fromQuickDraw(d); return { src: { parts: it.doodle.parts, box: it.doodle.box, size: 200, shade: false }, label: String(i + 1) }; }), String(flags.sheet));
+        console.log(`✓ ${flags.sheet}：前 ${n} 张候选（共 ${all.length} 张）。挑一张，再跑 --pick <编号> --name <名字> --out <目录>`);
+      } else if (flags.pick) {
+        const d = all[+flags.pick - 1] ?? die(`没有第 ${flags.pick} 张（共 ${all.length} 张）`);
+        save(flags.out ? String(flags.out) : die(usage), im.fromQuickDraw(d, { name: flags.name ? im.slug(String(flags.name)) : undefined, desc: flags.desc ? String(flags.desc) : undefined, color: flags.color ? String(flags.color) : undefined }));
+      } else die(usage);
+    } else die(usage);
+  },
   'fake-align'() {
     const f = args[0] ?? die('用法：hj fake-align <口播稿.txt> [--cps 4.5] > alignment.json   （没有配音时先造一份匀速时间表打草稿）');
     process.stdout.write(JSON.stringify(fakeAlignment(readFileSync(f, 'utf8'), +(flags.cps ?? 4.5)), null, 1));
   },
 };
 
-/** 内置素材一览图：所有姿势、表情、手绘件画在一张图上，供挑选 */
+/** 素材一览图：所有姿势、表情、手绘件画在一张图上，供挑选。--dir 只画某个目录里的手绘件 */
 async function assetSheet() {
+  const items: { src: any; label: string }[] = [];
+  const only = flags.dir ? String(flags.dir) : null;
+  if (!only) {
+    for (const p of Object.keys(POSES)) items.push({ src: { figure: p, size: 230 }, label: p });
+    for (const f of Object.keys(FACES).filter(f => f !== 'none')) items.push({ src: { figure: 'stand', face: f, size: 230 }, label: 'face:' + f });
+    for (const a of ACCESSORIES) items.push({ src: { figure: 'stand', wear: [a], accent: 'blue', size: 230 }, label: 'wear:' + a });
+  } else if (!existsSync(only)) die(`找不到目录：${only}`);
+  for (const d of only ? [only] : doodleDirs()) for (const f of readdirSync(d).filter(f => f.endsWith('.yaml')).sort()) { const y = YAML.parse(readFileSync(join(d, f), 'utf8')); items.push({ src: { parts: y.parts, box: y.box, vars: undefined, size: 200 }, label: f.replace('.yaml', '') }); if (y.vars) (items[items.length - 1].src as any).__vars = y.vars; }
+  const out = String(flags.out ?? 'assets-sheet.png');
+  await drawSheet(items, out);
+  console.log(`✓ ${out}`);
+}
+async function drawSheet(items: { src: any; label: string }[], out: string) {
   const { buildElement } = await import('../core/elements');
   const fmt = { ...FORMATS.landscape, board: { x: 0, y: 0, w: 100000, h: 100000 } };
   const els = new Map<string, any>(), ctxB = { scene: 'sheet', fmt, els };
-  const items: { el: any; label: string }[] = [];
-  for (const p of Object.keys(POSES)) items.push({ el: buildElement(ctxB, 'p' + p, { figure: p, size: 230, at: [0, 0] }), label: p });
-  for (const f of Object.keys(FACES).filter(f => f !== 'none')) items.push({ el: buildElement(ctxB, 'f' + f, { figure: 'stand', face: f, size: 230, at: [0, 0] }), label: 'face:' + f });
-  for (const a of ACCESSORIES) items.push({ el: buildElement(ctxB, 'a' + a, { figure: 'stand', wear: [a], accent: 'blue', size: 230, at: [0, 0] }), label: 'wear:' + a });
-  for (const d of doodleDirs()) for (const f of readdirSync(d).filter(f => f.endsWith('.yaml')).sort()) { const n = f.replace('.yaml', ''); items.push({ el: buildElement(ctxB, 'd' + n, { doodle: n, size: 200, at: [0, 0] }), label: n }); }
-  const cols = 8, cw = 290, chh = 330, rows = Math.ceil(items.length / cols);
+  const built = items.map((it, i) => {
+    const { __vars, vars, ...src } = it.src;
+    // 带可调项的手绘件按默认值画
+    const sub = (v: any): any => (typeof v === 'string' && v.startsWith('$') ? (__vars ?? {})[v.slice(1)] ?? '' : Array.isArray(v) ? v.map(sub) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sub(x)])) : v);
+    return { el: buildElement(ctxB, 'i' + i, { ...sub(src), at: [0, 0] }), label: it.label };
+  });
+  const cols = 8, cw = 290, chh = 330, rows = Math.ceil(built.length / cols);
   const cv = createCanvas(cols * cw, rows * chh), ctx = cv.getContext('2d');
   ctx.fillStyle = THEME.paper; ctx.fillRect(0, 0, cv.width, cv.height);
-  items.forEach((it, i) => {
+  built.forEach((it, i) => {
     const x = (i % cols) * cw + cw / 2, y = Math.floor(i / cols) * chh + 140, b = it.el.box;
     ctx.save(); ctx.translate(x - (b.x + b.w / 2), y - (b.y + b.h / 2));
     drawStrokes(ctx, env, it.el.strokes);
@@ -371,9 +477,7 @@ async function assetSheet() {
     drawStrokes(ctx, env, lab.strokes);
     ctx.restore();
   });
-  const out = String(flags.out ?? 'assets-sheet.png');
   writeFileSync(out, await cv.encode('png'));
-  console.log(`✓ ${out}`);
 }
 
 if (cmd === '--version' || cmd === '-v') { console.log(JSON.parse(readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8')).version); process.exit(0); }
@@ -391,6 +495,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
   hj patterns [名字]                  表现手法：自带构图和动作编排的场景骨架
   hj assets doodles | figure | icons <关键词> | colors | sheet
+  hj import excalidraw|svg|quickdraw <文件>   把外部手绘素材转成手绘件
   hj fake-align <稿.txt>              没配音时造匀速时间表打草稿
 
 完整工作流见 AGENTS.md`);

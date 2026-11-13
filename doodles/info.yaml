@@ -1,0 +1,8 @@
+desc: 信息圆标
+source: "Excalidraw Libraries / Artem's icons (Artem Anufrij), MIT"
+box: [ 200, 200 ]
+parts:
+  - ellipse: [ 100, 100, 188, 188 ]
+    fill: blue
+  - ellipse: [ 100, 46.3, 26.8, 26.8 ]
+  - rect: [ 86.6, 86.6, 26.8, 80.5 ]

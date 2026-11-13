@@ -1,0 +1,7 @@
+desc: 窗口／卡片框
+source: "Excalidraw Libraries / Awesome Icons (ferminrp), MIT"
+box: [ 200, 130 ]
+parts:
+  - rect: [ 6, 6, 188, 118 ]
+  - rect: [ 6.8, 24.5, 183.8, 17.8 ]
+    fill: gray

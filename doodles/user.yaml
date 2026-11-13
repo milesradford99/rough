@@ -1,0 +1,8 @@
+desc: 用户头像（半身）
+source: "Excalidraw Libraries / Awesome Icons (ferminrp), MIT"
+box: [ 151, 200 ]
+parts:
+  - curve: [ [ 6, 194 ], [ 21.5, 112.1 ], [ 72.6, 70.4 ], [ 123.7, 103.2 ], [ 144.8, 185.5 ], [ 6, 194 ] ]
+    fill: blue
+  - ellipse: [ 77.1, 37.1, 71.1, 62.2 ]
+    fill: blue
