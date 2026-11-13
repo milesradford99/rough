@@ -544,7 +544,7 @@ test('数轴和区间条：数值落在轴上，长度由数轴算；"名字@数
   assert.ok(Math.abs(dot.anchors.center[0] - 480) < 4 && Math.abs(dot.anchors.center[1] - 600) < 4, '点落在数轴的 2 上');
   const drop = add('drop', { arrow: [['t@2', 600], ['t@2', 400]] });
   assert.ok(Math.abs(drop.path![0] - 480) < 2);
-  const v = add('v', { axis: [0, 100], length: 500, at: [100, 900], dir: 'up', labels: false });
+  add('v', { axis: [0, 100], length: 500, at: [100, 900], dir: 'up', labels: false });
   const col = add('col', { span: [0, 50], on: 'v', h: 60 });
   assert.ok(Math.abs(col.box.h - 250) < 8 && col.box.x > 100, '竖轴：条从下往上，贴在轴右侧');
   assert.throws(() => add('bad', { span: [0, 1], on: 'b1' }), /不是数轴/);
