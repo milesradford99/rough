@@ -13,10 +13,12 @@ elements:
   q:     { text: "?", size: 100, color: red, in: top, at: [70, 95] }
   rule:  { text: "留一成", size: 46, color: red, in: top, at: [800, 70] }
   rule2: { text: "准备金", size: 40, color: gray, below: rule, gap: 8 }
-  # 第 1 条。后面每一条都对着它摆：左端对齐它的左端，蓝段接在红段后面
+  # 一把不画出来的比例尺：100 块 = 500 像素。每条横条只写数值，长度和对齐都由它算
+  money: { axis: [0, 100], length: 500, at: [250, 250] }
+  # 第 1 条：100 = 留 10 + 借出 90
   n1:  { text: "100", size: 60, at: [225, 250], anchor: right }
-  r1:  { shape: rect, w: 50,  h: 50, at: [250, 250], anchor: left, color: red, fill: red, shade: false, overlap: true }
-  l1:  { shape: rect, w: 450, h: 50, at: [r1.right, r1.center], anchor: left, color: blue, fill: blue, shade: false }
+  r1:  { span: [0, 10],  on: money, at: [0, 250], color: red, overlap: true }
+  l1:  { span: [10, 100], on: money, at: [0, 250], color: blue }
   r1t: { text: "留10", size: 38, color: red, below: r1, gap: 10 }
   l1t: { text: "借出 90", size: 40, color: blue, below: l1, gap: 10 }
   # 右侧：钱绕一圈回来
@@ -26,25 +28,27 @@ elements:
   a2:    { arrow: [[870, 390], [870, 440]] }
   a3:    { arrow: [[818, 520], [712, 450]], curve: -0.25 }
   back:  { text: "存回 90", size: 36, color: gray, at: [800, 615] }
-  # 第 2 条
+  # 第 2 条：90
   n2:  { text: "90", size: 60, at: [n1.right, 440], anchor: right }
-  r2:  { shape: rect, w: 45,  h: 50, at: [r1.left, 440], anchor: left, color: red, fill: red, shade: false, overlap: true }
-  l2:  { shape: rect, w: 405, h: 50, at: [r2.right, r2.center], anchor: left, color: blue, fill: blue, shade: false }
+  r2:  { span: [0, 9], on: money, at: [0, 440], color: red, overlap: true }
+  l2:  { span: [9, 90], on: money, at: [0, 440], color: blue }
   r2t: { text: "留9", size: 38, color: red, below: r2, gap: 10 }
   l2t: { text: "借出 81", size: 40, color: blue, below: l2, gap: 10 }
-  # 第 3–5 条
+  # 第 3 条：81
   n3:  { text: "81", size: 60, at: [n1.right, 610], anchor: right }
-  r3:  { shape: rect, w: 40,  h: 50, at: [r1.left, 610], anchor: left, color: red, fill: red, shade: false, overlap: true }
-  l3:  { shape: rect, w: 365, h: 50, at: [r3.right, r3.center], anchor: left, color: blue, fill: blue, shade: false }
+  r3:  { span: [0, 8.1], on: money, at: [0, 610], color: red, overlap: true }
+  l3:  { span: [8.1, 81], on: money, at: [0, 610], color: blue }
+  # 第 4 条：73
   n4:  { text: "73", size: 60, at: [n1.right, 720], anchor: right }
-  r4:  { shape: rect, w: 36,  h: 50, at: [r1.left, 720], anchor: left, color: red, fill: red, shade: false, overlap: true }
-  l4:  { shape: rect, w: 329, h: 50, at: [r4.right, r4.center], anchor: left, color: blue, fill: blue, shade: false }
+  r4:  { span: [0, 7.3], on: money, at: [0, 720], color: red, overlap: true }
+  l4:  { span: [7.3, 73], on: money, at: [0, 720], color: blue }
+  # 第 5 条：66
   n5:  { text: "66", size: 60, at: [n1.right, 830], anchor: right }
-  r5:  { shape: rect, w: 33,  h: 50, at: [r1.left, 830], anchor: left, color: red, fill: red, shade: false, overlap: true }
-  l5:  { shape: rect, w: 297, h: 50, at: [r5.right, r5.center], anchor: left, color: blue, fill: blue, shade: false }
+  r5:  { span: [0, 6.6], on: money, at: [0, 830], color: red, overlap: true }
+  l5:  { span: [6.6, 66], on: money, at: [0, 830], color: blue }
   dots: { text: "……", size: 60, color: gray, at: [r1.left, 915], anchor: left }
   many: { text: "几十圈", size: 44, color: gray, at: [800, 760] }
-  edge: { line: [[722, 425], [578, 895]], color: red, rough: 1.0 }
+  edge: { line: [l2.to, l5.to], color: red, rough: 1.0, pad: 0 }
   nz:   { text: "≠ 0", size: 64, color: red, at: [690, 915] }
   # 汇总
   brace: { line: [[70, 225], [70, 930]], color: gray }

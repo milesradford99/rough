@@ -526,3 +526,27 @@ test('镜头移动不占画画的时间；元素被挤出自己的分区会提�
   assert.match(c.issues.map(i => i.msg).join(), /被引擎挪出了这个分区/);
   rmSync(d, { recursive: true });
 });
+
+test('数轴和区间条：数值落在轴上，长度由数轴算；"名字@数值" 可以当坐标', async () => {
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const els = new Map<string, any>(), ctx = { scene: 's', fmt: FORMATS.portrait, els };
+  const add = (id: string, src: any) => { const e = buildElement(ctx, id, src); els.set(id, e); return e; };
+  const t = add('t', { axis: [0, 4], length: 800, at: [80, 600], unit: '年' });
+  assert.equal(t.text, undefined);
+  assert.ok(t.strokes.length > 10, '画出了线、刻度和数字');
+  const b1 = add('b1', { span: [0, 3], on: 't', color: 'blue', inside: '3年' });
+  assert.ok(Math.abs(b1.anchors.from[0] - 80) < 1 && Math.abs(b1.anchors.to[0] - 680) < 1, '0 到 3 年 = 80 到 680');
+  assert.ok(b1.box.y + b1.box.h <= 600, '默认贴在数轴上方');
+  const b2 = add('b2', { span: [2, 4], on: 't', at: [0, 400], h: 40 });
+  assert.ok(Math.abs(b2.box.y + b2.box.h / 2 - 400) < 6 && Math.abs(b2.anchors.from[0] - 480) < 1);
+  const dot = add('dot', { shape: 'circle', size: 24, at: 't@2', fill: 'red' });
+  assert.ok(Math.abs(dot.anchors.center[0] - 480) < 4 && Math.abs(dot.anchors.center[1] - 600) < 4, '点落在数轴的 2 上');
+  const drop = add('drop', { arrow: [['t@2', 600], ['t@2', 400]] });
+  assert.ok(Math.abs(drop.path![0] - 480) < 2);
+  const v = add('v', { axis: [0, 100], length: 500, at: [100, 900], dir: 'up', labels: false });
+  const col = add('col', { span: [0, 50], on: 'v', h: 60 });
+  assert.ok(Math.abs(col.box.h - 250) < 8 && col.box.x > 100, '竖轴：条从下往上，贴在轴右侧');
+  assert.throws(() => add('bad', { span: [0, 1], on: 'b1' }), /不是数轴/);
+  assert.throws(() => add('bad2', { shape: 'circle', at: 'b1@2' }), /不是数轴/);
+});

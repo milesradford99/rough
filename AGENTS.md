@@ -62,10 +62,11 @@ regions:                          # 先把板面分区：这是全景的骨架
 
 elements:                         # 画什么、放哪儿
   bank: { doodle: bank, size: 140, in: top, at: [120, 100] }     # in: 坐标相对这个分区
+  money: { axis: [0, 100], length: 500, at: [250, 250] }       # 比例尺：100 块 = 500 像素（不画出来）
   n1:   { text: "100", size: 60, at: [225, 250], anchor: right }
-  r1:   { shape: rect, w: 50, h: 50, at: [250, 250], anchor: left, color: red, fill: red }
-  l1:   { shape: rect, w: 450, h: 50, at: [r1.right, r1.center], anchor: left, color: blue, fill: blue }
-  r2:   { shape: rect, w: 45, h: 50, at: [r1.left, 440], anchor: left, color: red, fill: red }   # 和第一条共用左端这根轴
+  r1:   { span: [0, 10],  on: money, at: [0, 250], color: red }   # 长度、对齐都由比例尺算
+  l1:   { span: [10, 100], on: money, at: [0, 250], color: blue }
+  r2:   { span: [0, 9],   on: money, at: [0, 440], color: red }   # 第二条：和第一条共用一根轴
 
 beats:                            # 什么时候、怎么动、镜头看哪儿
   - at: "假设你存进"
@@ -85,7 +86,7 @@ beats:                            # 什么时候、怎么动、镜头看哪儿
 ```
 
 `regions` 管“板面怎么分”，`elements` 管“是什么、在哪儿”，`beats` 管“什么时候、怎么动、镜头看哪儿”。
-坐标可以引用前面的东西（`at: [r1.left, 440]`）：后画的对着先画的摆，位置本身就在说话。
+坐标可以引用前面的东西（`at: [r1.left, 440]`），也可以落在数轴的数值上（`at: [t@2, 400]`）：后画的对着先画的摆，位置本身就在说话。**涉及长短、时间、比例的，一律用数轴和区间条，不要自己算像素。**
 
 内容多、一屏放不下时，把板放大而不是换板：场景里写 `board: 1.6`，全景是缩小的整块板，近景才是原大。
 很长的片子可以分章，一章一块板；确实要一页页陈列（素材展示）就在 `project.yaml` 里写 `layout: pages`。

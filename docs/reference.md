@@ -212,6 +212,7 @@ beats:
 | `at: [x, y]` | 元素中心放在这个点 |
 | `at: other` / `at: other.top` | 放在另一个元素的中心 / 某个锚点上 |
 | `at: [other.left, 440]` | 两个坐标各自可以引用别的元素的锚点（取它的 x 或 y）：和它共用一根轴。配合 `anchor: left` 就是“左端对齐它的左端”。被引用的元素要写在前面 |
+| `at: t@2`、`at: [t@2, 400]` | **数轴上的数值当坐标**：`t@2` 是数轴 t 上数值 2 的位置。可以单独当一个点（点、标记、箭头的端点），也可以只取它的 x 或 y |
 | `in: 区名` | 放进一个分区，见场景的 `regions`。只有数字和百分比相对分区；引用别的元素的坐标（`r1.left`）、`rightOf` 这类相对摆放，永远按整块板算，可以放心混用。`hj layout` 打印的是整块板上的坐标 |
 | `rightOf: other`、`leftOf`、`above`、`below` | 贴在另一个元素旁边，`gap`（默认 40）控制间距，`align: start/center/end` 控制对齐 |
 | `anchor: bottom` | 配合 `at`：用自己的哪个点去对齐（默认 `center`；可选 `top bottom left right topLeft …`） |
@@ -243,6 +244,8 @@ beats:
 | 图标 | `{ icon: building-bank, size: 280 }` | 兜底。5000+ 个线条图标，`hj assets icons <英文关键词>` 搜索。造型偏“界面图标”，手绘件里有的就别用它 |
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 46；默认灰色。用来补数字、名字、出处 |
+| 数轴 | `{ axis: [0, 4], length: 800, at: [80, 600], unit: 年 }` | 一根带刻度的线，也是一把比例尺。`at` 是起点（第一个数值的位置）；`dir: up` 竖着从下往上；`step` 刻度间隔或 `ticks: [0, 1, 3]` 直接列出；`labels: false` 不写数字。**不画它（不在任何 draw 里），它就只当比例尺**，不会报“定义了没画” |
+| 区间条 | `{ span: [0, 3], on: t, color: blue, inside: 3年 }` | 沿数轴从一个数值画到另一个数值，长度和对齐由数轴算。`at: [0, 400]` 给出它在哪一行（横轴看 y、竖轴看 x，另一个数随便写），不写就贴在数轴上方；`h` 粗细（默认 50）；`inside` 写在条里面的字。锚点 `from` / `to` 是两端 |
 | 箭头 | `{ arrow: [a, b], curve: 0.2, label: 交税 }` | 起终点可以是元素 id（自动停在边缘外）、`"id.锚点"` 或 `[x, y]`。`curve` 弯曲程度（正负决定朝向）、`both: true` 双向、`head` 箭头大小、`pad` 离元素的距离、`label` 写在箭头中段的小字（`labelSize` 默认 46） |
 | 连线 | `{ line: [a, b] }` | 同箭头，没有箭头尖 |
 | 标记 | `{ mark: circle, target: x }` | `circle box underline strike cross highlight check burst`。`target` 可以是数组；`pad` 调松紧；默认红色 |

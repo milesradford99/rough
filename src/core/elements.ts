@@ -25,11 +25,13 @@ export interface El {
   solid: Box;
   /** 不含标签的本体，相对 box 左上角（box 随元素平移，这个偏移不变）。标记打叉、划线时只盖本体，不盖住标签 */
   body?: Box;
+  /** 数轴：数值范围。数值 v 的位置在 anchors.start 和 anchors.end 之间按比例插值 */
+  axis?: [number, number];
   /** 被引擎自动挪动的距离 */
   nudged?: Pt;
 }
 
-export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'shape', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
+export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
 const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap', 'shade', '__rigid', '__seed'];
@@ -37,6 +39,7 @@ const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
+  axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'],
 };
 
 const DOODLE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '../../doodles');
@@ -112,7 +115,7 @@ export interface BuildCtx {
 }
 
 // ── 自动避让：手绘的板面上东西不互相压着。这里是底层机制，不靠写分镜的人自己看 ──
-const NON_SOLID = new Set(['mark', 'arrow', 'line']);
+const NON_SOLID = new Set(['mark', 'arrow', 'line', 'axis']);
 /** 和 el 同时存在、且不允许被它压住的元素的占位框 */
 function obstacles(ctx: BuildCtx, el: { id: string; over: Set<string>; src: any }, skip: string[] = []): Box[] {
   if (!ctx.life || el.src?.overlap === true) return [];
@@ -190,11 +193,27 @@ function shiftEl(el: El, dx: number, dy: number) {
   el.box = boxOf(el.strokes);
 }
 
+/** 数轴上数值 v 的位置 */
+export function axisPoint(ax: El, v: number): Pt {
+  const [v0, v1] = ax.axis!, a = ax.anchors.start, b = ax.anchors.end, k = (v - v0) / (v1 - v0 || 1);
+  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
+}
+const AXREF = /^([A-Za-z_][\w-]*)@(-?[\d.]+)$/;
+function axisRef(ctx: BuildCtx, v: string, where: string): Pt | null {
+  const m = AXREF.exec(v.trim());
+  if (!m) return null;
+  const ax = ctx.els.get(m[1]);
+  if (!ax) throw new SrcError(where, `坐标 "${v}" 引用了不存在（或定义在它后面）的数轴 "${m[1]}"`);
+  if (!ax.axis) throw new SrcError(where, `坐标 "${v}"：元素 "${m[1]}" 不是数轴（axis）。"名字@数值" 只能用在数轴上`);
+  return axisPoint(ax, +m[2]);
+}
+
 function parseRef(ctx: BuildCtx, ref: any, where: string): { pt: Pt; el?: El; explicit: boolean } {
   if (Array.isArray(ref)) {
     // 每个坐标可以是数字、百分比，或 "元素.锚点"（取那个锚点的 x 或 y）：和别的东西共用一根轴，不用抄坐标
     const axis = (v: any, i: 0 | 1, total: number): number => {
       if (typeof v !== 'string' || /^-?[\d.]+%?$/.test(v)) return num(v, total, where);
+      const ap = axisRef(ctx, v, where); if (ap) return ap[i]; // 数轴上的数值：t@2
       const [id, a = 'center'] = v.split('.'), el = ctx.els.get(id);
       if (!el) throw new SrcError(where, `坐标里引用了不存在（或定义在它后面）的元素 "${id}"`);
       if (!el.anchors[a]) throw new SrcError(where, `元素 "${id}" 没有锚点 "${a}"，可用：${Object.keys(el.anchors).join(' ')}`);
@@ -203,6 +222,8 @@ function parseRef(ctx: BuildCtx, ref: any, where: string): { pt: Pt; el?: El; ex
     return { pt: [axis(ref[0], 0, ctx.fmt.board.w), axis(ref[1], 1, ctx.fmt.board.h)], explicit: true };
   }
   if (typeof ref !== 'string') throw new SrcError(where, `位置引用要写元素 id、"id.锚点" 或 [x, y]，现在是 ${JSON.stringify(ref)}`);
+  const ap = axisRef(ctx, ref, where);
+  if (ap) return { pt: ap, explicit: true };
   const [id, a] = ref.split('.');
   const el = ctx.els.get(id);
   if (!el) throw new SrcError(where, `引用了不存在（或定义在它后面）的元素 "${id}"。被引用的元素要写在前面`);
@@ -289,6 +310,58 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     else if (src.shape === 'triangle') el.strokes = R.poly([[0, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]], true, sst);
     else if (src.shape === 'cloud') { const d = `M${-w * 0.3},${h * 0.3} C${-w * 0.62},${h * 0.3} ${-w * 0.6},${-h * 0.15} ${-w * 0.33},${-h * 0.12} C${-w * 0.32},${-h * 0.5} ${w * 0.08},${-h * 0.55} ${w * 0.13},${-h * 0.22} C${w * 0.4},${-h * 0.42} ${w * 0.62},${-h * 0.05} ${w * 0.4},${h * 0.08} C${w * 0.6},${h * 0.2} ${w * 0.45},${h * 0.32} ${w * 0.3},${h * 0.3} Z`; el.strokes = R.path(d, sst); }
     else throw new SrcError(where, `没有形状 "${src.shape}"。可用：rect ellipse circle diamond triangle cloud`);
+  } else if (kind === 'axis') {
+    // 数轴：一根带刻度的线，也是一把比例尺。别的东西用 "名字@数值" 落在它的数值上；不画它就只当比例尺用
+    const r0 = Array.isArray(src.axis) ? src.axis : [src.axis?.from, src.axis?.to];
+    const v0 = +r0[0], v1 = +r0[1];
+    if (!Number.isFinite(v0) || !Number.isFinite(v1) || v0 === v1) throw new SrcError(where, 'axis 写数值范围，如 axis: [0, 4]（从 0 到 4）');
+    const L = +(src.length ?? 800), up = src.dir === 'up';
+    if (!(L > 20)) throw new SrcError(where, 'length 写数轴在板上的长度（像素），如 800');
+    if (src.dir != null && !['right', 'up'].includes(src.dir)) throw new SrcError(where, 'dir 只能是 right（从左往右，默认）或 up（从下往上）');
+    const at = parseRef(ctx, src.at ?? [80, ctx.fmt.board.h / 2], where).pt; // at 是数轴的起点（数值 v0 的位置）
+    const end: Pt = up ? [at[0], at[1] - L] : [at[0] + L, at[1]];
+    el.axis = [v0, v1]; el.anchors.start = at; el.anchors.end = end;
+    const P = (v: number): Pt => { const k = (v - v0) / (v1 - v0); return [at[0] + (end[0] - at[0]) * k, at[1] + (end[1] - at[1]) * k]; };
+    const ast: Style = { ...st, color: color(src.color, THEME.colors.gray), w: src.pen ?? 4, rough: Math.min(st.rough, 0.6) };
+    el.strokes = R.line(at[0], at[1], end[0], end[1], ast);
+    // 刻度：step 每隔多少一个；或者 ticks 直接列出数值
+    const nice = (x: number) => { const p = Math.pow(10, Math.floor(Math.log10(x))), m = x / p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; };
+    const ticks: number[] = Array.isArray(src.ticks) ? src.ticks.map(Number) : src.ticks === false ? [] : (() => { const stp = +(src.step ?? nice(Math.abs(v1 - v0) / 5)), out: number[] = []; for (let v = v0, n = 0; (v1 > v0 ? v <= v1 + 1e-9 : v >= v1 - 1e-9) && n < 60; v += (v1 > v0 ? stp : -stp), n++) out.push(+v.toFixed(6)); return out; })();
+    const tl = 14, tsz = src.size ?? 38;
+    ticks.forEach((v, i) => {
+      const p = P(v);
+      el.strokes.push(...(up ? R.line(p[0] - tl, p[1], p[0] + tl, p[1], { ...ast, seed: seed + 3 + i }) : R.line(p[0], p[1] - tl, p[0], p[1] + tl, { ...ast, seed: seed + 3 + i })));
+      if (src.labels === false) return;
+      const t = textStrokes(`${v}${src.unit ?? ''}`, { size: tsz, color: color(src.color, THEME.colors.gray) });
+      translateStrokes(t.strokes, up ? p[0] - tl - 10 - t.w : p[0] - t.w / 2, up ? p[1] - t.h / 2 : p[1] + tl + 8);
+      el.strokes.push(...t.strokes);
+    });
+    placed = true;
+  } else if (kind === 'span') {
+    // 区间条：沿数轴从一个数值画到另一个数值。长度和位置由数轴算，不用手算像素
+    const ax = ctx.els.get(String(src.on ?? ''));
+    if (!ax) throw new SrcError(where, `span 要写 on: 数轴的名字（数轴定义在它前面）。现在是 ${JSON.stringify(src.on)}`);
+    if (!ax.axis) throw new SrcError(where, `on: "${src.on}" 不是数轴（axis）`);
+    const r0 = src.span;
+    if (!Array.isArray(r0) || r0.length !== 2 || r0.some((v: any) => !Number.isFinite(+v))) throw new SrcError(where, 'span 写起止数值，如 span: [0, 3]');
+    const up = ax.anchors.end[0] === ax.anchors.start[0] && ax.anchors.end[1] !== ax.anchors.start[1];
+    const a = axisPoint(ax, +r0[0]), b = axisPoint(ax, +r0[1]), th = src.h ?? 50;
+    // 离数轴多远：at 给出垂直方向的位置（横轴给 y、竖轴给 x），或者 offset 相对数轴；都不写就紧贴在数轴上方 / 右侧
+    let c0: number;
+    if (src.at != null) { const p = parseRef(ctx, Array.isArray(src.at) ? src.at : [src.at, src.at], where).pt; c0 = up ? p[0] : p[1]; }
+    else c0 = (up ? a[0] : a[1]) + (src.offset ?? (up ? th / 2 + 18 : -(th / 2 + 18)));
+    const x0 = up ? c0 - th / 2 : Math.min(a[0], b[0]), y0 = up ? Math.min(a[1], b[1]) : c0 - th / 2;
+    const w = up ? th : Math.abs(b[0] - a[0]), h = up ? Math.abs(b[1] - a[1]) : th;
+    const sst: Style = { ...st, fill: st.fill ?? (src.color ? color(src.color) : undefined), shade: false };
+    el.strokes = w > 2 && h > 2 ? R.rect(x0, y0, w, h, sst) : R.line(x0, y0, x0 + w, y0 + h, sst);
+    if (src.inside != null) { // 写在条里面的字（如“3年”）
+      const t = textStrokes(String(src.inside), { size: src.insideSize ?? Math.min(48, Math.round(th * 0.72)), color: THEME.ink });
+      translateStrokes(t.strokes, x0 + w / 2 - t.w / 2, y0 + h / 2 - t.h / 2);
+      el.strokes.push(...t.strokes); el.text = String(src.inside); el.missing = t.missing;
+    }
+    // 起点、终点也当锚点：别的东西可以接在这一段后面
+    el.anchors.from = up ? [x0 + w / 2, a[1]] : [a[0], y0 + h / 2]; el.anchors.to = up ? [x0 + w / 2, b[1]] : [b[0], y0 + h / 2];
+    placed = true;
   } else if (kind === 'arrow' || kind === 'line') {
     const refs = src[kind];
     if (!Array.isArray(refs) || refs.length !== 2) throw new SrcError(where, `${kind} 要写成 [起点, 终点]，起终点可以是元素 id、"id.锚点" 或 [x, y]`);
