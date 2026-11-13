@@ -61,7 +61,7 @@ beats:
 
 ## 内置素材
 
-可摆姿势、换表情、戴配饰、手里拿东西、能走动的火柴人；120 个同一画风的手绘件（含 Claude 像素形象的五个表情，和 32 个 Open Peeps 真人插画：坐、蹲、站、半身）；另有 5000+ 线条图标兜底。不够时用基本图形自己画（一个 YAML 文件），或用 `hj import` 把 Excalidraw 素材库、SVG、Quick Draw 简笔画转进来。
+可摆姿势、换表情、戴配饰、手里拿东西、能走动的火柴人；123 个同一画风的手绘件（含 Claude 像素形象的五个表情，和 32 个 Open Peeps 真人插画：坐、蹲、站、半身）；另有 5000+ 线条图标兜底。不够时用基本图形自己画（一个 YAML 文件），或用 `hj import` 把 Excalidraw 素材库、SVG、Quick Draw 简笔画转进来。
 
 ![内置素材](docs/images/assets.jpg)
 

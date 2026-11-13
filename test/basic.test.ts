@@ -397,3 +397,31 @@ test('内置手绘件：每一个都画得出来，导入的都带出处', async
     assert.ok(YAML.parse(readFileSync(join(dir, f), 'utf8')).desc, f + ' 缺 desc');
   }
 });
+
+test('试跑暴露的缺口：手法字号不小于 36、thought 的小人可起名并被批注、算式不算长板书、细线墨块不慢', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  const text = '每一圈都比上一圈少一成。很多人觉得这样下去就没了。可是加起来有一千块。';
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment(text)));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  writeFileSync(join(d, 'scenes/01.yaml'), `
+from: "每一圈"
+intent: 五根柱子挤在小地盘里
+pattern:
+  - { kind: bars, area: ["5%", "5%", "60%", "40%"], items: [{ label: 存入, value: 100 }, { label: 一圈, value: 90 }, { label: 二圈, value: 81 }, { label: 三圈, value: 73 }, { label: 四圈, value: 66 }] }
+  - { kind: thought, area: ["5%", "50%", "90%", "48%"], who: { figure: think, id: me }, content: { doodle: bowl } }
+elements:
+  tip: { note: 饿了, target: me }
+  sum: { text: "100 × 10 = 1000", size: 60, at: ["75%", "20%"] }
+  guy: { doodle: peep-bust-plain, size: 260, at: ["78%", "38%"] }
+beats:
+  - { at: "每一圈", intent: 画柱子, do: [{ step: bars.axis }, { step: bars.bar.1 }, { step: bars.bar.2 }, { step: bars.bar.3 }, { step: bars.bar.4 }, { step: bars.bar.5 }] }
+  - { at: "很多人觉得", intent: 小人和泡泡, do: [{ step: thought.who }, { draw: tip }, { step: thought.bubble }, { draw: guy }] }
+  - { at: "可是加起来", intent: 写算式, do: [{ draw: sum }] }
+`);
+  const c = compile(d), issues = lint(c);
+  assert.deepEqual(issues.filter(i => i.level === 'error'), []);
+  for (const tl of c.tls) if (tl.el.kind === 'text') assert.ok((tl.el.src.size ?? 72) >= 36, tl.el.id);
+  assert.ok(c.tls.some(t => t.el.id === 'me'));
+  for (const bad of ['字号', '偏长', '倍才画得完']) assert.equal(issues.filter(i => i.msg.includes(bad)).length, 0, bad);
+  rmSync(d, { recursive: true });
+});

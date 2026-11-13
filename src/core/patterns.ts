@@ -219,16 +219,17 @@ export const PATTERNS: Record<string, Pattern> = {
     steps: ['who 画出小人', 'bubble 冒出泡泡和里面的内容', 'pop 泡泡被擦掉（想法破灭）'],
     build(p, c) {
       need(c, p.who, 'who'); need(c, p.content, 'content');
+      const who = idOf(p.who, 'who');
       const A = c.A, speech = p.bubble === 'speech';
       const fs = Math.min(A.h * 0.62, A.w * 0.8), bs = Math.min(A.w * 0.66, A.h * 0.52, 620);
       const fx = A.x + A.w * 0.26, fy = A.y + A.h - fs * 0.5 - 20;
       const bx = Math.min(A.x + A.w - bs / 2 - 10, fx + bs * 0.62), by = A.y + bs * 0.38 + 10;
       const E: [string, any][] = [
-        ['who', el(p.who, { at: [r(fx), r(fy)], size: p.who.size ?? r(fs) })],
+        [who, el(p.who, { at: [r(fx), r(fy)], size: p.who.size ?? r(fs) })],
         ['bubble', { doodle: speech ? 'bubble' : 'thought', size: r(bs), at: [r(bx), r(by)] }],
         ['idea', el(p.content, { at: 'bubble', dy: r(-bs * (speech ? 0.07 : 0.05)), dx: speech ? 0 : r(-bs * 0.01) }, r(bs * 0.3))],
       ];
-      return { elements: E, steps: { who: [{ draw: 'who' }], bubble: [{ draw: ['bubble', 'idea'] }], pop: [{ erase: ['bubble', 'idea'], dur: 0.5 }] } };
+      return { elements: E, steps: { who: [{ draw: who }], bubble: [{ draw: ['bubble', 'idea'] }], pop: [{ erase: ['bubble', 'idea'], dur: 0.5 }] } };
     },
   },
 

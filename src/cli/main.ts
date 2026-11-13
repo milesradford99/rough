@@ -35,7 +35,7 @@ function load(dir: string, strict = true): Compiled {
   try { c = compile(dir); } catch (e: any) { return die(e.message); }
   c.issues = lint(c);
   const errors = c.issues.filter(i => i.level === 'error');
-  if (strict && errors.length) { printIssues(c.issues); die('分镜有错误，先修掉再继续（hj check 可随时重查）'); }
+  if (strict && errors.length) { printIssues(c.issues); die('分镜有错误，先修掉再继续（hj check 可随时重查）。这次什么都没有生成：输出目录里如果有图，是上一次的旧图'); }
   return c;
 }
 const approvalsFile = (dir: string) => join(dir, 'approvals.json');
@@ -334,6 +334,15 @@ const commands: Record<string, () => Promise<void> | void> = {
       if (name) { // 附上一个能直接照着改的完整场景
         const ex = join(fileURLToPath(new URL('../../examples/patterns/scenes', import.meta.url)));
         const f = existsSync(ex) ? readdirSync(ex).find(x => x.includes('-' + k + '.')) : undefined;
+        if (f) {
+          // 手法自动起的元素名：照例子展开一遍，列出来。批注、标记、动作里引用它们时用这些名字
+          try {
+            const ps = YAML.parse(readFileSync(join(ex, f), 'utf8')).pattern, fmt = FORMATS.portrait, B = fmt.board;
+            const out = p.build(ps, { fmt, A: { x: 20, y: 20, w: B.w - 40, h: B.h - 40 }, portrait: true, fail: (m: string) => { throw new Error(m); } });
+            const what = (e: any) => ('figure' in e ? '小人' : 'text' in e ? `字“${String(e.text).slice(0, 6)}”` : 'doodle' in e ? `手绘件 ${e.doodle}` : 'arrow' in e ? '箭头' : 'line' in e ? '线' : 'shape' in e ? '形状' : 'mark' in e ? '标记' : 'note' in e ? '批注' : '元素');
+            console.log('  例子展开后的元素名（给角色写了 id 的用你写的 id，其余是手法自动起的；第 N 项的名字里带 N）：\n    ' + out.elements.map(([id, e]) => `${id}（${what(e)}）`).join('  ') + '\n');
+          } catch { /* 例子展开失败不影响说明 */ }
+        }
         if (f) console.log(`  照着改的完整例子（examples/patterns/scenes/${f}）：\n\n` + readFileSync(join(ex, f), 'utf8').split('\n').map(l => '    ' + l).join('\n'));
       }
       console.log('');

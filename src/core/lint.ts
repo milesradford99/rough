@@ -48,7 +48,7 @@ export function lint(c: Compiled): Issue[] {
         for (const piece of (el.kind === 'text' ? String(el.src.text).split('\n') : [el.text])) {
           const p = stripPunct(piece), lc = longestCommon(p, say);
           if (lc >= 7) add('error', where, `板书“${piece}”有 ${lc} 个字是照抄口播的。画面要演示口播在讲的事，不要把话再写一遍：换成图形、小人动作、数字或 2–5 字的关键词`);
-          else if (p.length > 10 && el.kind === 'text') add('warn', where, `板书“${piece}”一行有 ${p.length} 个字，偏长。板书只留关键词、数字、标签`);
+          else if (p.length > 10 && p.replace(/[\d.+\-×÷=%≈≠<>→*/xX]/g, '').length > 6 && el.kind === 'text') add('warn', where, `板书“${piece}”一行有 ${p.length} 个字，偏长。板书只留关键词、数字、标签`);
         }
       }
       // 2. 出界

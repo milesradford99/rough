@@ -117,7 +117,9 @@ beats:
 
 - `hj patterns` 列出全部九种，`hj patterns cycle` 看某一种的参数和步骤。实际效果见 `examples/patterns/`。
 - 手法里的角色写法和普通元素一样，只是不用写位置；大小可省（手法会给合适的默认值），也可以自己写 `size` 覆盖。
-- 给角色写 `id`，之后就能在自己的动作里引用它（换姿势、圈起来、推镜头）。没写 id 的，用手法自动起的名字（`hj check` 报错信息里会列出）。
+- 给角色写 `id`，之后就能在自己的动作里引用它（换姿势、圈起来、推镜头）。没写 id 的，用手法自动起的名字：`hj patterns <名字>` 会列出例子展开后的全部元素名（如柱子是 `b1 b2…`，数值是 `v1…`，标签是 `t1…`），`hj layout` 也能看到。
+- 手法生成的元素和你自己写的 `elements` 是一家：`elements` 里的批注、标记、箭头可以直接以它们为目标（`{ note: 饿了, target: me }`）。
+- 手法自己算出来的字号最小是 36，不会再触发“字号太小”。
 - `{ step: 名字 }` 上可以加 `at`、`with: prev`、`delay`，作用于这一步的第一个动作。
 - `area: [x, y, w, h]` 让手法只占画板的一部分（可用百分比），剩下的地方放自己的元素。
 - **一块板放多种手法**：`pattern` 写成列表，每种都写 `area`。这时步骤名要带前缀 `<kind>.<步骤>`（如 `cycle.go.1`、`bars.cut.1`）；同一种手法用两次时给它们各写一个 `name` 当前缀。
@@ -229,7 +231,7 @@ beats:
 |---|---|---|
 | 文字 | `{ text: "+0", size: 150, color: red }` | `\n` 换行；`align`。`size` 是字高。字体是手写马克笔体「霞鹜漫黑」 |
 | 小人 | `{ figure: stand, face: happy, wear: [tophat, tie], size: 420 }` | `size` 是身高；`accent` 是配饰颜色；`carry: { doodle: moneybag, hand: left }` 手里拿一样东西（默认右手，跟着手动）。姿势/表情/配饰清单：`hj assets figure` |
-| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。120 个，和小人同一画风：`hj assets doodles` 查看；`peep-` 开头的 32 个是真人插画（`peep-bust-*` 半身、`peep-sit-*` 坐蹲骑、`peep-stand-*` 站立），要坐着、蹲着、拿东西的人时用它们，火柴人仍是默认角色；`vars` 是该手绘件开放的可调项 |
+| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。123 个，和小人同一画风：`hj assets doodles` 查看；`peep-` 开头的 32 个是真人插画（`peep-bust-*` 半身、`peep-sit-*` 坐蹲骑、`peep-stand-*` 站立），要坐着、蹲着、拿东西的人时用它们，火柴人仍是默认角色；`vars` 是该手绘件开放的可调项 |
 | 图标 | `{ icon: building-bank, size: 280 }` | 兜底。5000+ 个线条图标，`hj assets icons <英文关键词>` 搜索。造型偏“界面图标”，手绘件里有的就别用它 |
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 40；默认灰色。用来补数字、名字、出处 |
@@ -321,7 +323,7 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 | `hj layout <目录> [--scene 场景]` | 布局线框：每个元素最后落在哪儿（坐标表、占用图、线框 PNG）。不画笔画，不需要用户确认，写分镜时随时跑 |
 | `hj plan <目录>` | 生成文字分镜表 `storyboard.md` |
 | `hj approve <目录> plan\|keyframes --by "<用户原话>"` | 记录用户确认 |
-| `hj stills <目录> --draft [--scene 场景]` | 草稿关键帧：半分辨率、带“草稿 · 未确认”水印，输出到 `out/draft/`。给写分镜的人自查用，不需要用户确认，也不解锁后面的步骤 |
+| `hj stills <目录> --draft [--scene 场景] [--guides]` | 草稿关键帧：半分辨率、带“草稿 · 未确认”水印，输出到 `out/draft/`。给写分镜的人自查用，不需要用户确认，也不解锁后面的步骤。`--guides` 画出画板边界（蓝色虚线）：元素坐标的原点在这个框的左上角，竖屏画板是 960×1250，横屏是 1700×800，框外是平台界面和字幕的地方。分镜有错误时不出图，目录里留着的是旧图 |
 | `hj stills <目录> [--scene 场景] [--at 秒数或口播片段] [--guides]` | 正式关键帧（需先确认文字分镜）。`--guides` 画出画板边界 |
 | `hj render <目录> [--scene 场景 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染。`--draft` 为半分辨率、15 帧 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |

@@ -49,8 +49,9 @@ export function naturalDraw(el: El): number {
   return Math.max(THEME.pace.min, d);
 }
 /** 一笔占多少“时间份额”：上色的排线是快速涂抹，只算三分之一 */
-const weight = (s: any) => ((s.under ? 0.2 : 1) * s.len + penUp(s) * (s.under ? 0.4 : 1));
-const penUp = (s: { kind: string; len: number }) => ((s as any).deco ? 0 : s.kind === 'fglyph' ? 40 : s.kind === 'wipe' ? 10 : (s as any).flat ? 10 : Math.min(75, 18 + s.len * 0.3));
+// 很细的线（导入的墨块人物的描边）一带而过，不按正常落笔算
+const weight = (s: any) => ((s.under ? 0.2 : s.kind === 'line' && s.w < 3 ? 0.3 : 1) * s.len + penUp(s) * (s.under ? 0.4 : 1));
+const penUp = (s: { kind: string; len: number }) => ((s as any).deco ? 0 : s.kind === 'line' && (s as any).w < 3 ? 1.5 : s.kind === 'fglyph' ? 40 : s.kind === 'wipe' ? 10 : (s as any).flat ? 10 : Math.min(75, 18 + s.len * 0.3));
 
 export function loadProject(dir: string): { meta: any; scenes: { file: string; src: any }[] } {
   const pf = join(dir, 'project.yaml');
@@ -202,6 +203,8 @@ export function compile(dir: string): Compiled {
         const a = Array.isArray(ps.area) && ps.area.length === 4 ? { x: pc(ps.area[0], B.w), y: pc(ps.area[1], B.h), w: pc(ps.area[2], B.w), h: pc(ps.area[3], B.h) } : { x: 20, y: 20, w: B.w - 40, h: B.h - 40 };
         try {
           const out = pat.build(ps, { fmt, A: a, portrait: a.h > a.w, fail: (m: string) => { throw new SrcError(`${file} / 手法 ${name}`, m); } });
+          // 手法自己算出来的字号不能小到手机上看不清（柱子多、地盘小时会算得很小）
+          for (const [, e] of out.elements) if (e && typeof e === 'object' && 'text' in e && typeof e.size === 'number' && e.size < 36) e.size = 36;
           // 多种手法并存时，给自动起名的元素加前缀，避免撞名
           const userIds = new Set<string>(); JSON.stringify(ps, (k, v) => { if (k === 'id' && typeof v === 'string') userIds.add(v); return v; });
           const ren = new Map<string, string>();
