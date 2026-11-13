@@ -501,3 +501,17 @@ test('手法可以放进一个分区；分镜表先给全景、分区和镜头',
   assert.match(compile(d).issues.map(i => i.msg).join(), /没有这个分区/);
   rmSync(d, { recursive: true });
 });
+
+test('叉、划线只盖目标的本体，不盖住它的标签', async () => {
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const els = new Map<string, any>(), ctx = { scene: 's', fmt: FORMATS.portrait, els };
+  const court = buildElement(ctx, 'court', { doodle: 'bank', size: 200, at: [400, 400], label: '法院' }); els.set('court', court);
+  assert.ok(court.body); const label = { y0: court.box.y + court.body!.y + court.body!.h };
+  for (const m of ['cross', 'strike']) {
+    const mk = buildElement(ctx, 'x' + m, { mark: m, target: 'court', pad: 10 });
+    assert.ok(mk.box.y + mk.box.h <= label.y0 + 14, `${m} 不伸进标签`);
+  }
+  const ring = buildElement(ctx, 'ring', { mark: 'circle', target: 'court' });
+  assert.ok(ring.box.y + ring.box.h >= court.box.y + court.box.h, '圈连标签一起圈');
+});

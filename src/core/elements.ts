@@ -23,6 +23,8 @@ export interface El {
   over: Set<string>;
   /** 参与避让的占位框（批注只算文字，不算那条细线） */
   solid: Box;
+  /** 不含标签的本体，相对 box 左上角（box 随元素平移，这个偏移不变）。标记打叉、划线时只盖本体，不盖住标签 */
+  body?: Box;
   /** 被引擎自动挪动的距离 */
   nudged?: Pt;
 }
@@ -360,11 +362,13 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   } else if (kind === 'mark') {
     const targets = (Array.isArray(src.target) ? src.target : [src.target]).map((t: any) => parseRef(ctx, t, where));
     if (targets.some((t: any) => !t.el)) throw new SrcError(where, 'mark 的 target 要写元素 id');
-    const tb = unionBox(targets.map((t: any) => t.el!.box)), pad = src.pad ?? 14;
+    // 叉、划线、框、高亮只盖本体，标签留在外面读得清；圈和下划线连标签一起
+    const bodyOf = (e: El): Box => (e.body && ['cross', 'strike', 'box', 'highlight'].includes(src.mark) ? { x: e.box.x + e.body.x, y: e.box.y + e.body.y, w: e.body.w, h: e.body.h } : e.box);
+    const tb = unionBox(targets.map((t: any) => bodyOf(t.el!))), pad = src.pad ?? 14;
     const b = { x: tb.x - pad, y: tb.y - pad, w: tb.w + pad * 2, h: tb.h + pad * 2 }, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
     const ms: Style = { ...st, color: color(src.color, THEME.colors.red), w: src.pen ?? THEME.pen * 1.15 };
     const m = src.mark;
-    if (m === 'circle') el.strokes = R.ellipse(cx, cy, b.w + Math.max(44, b.h * 0.5), b.h * 1.25 + 16, { ...ms, rough: 1.6, double: true });
+    if (m === 'circle') el.strokes = R.ellipse(cx, cy, b.w + Math.max(44, b.h * 0.5), b.h * 1.12 + 14, { ...ms, rough: 1.6, double: true });
     else if (m === 'box') el.strokes = R.rect(b.x, b.y, b.w, b.h, { ...ms, rough: 1.3 });
     else if (m === 'underline') el.strokes = [...R.line(b.x, b.y + b.h + 2, b.x + b.w, b.y + b.h + 2, ms), ...R.line(b.x + b.w * 0.98, b.y + b.h + 14, b.x + b.w * 0.08, b.y + b.h + 14, { ...ms, seed: seed + 5 })];
     else if (m === 'strike') el.strokes = R.line(b.x, cy + 2, b.x + b.w, cy - 2, { ...ms, w: ms.w * 1.2 });
@@ -391,6 +395,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     el.strokes.push(...labelStrokes);
   }
   el.box = boxOf(el.strokes);
+  if (labelStrokes.length) el.body = { x: core.x - el.box.x, y: core.y - el.box.y, w: core.w, h: core.h };
 
   if (!placed) {
     const keys = POS_KEYS.filter(k => k in src);
