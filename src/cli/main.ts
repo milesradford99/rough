@@ -59,6 +59,7 @@ function layers(c: Compiled, sc: CScene) {
     if (['figure', 'doodle', 'icon', 'parts'].includes(k)) { const sig = k + JSON.stringify([e.src.figure, e.src.doodle, e.src.icon, e.src.wear, e.src.size]); if (!seen.has(sig)) { seen.add(sig); main++; } if (e.src.label) notes++; }
     else if (k === 'note') notes++;
     else if (k === 'text') { if (/[0-9０-９%％½¼¾×÷=≠+＋]/.test(e.text ?? '')) support++; else if ((e.src.size ?? 72) <= 60) notes++; else main++; }
+    else if (k === 'span') main++; // 区间条是图本身（横条、时间段），算主体
     else if (k === 'chart' || k === 'shape') support++;
     else if (k === 'arrow' || k === 'line') { support++; if (e.src.label) notes++; }
   }
@@ -138,6 +139,27 @@ const commands: Record<string, () => Promise<void> | void> = {
       for (let k = s.from; k < s.to; k++) { const u = al.units[k]; txt += u.shaky ? `~${u.display}~` : u.display; }
       L.push(`| ${i + 1} | ${s.start.toFixed(2)} | ${s.end.toFixed(2)} | ${(s.end - s.start).toFixed(1)}s | ${gap > 0.02 ? gap.toFixed(2) + 's' : ''} | ${txt.replace(/~~/g, '')} |`);
     });
+    // 分句：按逗号、顿号再切一层，每一小句的开口时间就是现成的卡点。
+    // 在整条口播里出现不止一次的词组标出来：卡点写它要加 #2，或者换一个更长、只出现一次的片段
+    const plain = al.units.map(u => u.display).join('');
+    const count = (w: string) => { let n = 0, i = -1; while ((i = plain.indexOf(w, i + 1)) >= 0) n++; return n; };
+    L.push('', '## 分句卡点', '', '每一小句开口的时间。`卡点` 一栏是可以直接写进 `at:` 的片段（在整条口播里只出现一次）；标了“重复”的词组在口播里不止一次，写它要加 `#2`、`#3`。', '', '| 起 | 分句 | 卡点 | 重复的词组 |', '|--:|---|---|---|');
+    for (const sn of al.sentences) {
+      let k = sn.from;
+      while (k < sn.to) {
+        let e = k; while (e < sn.to && !/[，、；：,;:]$/.test(al.units[e].display)) e++;
+        e = Math.min(e + 1, sn.to);
+        const txt = al.units.slice(k, e).map(u => u.display).join(''), core = txt.replace(/[，。、；：？！,.;:?!“”"' ]/g, '');
+        if (core) {
+          let anchor = '';
+          for (let n = 3; n <= core.length && !anchor; n++) { const w = core.slice(0, n); if (count(w) === 1) anchor = w; }
+          const reps: string[] = [];
+          for (let n = 4; n >= 3; n--) for (let i = 0; i + n <= core.length; i++) { const w = core.slice(i, i + n); if (/^[\u4e00-\u9fff\d]+$/.test(w) && count(w) > 1 && !reps.some(r => r.includes(w) || w.includes(r))) reps.push(w); }
+          L.push(`| ${al.units[k].start.toFixed(2)} | ${txt} | ${anchor ? '`' + anchor + '`' : '（整句都重复，用 #2）'} | ${reps.slice(0, 4).map(r => `${r}×${count(r)}`).join('、')} |`);
+        }
+        k = e;
+      }
+    }
     const out = L.join('\n') + '\n';
     writeFileSync(join(dir, 'brief.md'), out);
     console.log(out + `\n（已写入 ${join(dir, 'brief.md')}）`);

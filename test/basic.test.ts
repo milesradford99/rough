@@ -551,7 +551,7 @@ test('数轴和区间条：数值落在轴上，长度由数轴算；"名字@数
   assert.throws(() => add('bad2', { shape: 'circle', at: 'b1@2' }), /不是数轴/);
 });
 
-test('跟拍：一块板没写镜头时，引擎推近正在画的东西、结尾回全景；写了镜头或 camera: still 就不跟', () => {
+test('跟拍：引擎推近正在画的东西、结尾回全景；自己写的镜头优先，camera: still 关掉', () => {
   const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
   const text = '先画左上角的银行，它是故事的起点。再画右下角的工厂，那里在生产东西。然后中间写一个数字，一百块钱。最后把它们连起来，看清楚全貌，这就是整个故事。';
   writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment(text)));
@@ -565,6 +565,8 @@ test('跟拍：一块板没写镜头时，引擎推近正在画的东西、结�
   for (let i = 1; i < f.segs.length; i++) assert.ok(f.segs[i].t0 - f.segs[i - 1].t0 >= 3.4, '两次移动至少隔 3.5 秒');
   assert.doesNotMatch(lint(f.c).map(i => i.msg).join(), /镜头一次都没动/);
   assert.equal(run(scene('camera: still\n')).segs.length, 0);
-  assert.equal(run(scene('', '{ camera: { focus: [a] } }, ')).segs.length, 1, '写了镜头就以写的为准');
+  const e = run(scene('', '{ camera: { focus: [a], pad: 40 } }, '));
+  assert.ok(e.segs[0].t0 < 0.5 && e.segs[0].to.zoom > 1.5, '写了的那一拍照写的走');
+  assert.ok(e.segs.length >= 2, '之后接着跟拍');
   rmSync(d, { recursive: true });
 });

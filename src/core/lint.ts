@@ -187,8 +187,11 @@ export function lint(c: Compiled): Issue[] {
     // 5. 画面静止太久
     const acts = sc.beats.flatMap(b => b.actions).sort((x, y) => x.t0 - y.t0);
     let cursor = sc.t0;
+    // 镜头停在全景上、讲的人在解释：一块板讲久了，停在全景上说几句话是正常的，放宽到 7 秒
+    const homeSeg = (t: number) => { let to: any = null; for (const k of c.cams) { if (k.t0 > t) break; to = k.to; } return to === sc.home; };
+    const oneBoard = c.meta.layout !== 'pages' && sc.t1 - sc.t0 >= 25;
     const idle = (from: number, to: number) => {
-      if (to - from < 4.2) return;
+      if (to - from < (oneBoard && homeSeg(from) ? 7 : 4.2)) return;
       const said = c.al.units.filter(u => u.start >= from && u.start < to).map(u => u.display).join('');
       add('warn', sc.file, `${fmtT(from)}–${fmtT(to)} 有 ${(to - from).toFixed(1)} 秒画面没有任何变化，这段在说：“${said.slice(0, 40)}${said.length > 40 ? '…' : ''}”。真人讲到这里手不会停：加一拍（画点东西、小人换个动作、圈一下重点、推一下镜头）`);
     };

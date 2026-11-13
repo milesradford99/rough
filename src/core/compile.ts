@@ -557,12 +557,12 @@ export function compile(dir: string): Compiled {
         }
       }
     }
-    // 跟拍：这块板一个镜头动作都没写时，引擎像摄像师一样跟着笔走。
-    // 正在画的东西小就推近；要画的东西跑出画面就跟过去；切换太密就拉回全景；结尾回到全景。写了任何 camera 动作的板以写的为准
+    // 跟拍：引擎像摄像师一样跟着笔走。正在画的东西小就推近；要画的东西跑出画面就跟过去；切换太密就拉回全景；结尾回到全景。
+    // 自己写的 camera 动作优先：写了的那一拍按写的来，之后接着跟
     const camMode = src.camera ?? meta.camera ?? (meta.layout === 'pages' ? 'still' : 'follow');
     if (!['follow', 'still'].includes(camMode)) err(file, 'camera 写 follow（跟着笔走，默认）或 still（镜头不动，除非自己写 camera 动作）');
-    const hasCam = scene.beats.some(b => b.actions.some(a => a.verb === 'camera'));
-    if (camMode === 'follow' && !hasCam && t1 - t0 >= 12) {
+    if (camMode === 'follow' && t1 - t0 >= 12) {
+      const mine = camEvents.filter(k => k.t0 >= t0 - 1e-6 && k.t0 < t1); // 这块板里自己写的镜头（进场的平移在 t0 之前，不算）
       const FB = fmt.board, FMAX = 1.9, PAD = 70, GAP = 3.5;
       const CB = contentBox;
       const camOf = (b: Box): Cam => {
@@ -574,17 +574,22 @@ export function compile(dir: string): Compiled {
       };
       const viewOf = (cm: Cam): Box => { const w = FB.w / cm.zoom, h = FB.h / cm.zoom, cx = cm.cx - origin[0] - FB.x - (screenC[0] - boardC[0]) / cm.zoom, cy = cm.cy - FB.y - (screenC[1] - boardC[1]) / cm.zoom; return { x: cx - w / 2, y: cy - h / 2, w, h }; };
       const inside = (a: Box, v: Box, m = 24) => a.x >= v.x + m && a.y >= v.y + m && a.x + a.w <= v.x + v.w - m && a.y + a.h <= v.y + v.h - m;
-      let cur: Cam = home, lastMove = -Infinity;
-      const go = (t: number, to: Cam) => { if (to === cur) return; camEvents.push({ t0: t, t1: t + 1.1, to }); cur = to; lastMove = t; };
+      let cur: Cam = home, lastMove = -Infinity, lastHome = t0;
+      const go = (t: number, to: Cam) => { if (to === cur) return; camEvents.push({ t0: t, t1: t + 1.1, to }); cur = to; lastMove = t; if (to === home) lastHome = t; };
       for (const b of scene.beats) {
-        const ids = b.actions.filter(a => ['draw', 'pop', 'fade'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis');
-        if (!ids.length) continue;
-        const tgt = unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box));
-        const near = camOf(tgt), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
+        const own = mine.filter(k => k.t0 >= b.t - 1e-6 && k.t0 < b.tEnd);
+        if (own.length) { cur = own[own.length - 1].to; lastMove = own[own.length - 1].t0; if (cur === home) lastHome = lastMove; continue; } // 自己写的镜头：照写的走
+        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => ['draw', 'pop', 'fade'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
+        const tgt = boxOfBeat(b);
+        if (!tgt) continue;
+        // 往后看一小段：接下来几秒要画的东西一起框进去，免得刚推近就得拉开
+        const ahead = scene.beats.filter(x => x.t > b.t && x.t < b.t + GAP && !mine.some(k => k.t0 >= x.t - 1e-6 && k.t0 < x.tEnd)).map(boxOfBeat).filter((x): x is Box => !!x);
+        const near = camOf(unionBox([tgt, ...ahead])), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
         if (cur === home) { if (worth && calm) go(b.t, near); continue; }        // 全景里：要画的东西小，就推近去画
         if (inside(tgt, viewOf(cur))) continue;                                  // 近景里：还在画面里，不动
         // 跑出画面了：能推近就跟过去；东西本来就宽（一条连起两处的线）或者刚动过镜头，就拉回全景看关系
-        go(b.t, worth && calm ? near : home);
+        // 在近景里待太久（15 秒以上）就先回一次全景，让观众知道现在在整张图的哪儿
+        go(b.t, worth && calm && b.t - lastHome < 15 ? near : home);
       }
       // 结尾：最后几秒回到全景，看整张图
       if (cur !== home) go(Math.max(lastMove + GAP, t1 - 3.5), home);
