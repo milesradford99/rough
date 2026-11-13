@@ -32,6 +32,7 @@
 | `sfxSamples` | 无 | 用真实录音替换合成音：`{ pen: sfx/pen.wav, mark: sfx/circle.wav, erase: sfx/wipe.wav }`（16-bit WAV，路径相对项目目录）。合成音不如录音自然，有条件就换 |
 | `pen` | `false` | 显示一个极小的笔尖 |
 | `shade` | `true` | 灰色马克笔阴影：手绘件、形状、柱状图的柱子画完后在右下侧扫一道灰，小人脚下有一小团影子。`false` 关掉全片的阴影 |
+| `autoframe` | `true` | 自动取景：一块板上的东西没铺满画板时，镜头推近到刚好装满（最多 1.4 倍），位置关系不变，东西和字整体变大。`false` 关掉全片；单个场景里写 `frame: false` 关掉这一场。沿用（recall）的场景和原场景取同一个景 |
 | `tail` | 0.6 | 口播结束后多留几秒 |
 
 ## 画板坐标
@@ -53,6 +54,7 @@
 | `intent` | 是 | 这个场景要让观众看到什么。写给用户看的人话 |
 | `enter` | | `pan`（默认，镜头平移到新板面）/ `wipe`（把上一场擦掉）/ `cut` |
 | `recall` | | 沿用前面某个场景的画面，见下文 |
+| `frame` | | `false`：这一场不要自动取景（见项目设置的 `autoframe`） |
 | `pattern` | | 表现手法：自带构图和动作编排的场景骨架，见下文 |
 | `elements` | | `id: 定义` 的映射。id 只在本场景内有效 |
 | `beats` | | 节拍列表，按口播顺序 |
@@ -234,8 +236,8 @@ beats:
 | 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。123 个，和小人同一画风：`hj assets doodles` 查看；`peep-` 开头的 32 个是真人插画（`peep-bust-*` 半身、`peep-sit-*` 坐蹲骑、`peep-stand-*` 站立），要坐着、蹲着、拿东西的人时用它们，火柴人仍是默认角色；`vars` 是该手绘件开放的可调项 |
 | 图标 | `{ icon: building-bank, size: 280 }` | 兜底。5000+ 个线条图标，`hj assets icons <英文关键词>` 搜索。造型偏“界面图标”，手绘件里有的就别用它 |
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
-| 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 40；默认灰色。用来补数字、名字、出处 |
-| 箭头 | `{ arrow: [a, b], curve: 0.2, label: 交税 }` | 起终点可以是元素 id（自动停在边缘外）、`"id.锚点"` 或 `[x, y]`。`curve` 弯曲程度（正负决定朝向）、`both: true` 双向、`head` 箭头大小、`pad` 离元素的距离、`label` 写在箭头中段的小字（`labelSize` 默认 42） |
+| 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 46；默认灰色。用来补数字、名字、出处 |
+| 箭头 | `{ arrow: [a, b], curve: 0.2, label: 交税 }` | 起终点可以是元素 id（自动停在边缘外）、`"id.锚点"` 或 `[x, y]`。`curve` 弯曲程度（正负决定朝向）、`both: true` 双向、`head` 箭头大小、`pad` 离元素的距离、`label` 写在箭头中段的小字（`labelSize` 默认 46） |
 | 连线 | `{ line: [a, b] }` | 同箭头，没有箭头尖 |
 | 标记 | `{ mark: circle, target: x }` | `circle box underline strike cross highlight check burst`。`target` 可以是数组；`pad` 调松紧；默认红色 |
 | 图表 | `{ chart: bar, data: [3800, 1200], labels: [法定, 实发], values: true }` | `bar` / `line`。`highlight: 1` 或 `highlight: {1: red}` 标红某项；`unit` 数值后缀；`w`、`h` |

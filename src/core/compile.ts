@@ -42,6 +42,8 @@ const NATURAL: Record<string, number> = { move: 0.6, walk: 1.1, scale: 0.5, pose
 const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
 const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay'];
 const SCENE_GAP = 260;
+/** 自动取景最多推近多少：再大线条会显得粗笨 */
+const FRAME_MAX = 1.4;
 
 export function naturalDraw(el: El): number {
   let d = 0;
@@ -108,6 +110,7 @@ export function compile(dir: string): Compiled {
   });
 
   const scenes: CScene[] = [], tls: TL[] = [], erases: EraseGroup[] = [], camEvents: CamSeg[] = [];
+  const framed = new Map<string, Box>();
   const screenC: Pt = [fmt.W / 2, fmt.H / 2], boardC: Pt = [fmt.board.x + fmt.board.w / 2, fmt.board.y + fmt.board.h / 2];
   let order = 0;
   const seenIds = new Set<string>();
@@ -119,7 +122,7 @@ export function compile(dir: string): Compiled {
     const id = String(src.id ?? basename(file).replace(/\.ya?ml$/, '').replace(/^\d+[-_]?/, '') ?? `s${si + 1}`);
     if (seenIds.has(id)) err(file, `场景 id "${id}" 重复了`);
     seenIds.add(id);
-    for (const k of Object.keys(src)) if (!['id', 'from', 'intent', 'enter', 'recall', 'pattern', 'elements', 'beats', 'note'].includes(k)) err(file, `场景不认识字段 "${k}"。可用：from intent enter recall pattern elements beats note`);
+    for (const k of Object.keys(src)) if (!['id', 'from', 'intent', 'enter', 'recall', 'pattern', 'elements', 'beats', 'note', 'frame'].includes(k)) err(file, `场景不认识字段 "${k}"。可用：from intent enter recall pattern elements beats note frame`);
     const t0 = starts[si], t1 = si + 1 < N ? starts[si + 1] : duration;
     const origin: Pt = [si * (fmt.W + SCENE_GAP), 0];
     const home: Cam = { cx: origin[0] + fmt.W / 2, cy: fmt.H / 2, zoom: 1 };
@@ -488,6 +491,31 @@ export function compile(dir: string): Compiled {
       }
     }
     boards.set(id, { srcs: [...local.values()].map(tl => [tl.el.id, { ...tl.el.src, __seed: tl.el.src.__seed ?? id }] as [string, any]), left: [...local.values()].filter(tl => (tl.drawT0 != null || tl.appear) && (tl.gone == null || tl.gone >= t1 - 0.7) && !tl.moves.length).map(tl => tl.el.id), groups: new Map(groups) });
+    // 自动取景：这块板上所有东西（含它们移动到过的位置）没铺满画板时，镜头推近到刚好装满。
+    // 位置关系一点不变，只是整体放大；东西和字在手机上都更大，板面不再空一截。home 是同一个对象，前面排好的镜头跟着变
+    if (meta.autoframe !== false && src.frame !== false) {
+      const bs: Box[] = [];
+      for (const tl of local.values()) {
+        if (tl.drawT0 == null && !tl.appear) continue;
+        bs.push(tl.el.box);
+        for (const m of tl.moves) bs.push(shifted(tl.el.box, m.to as Pt));
+      }
+      // 沿用（recall）的场景和原场景取同一个景，母图再出现时不跳
+      const rcId = src.recall != null ? String(typeof src.recall === 'string' ? src.recall : src.recall?.scene ?? '') : '';
+      if (rcId && framed.has(rcId)) bs.push(framed.get(rcId)!);
+      if (bs.length) {
+        const b = unionBox(bs), B = fmt.board, pad = 36;
+        framed.set(id, b);
+        const zoom = Math.min(FRAME_MAX, B.w / (b.w + pad * 2), B.h / (b.h + pad * 2));
+        if (zoom >= 1.05) {
+          // 内容中心对到画板中心。zoom 不超过“装得下”的倍数，所以内容仍然全在画板（安全区）里
+          const ccx = b.x + b.w / 2, ccy = b.y + b.h / 2;
+          home.zoom = zoom;
+          home.cx = origin[0] + fmt.board.x + ccx + (screenC[0] - boardC[0]) / zoom;
+          home.cy = fmt.board.y + ccy + (screenC[1] - boardC[1]) / zoom;
+        }
+      }
+    }
     for (const tl of local.values()) {
       if (tl.drawT0 == null && !tl.appear && !fromPattern.has(tl.el.id)) warn(`${file} / 元素 ${tl.el.id}`, '定义了但从没画出来（没有任何 draw / pop / fade 用到它）');
       tls.push(tl);

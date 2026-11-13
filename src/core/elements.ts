@@ -304,7 +304,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       if (src.both) head(p0, bow ? mid : p1, 17);
     }
     if (src.label) { // 箭头上的小字：写在中点、鼓起的那一侧
-      const t = textStrokes(String(src.label), { size: src.labelSize ?? 42, color: st.color });
+      const t = textStrokes(String(src.label), { size: src.labelSize ?? 46, color: st.color });
       const nx = -dy / L, ny = dx / L, side = bow >= 0 ? 1 : -1, off = Math.abs(nx) * t.w / 2 + Math.abs(ny) * t.h / 2 + 24;
       let lx = mid[0] + nx * side * off, ly = mid[1] + ny * side * off;
       if (!bow && Math.abs(nx) < 0.3) ly = mid[1] - off; // 水平直线：字写在上面
@@ -319,7 +319,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     // 批注：一行小字贴在目标旁边，用一条细线牵过去。用来补数字、名字、出处这类“第二层信息”
     const tg = parseRef(ctx, src.target, where);
     if (!tg.el) throw new SrcError(where, 'note 需要 target: 元素 id（批注贴在谁旁边）');
-    const t = textStrokes(String(src.note), { size: src.size ?? 40, color: color(src.color, THEME.colors.gray), align: 'left' });
+    const t = textStrokes(String(src.note), { size: src.size ?? 46, color: color(src.color, THEME.colors.gray), align: 'left' });
     const b = tg.el.box, gap = src.gap ?? 54, sideWant = src.side ?? 'right';
     if (!['right', 'left', 'top', 'bottom'].includes(sideWant)) throw new SrcError(where, 'note 的 side 只能是 right left top bottom');
     const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
@@ -375,7 +375,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   const core = boxOf(el.strokes);
   let labelStrokes: Stroke[] = [];
   if (src.label && kind !== 'arrow' && kind !== 'line') {
-    const t = textStrokes(String(src.label), { size: src.labelSize ?? 46, color: st.color });
+    const t = textStrokes(String(src.label), { size: src.labelSize ?? 50, color: st.color });
     translateStrokes(t.strokes, core.x + core.w / 2 - t.w / 2, core.y + core.h + (el.strokes.some(s => (s as any).deco) ? 24 : 14)); // 有阴影就让开一点
     labelStrokes = t.strokes; el.text = (el.text ?? '') + String(src.label); el.missing = [...(el.missing ?? []), ...t.missing];
     el.strokes.push(...labelStrokes);

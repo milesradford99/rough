@@ -5,7 +5,7 @@ elements:
   bill:  { doodle: banknote, size: 170, at: me.handR, dx: 120, dy: -80 }
   pig:   { doodle: piggy, size: 330, at: [730, 275], label: 存钱罐 }
   dep:   { arrow: [[330, 275], [540, 275]], label: 存入 }
-  rate:  { text: "10%", size: 110, color: red, above: pig, gap: 6 }
+  rate:  { text: "10%", size: 110, color: red, above: pig, gap: 0 }
   rateN: { note: 年利率, target: rate, side: left, gap: 40 }
   rule:  { line: [[30, 560], [930, 560]], color: gray, rough: 1.5 }
   y1:    { text: "第1年", size: 60, color: gray, at: [40, 690], anchor: left }

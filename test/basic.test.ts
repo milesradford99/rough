@@ -425,3 +425,19 @@ beats:
   for (const bad of ['字号', '偏长', '倍才画得完']) assert.equal(issues.filter(i => i.msg.includes(bad)).length, 0, bad);
   rmSync(d, { recursive: true });
 });
+
+test('自动取景：内容没铺满就推近，铺满了不动，可以关', () => {
+  const mk = (els: string, extra = '', proj = '') => {
+    const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+    writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画一个工厂。再画一个银行。')));
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n' + proj);
+    writeFileSync(join(d, 'scenes/01.yaml'), `from: "先画"\nintent: 两样东西\n${extra}elements:\n${els}beats:\n  - { at: "先画", intent: 画, do: [{ draw: [a, b] }] }\n`);
+    const c = compile(d); rmSync(d, { recursive: true }); return c.scenes[0].home;
+  };
+  const small = '  a: { doodle: factory, size: 200, at: [380, 500] }\n  b: { doodle: bank, size: 200, at: [600, 700] }\n';
+  const full = '  a: { doodle: factory, size: 300, at: [170, 170] }\n  b: { doodle: bank, size: 300, at: [790, 1080] }\n';
+  assert.equal(mk(small).zoom, 1.4);
+  assert.equal(mk(full).zoom, 1);
+  assert.equal(mk(small, 'frame: false\n').zoom, 1);
+  assert.equal(mk(small, '', 'autoframe: false\n').zoom, 1);
+});
