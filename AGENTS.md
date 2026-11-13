@@ -28,7 +28,8 @@ npx hj brief work/<项目名>                    # 逐句时间、停顿、不�
 # 然后在 work/<项目名>/scenes/ 里一个场景一个文件地写分镜；每写完一个场景：
 npx hj layout work/<项目名> --scene <场景>    # 看每个元素落在哪儿、哪儿空哪儿挤（不需要确认，随时跑）
 npx hj check work/<项目名>                    # 编译 + 质量检查，随时跑
-npx hj stills work/<项目名> --draft           # 草稿关键帧（带水印）：自己逐张看，改到满意。不需要确认
+npx hj stills work/<项目名> --draft --guides  # 草稿关键帧（带水印）：自己逐张看，改到满意。不需要确认
+                                              # --guides 画出画板边界：画板只占画面中间一块，上下是平台界面和字幕
 npx hj plan work/<项目名>                     # 生成 storyboard.md
 # ── 把 storyboard.md 交给用户，等用户确认 ──
 npx hj approve work/<项目名> plan --by "<用户原话>"

@@ -192,7 +192,8 @@ export function lint(c: Compiled): Issue[] {
       const said = c.al.units.filter(u => u.start >= from && u.start < to).map(u => u.display).join('');
       add('warn', sc.file, `${fmtT(from)}–${fmtT(to)} 有 ${(to - from).toFixed(1)} 秒画面没有任何变化，这段在说：“${said.slice(0, 40)}${said.length > 40 ? '…' : ''}”。真人讲到这里手不会停：加一拍（画点东西、小人换个动作、圈一下重点、推一下镜头）`);
     };
-    for (const a of acts) { idle(cursor, a.t0); cursor = Math.max(cursor, a.t1); }
+    // 镜头换了景，观众要花一两秒看新的画面：镜头移动之后的 2 秒不算静止
+    for (const a of acts) { idle(cursor, a.t0); cursor = Math.max(cursor, a.t1 + (a.verb === 'camera' ? 2 : 0)); }
     idle(cursor, sc.t1);
     // 换到新板面后，板子空着等人
     const firstInk = Math.min(...shown.map(t => t.drawT0 ?? t.appear!.t));

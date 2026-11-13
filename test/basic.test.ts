@@ -515,3 +515,14 @@ test('叉、划线只盖目标的本体，不盖住它的标签', async () => {
   const ring = buildElement(ctx, 'ring', { mark: 'circle', target: 'court' });
   assert.ok(ring.box.y + ring.box.h >= court.box.y + court.box.h, '圈连标签一起圈');
 });
+
+test('镜头移动不占画画的时间；元素被挤出自己的分区会提示', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先看这里。然后看那边。')));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  writeFileSync(join(d, 'scenes/01.yaml'), `from: "先看"\nintent: 镜头和画同时开始\nregions:\n  tiny: [0, 0, 300, 200]\nelements:\n  a: { doodle: bank, size: 180, in: tiny, at: [150, 100] }\n  b: { doodle: factory, size: 180, in: tiny, at: [160, 110] }\nbeats:\n  - { at: "先看", intent: 推近再画, do: [{ camera: { focus: [a], pad: 80 } }, { draw: a }] }\n  - { at: "然后", intent: 再画一个, do: [{ draw: b }] }\n`);
+  const c = compile(d), cam = c.cams.find(k => k.t0 > -1)!, a = c.tls.find(t => t.el.id === 'a')!;
+  assert.ok(Math.abs(a.drawT0! - cam.t0) < 0.05, '画和镜头同时开始');
+  assert.match(c.issues.map(i => i.msg).join(), /被引擎挪出了这个分区/);
+  rmSync(d, { recursive: true });
+});

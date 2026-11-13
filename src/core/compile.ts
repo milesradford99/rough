@@ -322,6 +322,13 @@ export function compile(dir: string): Compiled {
       });
     });
     for (const [eid, esrc] of pending) addEl(eid, inRegion(eid, esrc));
+    // 写了 in: 的元素被引擎挪出了自己的分区：多半是这个分区太挤
+    for (const [eid, esrc] of pending) {
+      const rn = esrc && typeof esrc === 'object' ? esrc.in : null, rg = rn != null ? regions.get(String(rn)) : null, el = els.get(eid);
+      if (!rg || !el?.nudged) continue;
+      const b = el.box, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      if (cx < rg.x || cx > rg.x + rg.w || cy < rg.y || cy > rg.y + rg.h) warn(`${file} / 元素 ${eid}`, `它写了 in: ${rn}，但压到别的东西后被引擎挪出了这个分区（挪了 ${el.nudged[0].toFixed(0)}, ${el.nudged[1].toFixed(0)}）。分区 ${rn} 放不下了：缩小这一区里的东西、把分区划大，或者用 board 把整块板放大`);
+    }
     for (const rn of regions.keys()) if (els.has(rn)) err(file, `分区和元素都叫 "${rn}"，镜头不知道该推近哪个。给其中一个换个名字`);
     for (const eid of recalled) { const tl = local.get(eid); if (tl) { tl.appear = { t: t0 - 0.02, kind: 'fade', dur: 0.3 }; tl.order = order++; tl.recalled = true; } }
     let pos = new Map<string, Pt>(); // 元素当前位移
@@ -385,8 +392,10 @@ export function compile(dir: string): Compiled {
         const start = ch[0].atTime ?? bt;
         const nextStart = chains[ci + 1]?.[0].atTime ?? next;
         const seq = ch.filter(a => a.chain !== -1);
+        // 镜头移动不占画画的时间：后面还有动作时，镜头和它同时开始（真人一边走过去一边已经抬手了）
+        const glide = new Set(seq.filter((a, i) => a.verb === 'camera' && i < seq.length - 1));
         const avail = Math.max(0.1, nextStart - start - 0.04);
-        const fixedSum = seq.filter(a => a.fixed || a.verb !== 'draw').reduce((n, a) => n + a.natural + (a.opt.delay ?? 0), 0);
+        const fixedSum = seq.filter(a => !glide.has(a) && (a.fixed || a.verb !== 'draw')).reduce((n, a) => n + a.natural + (a.opt.delay ?? 0), 0);
         const flex = seq.filter(a => !a.fixed && a.verb === 'draw');
         const flexSum = flex.reduce((n, a) => n + a.natural, 0);
         let f = 1;
@@ -401,7 +410,7 @@ export function compile(dir: string): Compiled {
           else { a.t0 = t + (a.opt.delay ?? 0); prevStart = a.t0; }
           const d = a.verb === 'draw' && !a.fixed ? a.natural * f : a.natural;
           a.t1 = a.t0 + d;
-          if (a.chain !== -1) t = a.t1;
+          if (a.chain !== -1 && !glide.has(a)) t = a.t1;
         }
         const over = t - nextStart;
         if (over > 0.25) warn(where, `这一拍的动作要到 ${t.toFixed(2)}s 才做完，比下一拍开始晚了 ${over.toFixed(1)} 秒，会和后面的画面抢。减少这一拍的内容、把一部分提前（lead）或挪到上一拍`);

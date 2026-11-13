@@ -391,7 +391,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   if (src.label && kind !== 'arrow' && kind !== 'line') {
     const t = textStrokes(String(src.label), { size: src.labelSize ?? 50, color: st.color });
     translateStrokes(t.strokes, core.x + core.w / 2 - t.w / 2, core.y + core.h + (el.strokes.some(s => (s as any).deco) ? 24 : 14)); // 有阴影就让开一点
-    labelStrokes = t.strokes; el.text = (el.text ?? '') + String(src.label); el.missing = [...(el.missing ?? []), ...t.missing];
+    labelStrokes = t.strokes; el.text = (el.text ? el.text + ' ' : '') + String(src.label); // 手绘件自带的字和标签分开，分镜表里才不会粘成“粉面粉店” el.missing = [...(el.missing ?? []), ...t.missing];
     el.strokes.push(...labelStrokes);
   }
   el.box = boxOf(el.strokes);
