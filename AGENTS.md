@@ -99,13 +99,13 @@ beats:                            # 什么时候、怎么动
 
 ```bash
 npx hj patterns                    # 九种表现手法：自带构图和动作编排（先看这个）
-npx hj assets doodles              # 52 个手绘件，和小人同一画风（首选）
+npx hj assets doodles              # 88 个手绘件，和小人同一画风（首选）
 npx hj assets icons factory        # 5000+ 线条图标，英文关键词搜索（兜底）
 npx hj assets figure               # 小人的姿势、表情、配饰
 npx hj assets sheet --out sheet.png   # 把上面这些画成一张图，直接看长相
 ```
 
-没有合适的素材时，在项目的 `doodles/` 目录里用基本图形自己画一个（格式见 reference），不要用文字顶替。
+没有合适的素材时，在项目的 `doodles/` 目录里用基本图形自己画一个，或用 `hj import` 从外部素材库转一个进来（两种做法都见 reference），不要用文字顶替。
 
 ## 代码地图
 

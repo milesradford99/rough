@@ -1,0 +1,10 @@
+desc: 警告三角
+source: "Excalidraw Libraries / Artem's icons (Artem Anufrij), MIT"
+box: [ 200, 169 ]
+parts:
+  - poly: [ [ 100, 6 ], [ 6, 162.7 ], [ 194, 162.7 ] ]
+    close: true
+    fill: yellow
+  - poly: [ [ 100.8, 107.3 ], [ 85.9, 46 ], [ 115.7, 46 ] ]
+    close: true
+  - ellipse: [ 100, 137.6, 31.4, 31.4 ]

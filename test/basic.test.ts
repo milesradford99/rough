@@ -318,3 +318,48 @@ test('灰色阴影：默认有、只加在外轮廓、不改变占位框、可�
   assert.ok(deco(mk({ shape: 'rect', w: 300, h: 160, at: [300, 300] })).length >= 1);
   assert.equal(deco(mk({ text: '复利', at: [300, 300] })).length, 0);
 });
+
+test('导入：Excalidraw 素材库和 Quick Draw 都能转成可用的手绘件', async () => {
+  const im = await import('../src/core/importers');
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const base = { angle: 0, strokeColor: '#1e1e1e', backgroundColor: 'transparent' };
+  const lib = { libraryItems: [{ name: 'Price Tag!', elements: [
+    { ...base, type: 'rectangle', x: 100, y: 100, width: 400, height: 200, backgroundColor: '#ffc9c9' },
+    { ...base, type: 'ellipse', x: 150, y: 150, width: 50, height: 50, strokeColor: '#1971c2' },
+    { ...base, type: 'line', x: 200, y: 200, width: 100, height: 0, points: [[0, 0], [100, 0]] },
+    { ...base, type: 'text', x: 0, y: 0, width: 90, height: 20, text: 'label' },
+    { ...base, type: 'image', x: 0, y: 0, width: 10, height: 10 },
+  ] }, { elements: [{ ...base, type: 'diamond', x: 0, y: 0, width: 50, height: 80, isDeleted: true }] }] };
+  const [it, ...rest] = im.fromExcalidraw(lib, { source: 'test' });
+  assert.equal(rest.length, 0, '只有已删除元素的素材被丢掉');
+  assert.equal(it.name, 'price-tag');
+  assert.deepEqual(it.doodle.box, [200, 106]);
+  assert.equal(it.doodle.parts.length, 3, '文字默认不要，图片不支持');
+  assert.equal(it.doodle.parts[0].fill, 'red');
+  assert.equal(it.doodle.parts[1].color, 'blue');
+  assert.ok(it.skipped.some(s => s.includes('image')));
+  assert.throws(() => im.fromExcalidraw({}), /不是 Excalidraw/);
+  const q = im.parseQuickDraw('{"word":"tree","recognized":true,"drawing":[[[0,255,128],[0,10,255]],[[5,9],[5,9]]]}\n{"word":"tree","recog');
+  assert.equal(q.length, 1, '截断的最后一行跳过');
+  const qd = im.fromQuickDraw(q[0]);
+  assert.equal(qd.doodle.parts.length, 2);
+  for (const d of [it.doodle, qd.doodle]) {
+    const y = (await import('yaml')).default.parse(im.doodleYaml(d));
+    const el = buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map() }, 'e', { parts: y.parts, box: y.box, size: 200, at: [300, 300] });
+    assert.ok(el.strokes.length > 0 && el.box.w <= 215 && el.box.h <= 215);
+  }
+});
+
+test('内置手绘件：每一个都画得出来，导入的都带出处', async () => {
+  const { buildElement, doodleDirs } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const YAML = (await import('yaml')).default;
+  const dir = doodleDirs()[0], files = readdirSync(dir).filter(f => f.endsWith('.yaml'));
+  assert.ok(files.length >= 88);
+  for (const f of files) {
+    const el = buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map() }, 'e', { doodle: f.replace('.yaml', ''), size: 200, at: [300, 300] });
+    assert.ok(el.strokes.length > 0, f);
+    assert.ok(YAML.parse(readFileSync(join(dir, f), 'utf8')).desc, f + ' 缺 desc');
+  }
+});

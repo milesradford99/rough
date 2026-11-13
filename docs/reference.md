@@ -229,7 +229,7 @@ beats:
 |---|---|---|
 | 文字 | `{ text: "+0", size: 150, color: red }` | `\n` 换行；`align`。`size` 是字高。字体是手写马克笔体「霞鹜漫黑」 |
 | 小人 | `{ figure: stand, face: happy, wear: [tophat, tie], size: 420 }` | `size` 是身高；`accent` 是配饰颜色；`carry: { doodle: moneybag, hand: left }` 手里拿一样东西（默认右手，跟着手动）。姿势/表情/配饰清单：`hj assets figure` |
-| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。52 个，和小人同一画风：`hj assets doodles` 查看；`vars` 是该手绘件开放的可调项 |
+| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。88 个，和小人同一画风：`hj assets doodles` 查看；`vars` 是该手绘件开放的可调项 |
 | 图标 | `{ icon: building-bank, size: 280 }` | 兜底。5000+ 个线条图标，`hj assets icons <英文关键词>` 搜索。造型偏“界面图标”，手绘件里有的就别用它 |
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 40；默认灰色。用来补数字、名字、出处 |
@@ -271,6 +271,30 @@ parts:                       # 按书写顺序排列，坐标在 box 内
 
 画完用 `hj assets sheet` 看效果。内置的在仓库根目录 `doodles/`，可以照着写。
 
+## 从外部导入手绘件
+
+导入的只是几何形状：进来之后由本项目的笔重新画一遍，线条、涂色、阴影都和内置素材一致；原来的颜色会并到调色板里最接近的那个。
+
+**Excalidraw 素材库**（[excalidraw-libraries](https://github.com/excalidraw/excalidraw-libraries)，整个仓库 MIT）。下载一个 `.excalidrawlib` 文件，然后：
+
+```bash
+npx hj import excalidraw 素材库.excalidrawlib --out work/<项目>/doodles [--only 名字,名字] [--prefix 前缀] [--text]
+npx hj assets sheet --dir work/<项目>/doodles --out sheet.png      # 看长相
+```
+
+一个文件里通常有几十个，先全部导进一个临时目录、出一张图看，再把要的挑进项目。素材里的文字默认丢掉（多半是英文标签），`--text` 保留。没有名字的素材叫 `item-N`，自己改名并把 `desc` 改成中文。不要导入品牌 logo。
+
+**Quick Draw**（Google，CC BY 4.0，[数据集](https://github.com/googlecreativelab/quickdraw-dataset)）：真人 20 秒内画的简笔画，带真实的落笔顺序。要 simplified 版的 `<类别>.ndjson`（文件很大，下载开头几百 KB 就够挑）。
+
+```bash
+npx hj import quickdraw tree.ndjson --sheet candidates.png --count 48        # 候选图，每张带编号
+npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/doodles [--color green]
+```
+
+它们只有线、没有涂色，比内置手绘件潦草，适合“随手一画”的场合；成片里用了要按 CC BY 署名。
+
+导入的文件里有一行 `source:` 记着出处，留着它。
+
 ## 命令
 
 | 命令 | 作用 |
@@ -285,7 +309,8 @@ parts:                       # 按书写顺序排列，坐标在 box 内
 | `hj stills <目录> [--scene 场景] [--at 秒数或口播片段] [--guides]` | 正式关键帧（需先确认文字分镜）。`--guides` 画出画板边界 |
 | `hj render <目录> [--scene 场景 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染。`--draft` 为半分辨率、15 帧 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |
-| `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件]` | 素材 |
+| `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件] [--dir 目录]` | 素材。`sheet --dir` 只画某个目录里的手绘件 |
+| `hj import excalidraw\|quickdraw <文件> …` | 把外部手绘素材转成手绘件，见“从外部导入手绘件” |
 | `hj fake-align <稿.txt> [--cps 4]` | 没有配音时造一份匀速时间表打草稿 |
 
 ## 检查器会拦什么

@@ -1,0 +1,8 @@
+desc: 信封
+source: "Excalidraw Libraries / Awesome Icons (ferminrp), MIT"
+box: [ 200, 138 ]
+parts:
+  - rect: [ 6, 6.9, 188, 124.7 ]
+    fill: yellow
+  - line: [ 8.4, 18, 100.9, 90 ]
+  - line: [ 104.1, 93.9, 192.3, 6 ]

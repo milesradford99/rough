@@ -1,0 +1,8 @@
+desc: 平板电脑
+source: "Excalidraw Libraries / Artem's icons (Artem Anufrij), MIT"
+box: [ 153, 200 ]
+parts:
+  - rect: [ 6, 6, 141, 188 ]
+    fill: gray
+  - rect: [ 13.1, 14.6, 125.3, 156.7 ]
+  - ellipse: [ 76.5, 186.2, 15.6, 15.7 ]

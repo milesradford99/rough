@@ -1,0 +1,9 @@
+desc: 文件夹
+source: "Excalidraw Libraries / Artem's icons (Artem Anufrij), MIT"
+box: [ 200, 162 ]
+parts:
+  - rect: [ 6, 43.6, 188, 112.8 ]
+    fill: yellow
+  - poly: [ [ 118.8, 43.6 ], [ 81.2, 6 ], [ 6, 6 ], [ 6, 43.6 ] ]
+    close: true
+    fill: yellow

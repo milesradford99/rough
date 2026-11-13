@@ -322,7 +322,7 @@ const commands: Record<string, () => Promise<void> | void> = {
       console.log('配饰 wear：' + ACCESSORIES.join('  '));
     } else if (what === 'colors') console.log(Object.entries(THEME.colors).map(([k, v]) => `${k} ${v}`).join('\n'));
     else if (what === 'sheet') return assetSheet();
-    else die('用法：hj assets icons <关键词> | doodles [项目目录] | figure | colors | sheet [--out 文件]');
+    else die('用法：hj assets icons <关键词> | doodles [项目目录] | figure | colors | sheet [--out 文件] [--dir 手绘件目录]');
   },
 
   patterns() {
@@ -342,26 +342,78 @@ const commands: Record<string, () => Promise<void> | void> = {
     else if (!PATTERNS[name]) die(`没有叫 "${name}" 的手法。可用：${Object.keys(PATTERNS).join(' ')}`);
   },
 
+  async import() {
+    const usage = `用法：
+  hj import excalidraw <素材库.excalidrawlib> --out <目录> [--only 名字,名字] [--prefix 前缀] [--text] [--source "出处"]
+  hj import quickdraw <类别.ndjson> --sheet <候选图.png> [--count 48]          先出候选图，挑编号
+  hj import quickdraw <类别.ndjson> --pick <编号> --name <名字> --out <目录> [--desc 说明] [--color 颜色]
+导入的是几何形状，进来后由本项目的笔重新画；--out 一般是项目的 doodles/ 目录。导入前先核对素材的授权。`;
+    const kind = args[0], file = args[1];
+    if (!file || !existsSync(file)) die(usage);
+    const im = await import('../core/importers');
+    const save = (outDir: string, it: { name: string; doodle: any; skipped: string[] }) => {
+      mkdirSync(outDir, { recursive: true });
+      const f = join(outDir, it.name + '.yaml');
+      if (existsSync(f) && !flags.force) { console.log(`- 跳过 ${it.name}：${f} 已存在（--force 覆盖）`); return; }
+      writeFileSync(f, im.doodleYaml(it.doodle));
+      console.log(`✓ ${it.name.padEnd(22)} ${it.doodle.parts.length} 个图形${it.skipped.length ? '  注意：' + it.skipped.join('；') : ''}`);
+    };
+    if (kind === 'excalidraw') {
+      const outDir = flags.out ? String(flags.out) : die(usage);
+      let items: any[];
+      try { items = im.fromExcalidraw(JSON.parse(readFileSync(file, 'utf8')), { text: !!flags.text, source: flags.source ? String(flags.source) : undefined }); } catch (e: any) { return die(e.message); }
+      const only = flags.only ? String(flags.only).split(',').map(s => s.trim()) : null;
+      const miss = only?.filter(n => !items.some(i => i.name === n)) ?? [];
+      if (miss.length) die(`素材库里没有：${miss.join(' ')}。可选：${items.map(i => i.name).join(' ')}`);
+      for (const it of items) if (!only || only.includes(it.name)) save(outDir, { ...it, name: (flags.prefix ? String(flags.prefix) : '') + it.name });
+      console.log(`\n看长相：hj assets sheet --dir ${outDir} --out sheet.png。不好看的直接删掉文件；名字、desc、颜色可以手改。`);
+    } else if (kind === 'quickdraw') {
+      const all = im.parseQuickDraw(readFileSync(file, 'utf8')).filter(d => d.recognized);
+      if (!all.length) die('文件里没有可用的画（需要 Quick Draw 的 simplified .ndjson）');
+      if (flags.sheet) {
+        const n = Math.min(all.length, +(flags.count ?? 48));
+        await drawSheet(all.slice(0, n).map((d, i) => { const it = im.fromQuickDraw(d); return { src: { parts: it.doodle.parts, box: it.doodle.box, size: 200, shade: false }, label: String(i + 1) }; }), String(flags.sheet));
+        console.log(`✓ ${flags.sheet}：前 ${n} 张候选（共 ${all.length} 张）。挑一张，再跑 --pick <编号> --name <名字> --out <目录>`);
+      } else if (flags.pick) {
+        const d = all[+flags.pick - 1] ?? die(`没有第 ${flags.pick} 张（共 ${all.length} 张）`);
+        save(flags.out ? String(flags.out) : die(usage), im.fromQuickDraw(d, { name: flags.name ? im.slug(String(flags.name)) : undefined, desc: flags.desc ? String(flags.desc) : undefined, color: flags.color ? String(flags.color) : undefined }));
+      } else die(usage);
+    } else die(usage);
+  },
   'fake-align'() {
     const f = args[0] ?? die('用法：hj fake-align <口播稿.txt> [--cps 4.5] > alignment.json   （没有配音时先造一份匀速时间表打草稿）');
     process.stdout.write(JSON.stringify(fakeAlignment(readFileSync(f, 'utf8'), +(flags.cps ?? 4.5)), null, 1));
   },
 };
 
-/** 内置素材一览图：所有姿势、表情、手绘件画在一张图上，供挑选 */
+/** 素材一览图：所有姿势、表情、手绘件画在一张图上，供挑选。--dir 只画某个目录里的手绘件 */
 async function assetSheet() {
+  const items: { src: any; label: string }[] = [];
+  const only = flags.dir ? String(flags.dir) : null;
+  if (!only) {
+    for (const p of Object.keys(POSES)) items.push({ src: { figure: p, size: 230 }, label: p });
+    for (const f of Object.keys(FACES).filter(f => f !== 'none')) items.push({ src: { figure: 'stand', face: f, size: 230 }, label: 'face:' + f });
+    for (const a of ACCESSORIES) items.push({ src: { figure: 'stand', wear: [a], accent: 'blue', size: 230 }, label: 'wear:' + a });
+  } else if (!existsSync(only)) die(`找不到目录：${only}`);
+  for (const d of only ? [only] : doodleDirs()) for (const f of readdirSync(d).filter(f => f.endsWith('.yaml')).sort()) { const y = YAML.parse(readFileSync(join(d, f), 'utf8')); items.push({ src: { parts: y.parts, box: y.box, vars: undefined, size: 200 }, label: f.replace('.yaml', '') }); if (y.vars) (items[items.length - 1].src as any).__vars = y.vars; }
+  const out = String(flags.out ?? 'assets-sheet.png');
+  await drawSheet(items, out);
+  console.log(`✓ ${out}`);
+}
+async function drawSheet(items: { src: any; label: string }[], out: string) {
   const { buildElement } = await import('../core/elements');
   const fmt = { ...FORMATS.landscape, board: { x: 0, y: 0, w: 100000, h: 100000 } };
   const els = new Map<string, any>(), ctxB = { scene: 'sheet', fmt, els };
-  const items: { el: any; label: string }[] = [];
-  for (const p of Object.keys(POSES)) items.push({ el: buildElement(ctxB, 'p' + p, { figure: p, size: 230, at: [0, 0] }), label: p });
-  for (const f of Object.keys(FACES).filter(f => f !== 'none')) items.push({ el: buildElement(ctxB, 'f' + f, { figure: 'stand', face: f, size: 230, at: [0, 0] }), label: 'face:' + f });
-  for (const a of ACCESSORIES) items.push({ el: buildElement(ctxB, 'a' + a, { figure: 'stand', wear: [a], accent: 'blue', size: 230, at: [0, 0] }), label: 'wear:' + a });
-  for (const d of doodleDirs()) for (const f of readdirSync(d).filter(f => f.endsWith('.yaml')).sort()) { const n = f.replace('.yaml', ''); items.push({ el: buildElement(ctxB, 'd' + n, { doodle: n, size: 200, at: [0, 0] }), label: n }); }
-  const cols = 8, cw = 290, chh = 330, rows = Math.ceil(items.length / cols);
+  const built = items.map((it, i) => {
+    const { __vars, vars, ...src } = it.src;
+    // 带可调项的手绘件按默认值画
+    const sub = (v: any): any => (typeof v === 'string' && v.startsWith('$') ? (__vars ?? {})[v.slice(1)] ?? '' : Array.isArray(v) ? v.map(sub) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sub(x)])) : v);
+    return { el: buildElement(ctxB, 'i' + i, { ...sub(src), at: [0, 0] }), label: it.label };
+  });
+  const cols = 8, cw = 290, chh = 330, rows = Math.ceil(built.length / cols);
   const cv = createCanvas(cols * cw, rows * chh), ctx = cv.getContext('2d');
   ctx.fillStyle = THEME.paper; ctx.fillRect(0, 0, cv.width, cv.height);
-  items.forEach((it, i) => {
+  built.forEach((it, i) => {
     const x = (i % cols) * cw + cw / 2, y = Math.floor(i / cols) * chh + 140, b = it.el.box;
     ctx.save(); ctx.translate(x - (b.x + b.w / 2), y - (b.y + b.h / 2));
     drawStrokes(ctx, env, it.el.strokes);
@@ -371,9 +423,7 @@ async function assetSheet() {
     drawStrokes(ctx, env, lab.strokes);
     ctx.restore();
   });
-  const out = String(flags.out ?? 'assets-sheet.png');
   writeFileSync(out, await cv.encode('png'));
-  console.log(`✓ ${out}`);
 }
 
 if (cmd === '--version' || cmd === '-v') { console.log(JSON.parse(readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8')).version); process.exit(0); }
@@ -391,6 +441,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
   hj patterns [名字]                  表现手法：自带构图和动作编排的场景骨架
   hj assets doodles | figure | icons <关键词> | colors | sheet
+  hj import excalidraw|quickdraw <文件>   把外部手绘素材转成手绘件
   hj fake-align <稿.txt>              没配音时造匀速时间表打草稿
 
 完整工作流见 AGENTS.md`);
