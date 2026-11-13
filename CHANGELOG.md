@@ -2,6 +2,10 @@
 
 ## 未发布
 
+**素材：`hj import svg` 和 32 个 Open Peeps 人物**
+- `hj import svg <文件.svg>`：任意 SVG 转手绘件。描边的线当中线笔画；深色填充块画成平涂墨色块、保留镂空（洞并进外轮廓）；纸色填充默认丢掉；其他颜色并到调色板。`--pen` `--rough` `--paper` 可调
+- 内置手绘件 88 → 120：新增 32 个 Open Peeps（CC0）人物，`peep-bust-*` 半身 16 个、`peep-sit-*` 坐、蹲、跪、骑车、轮椅 7 个、`peep-stand-*` 站立 9 个。火柴人仍是默认角色
+
 **素材：导入管线和第一批 36 个**
 - `hj import excalidraw <素材库>`：把 Excalidraw 素材库（MIT）转成手绘件；`hj import quickdraw <类别.ndjson>`：从 Quick Draw（CC BY 4.0）里挑一张真人简笔画转成手绘件，保留落笔顺序。导入的只是几何，由本项目的笔重画
 - `hj assets sheet --dir <目录>`：只看某个目录里的手绘件

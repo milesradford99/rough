@@ -19,6 +19,8 @@
 
 用 `hj import quickdraw` 导入的简笔画来自 [Quick Draw Dataset](https://github.com/googlecreativelab/quickdraw-dataset)（Google，CC BY 4.0）；仓库里目前没有内置这类素材，自己导入并用在成片里时需要署名。
 
+`doodles/peep-*.yaml` 共 32 个，是 [Open Peeps](https://www.openpeeps.com/)（Pablo Stanley，CC0 1.0，公共领域）的人物拼出来的：头、脸、身体按部件组合，被头遮住的身体线条裁掉后，用 `hj import svg` 转成手绘件，只取墨块和填充的形状，由本项目的笔重画。部件取自 npm 上的 `react-peeps`（MIT，Emre Çakır，只是把 Open Peeps 的图形包成了 React 组件）。CC0 的授权依据是 Open Peeps 原作者署名和 CC0 声明（见 `@dicebear/open-peeps` 的 LICENSE：“Designer: Pablo Stanley，License: CC0 1.0”）。CC0 不要求署名，但每个文件的 `source:` 仍记着出处。
+
 ## 品牌形象
 
 `doodles/claude*.yaml` 画的是 Anthropic 的 Claude 像素形象，形象归 Anthropic 所有，不在本项目的开源许可范围内。只用于在视频里指代 Claude 这款产品，不要让画面看起来像官方出品或官方代言。

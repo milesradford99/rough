@@ -99,7 +99,7 @@ beats:                            # 什么时候、怎么动
 
 ```bash
 npx hj patterns                    # 九种表现手法：自带构图和动作编排（先看这个）
-npx hj assets doodles              # 88 个手绘件，和小人同一画风（首选）
+npx hj assets doodles              # 120 个手绘件，和小人同一画风（首选）；`peep-` 开头的是坐、蹲、站、半身的真人插画
 npx hj assets icons factory        # 5000+ 线条图标，英文关键词搜索（兜底）
 npx hj assets figure               # 小人的姿势、表情、配饰
 npx hj assets sheet --out sheet.png   # 把上面这些画成一张图，直接看长相

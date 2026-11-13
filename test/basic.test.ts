@@ -351,12 +351,46 @@ test('导入：Excalidraw 素材库和 Quick Draw 都能转成可用的手绘件
   }
 });
 
+test('导入：SVG 的墨块保留镂空，纸色丢掉，其他颜色并进调色板，变换生效', async () => {
+  const im = await import('../src/core/importers');
+  const { buildElement } = await import('../src/core/elements');
+  const { FORMATS } = await import('../src/core/theme');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><title>Test Peep</title>
+    <g transform="translate(100 0)">
+      <path fill="#FFFFFF" d="M0 0H200V200H0Z"/>
+      <path fill="#000000" fill-rule="evenodd" d="M0 0H200V200H0Z M60 60V140H140V60Z"/>
+      <circle cx="100" cy="300" r="40" fill="#2f6fb7"/>
+      <path d="M0 380H200" stroke="#d9433a" stroke-width="6" fill="none"/>
+    </g><defs><linearGradient id="g"/></defs><text>x</text></svg>`;
+  const it = im.fromSvg(svg, { source: 'test' });
+  assert.equal(it.name, 'test-peep');
+  assert.equal(it.doodle.source, 'test');
+  assert.ok(it.skipped.some(s => s.includes('text')));
+  const p = it.doodle.parts;
+  assert.equal(p.length, 3, '白块丢掉；墨块、蓝圆、红线各一个');
+  assert.equal(p[0].fill, 'ink'); assert.equal(p[0].fillStyle, 'solid'); assert.equal(p[0].shade, false);
+  assert.ok(p[0].poly.length >= 10, '洞用桥并进了外轮廓（4 + 4 个角再加桥的两端）');
+  assert.equal(p[1].fill, 'blue'); assert.equal(p[2].color, 'red');
+  assert.equal(im.fromSvg(svg, { paper: true }).doodle.parts.length, 4, '--paper 保留纸色填充');
+  // translate 生效：整体外框是 200 宽 × 约 380 高的比例
+  assert.ok(it.doodle.box[1] > it.doodle.box[0]);
+  // 带洞的环：外环 4 点 + 洞 4 点 + 桥的 2 个重复端点
+  const polys = im.fillPolys([[[0, 0], [10, 0], [10, 10], [0, 10]], [[3, 3], [3, 7], [7, 7], [7, 3]]], 'evenodd');
+  assert.equal(polys.length, 1);
+  assert.equal(polys[0].length, 4 + 4 + 2);
+  const y = (await import('yaml')).default.parse(im.doodleYaml(it.doodle));
+  const el = buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map() }, 'e', { parts: y.parts, box: y.box, size: 300, at: [300, 300] });
+  assert.ok(el.strokes.length > 0);
+  assert.throws(() => im.fromSvg('<html/>'), /不是 SVG/);
+  assert.throws(() => im.fromSvg('<svg><defs/></svg>'), /没有可画/);
+});
+
 test('内置手绘件：每一个都画得出来，导入的都带出处', async () => {
   const { buildElement, doodleDirs } = await import('../src/core/elements');
   const { FORMATS } = await import('../src/core/theme');
   const YAML = (await import('yaml')).default;
   const dir = doodleDirs()[0], files = readdirSync(dir).filter(f => f.endsWith('.yaml'));
-  assert.ok(files.length >= 88);
+  assert.ok(files.length >= 120);
   for (const f of files) {
     const el = buildElement({ scene: 's', fmt: FORMATS.portrait, els: new Map() }, 'e', { doodle: f.replace('.yaml', ''), size: 200, at: [300, 300] });
     assert.ok(el.strokes.length > 0, f);
