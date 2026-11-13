@@ -327,7 +327,12 @@ const commands: Record<string, () => Promise<void> | void> = {
       if (!r.length) console.log('没有匹配的图标，换个英文近义词试试');
       for (const it of r) console.log(`${it.name.padEnd(30)} ${it.category.padEnd(14)} ${it.tags}`);
     } else if (what === 'doodles') {
-      for (const d of doodleDirs(args[1])) for (const f of readdirSync(d).filter(f => f.endsWith('.yaml')).sort()) { const y = YAML.parse(readFileSync(join(d, f), 'utf8')); console.log(`${f.replace('.yaml', '').padEnd(18)} ${String(y.desc ?? '').padEnd(30)} ${y.vars ? '可调：' + Object.keys(y.vars).join(' ') : ''}`); }
+      console.log('名字                size 200 时的宽×高   说明（写了 label 的，下面再多出约 70px 的字）');
+      for (const d of doodleDirs(args[1])) for (const f of readdirSync(d).filter(f => f.endsWith('.yaml')).sort()) {
+        const y = YAML.parse(readFileSync(join(d, f), 'utf8')), bx = Array.isArray(y.box) ? y.box : [200, 200], k = 200 / Math.max(bx[0], bx[1]);
+        const wh = `${Math.round(bx[0] * k)}×${Math.round(bx[1] * k)}`;
+        console.log(`${f.replace('.yaml', '').padEnd(20)}${wh.padEnd(19)}${String(y.desc ?? '')}${y.vars ? '  可调：' + Object.keys(y.vars).join(' ') : ''}${y.anchors ? '  锚点：' + Object.keys(y.anchors).join(' ') : ''}`);
+      }
     } else if (what === 'figure') {
       console.log('姿势 pose：' + Object.keys(POSES).join('  '));
       console.log('表情 face：' + Object.keys(FACES).filter(f => f !== 'none').join('  '));

@@ -94,6 +94,7 @@ money:  { doodle: banknote }
 ```
 
 场景里写 `{ cast: boss, size: 300, at: [140, 240] }`，其余字段照常写，会覆盖角色表里的同名字段（换姿势写 `pose: think`，换表情写 `face: worried`）。手法的角色、`crowd` 的 `of`、`carry` 里也能用。
+角色不只是人：手绘件、图标、带 `vars` 的手绘件都可以写进角色表（如 `money: { doodle: banknote, vars: { text: "5000" } }`），全片同一个长相。
 
 ## 表现手法（pattern）
 
@@ -241,7 +242,7 @@ beats:
 |---|---|---|
 | 文字 | `{ text: "+0", size: 150, color: red }` | `\n` 换行；`align`。`size` 是字高。字体是手写马克笔体「霞鹜漫黑」 |
 | 小人 | `{ figure: stand, face: happy, wear: [tophat, tie], size: 420 }` | `size` 是身高；`accent` 是配饰颜色；`carry: { doodle: moneybag, hand: left }` 手里拿一样东西（默认右手，跟着手动）。姿势/表情/配饰清单：`hj assets figure` |
-| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。123 个，和小人同一画风：`hj assets doodles` 查看；`peep-` 开头的 32 个是真人插画（`peep-bust-*` 半身、`peep-sit-*` 坐蹲骑、`peep-stand-*` 站立），要坐着、蹲着、拿东西的人时用它们，火柴人仍是默认角色；`vars` 是该手绘件开放的可调项 |
+| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。123 个（`hj assets doodles` 列出每个在 `size: 200` 时的宽高：`size` 管的是长边），和小人同一画风：`hj assets doodles` 查看；`peep-` 开头的 32 个是真人插画（`peep-bust-*` 半身、`peep-sit-*` 坐蹲骑、`peep-stand-*` 站立），要坐着、蹲着、拿东西的人时用它们，火柴人仍是默认角色；`vars` 是该手绘件开放的可调项 |
 | 图标 | `{ icon: building-bank, size: 280 }` | 兜底。5000+ 个线条图标，`hj assets icons <英文关键词>` 搜索。造型偏“界面图标”，手绘件里有的就别用它 |
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 46；默认灰色。用来补数字、名字、出处 |
