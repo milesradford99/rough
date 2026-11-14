@@ -31,7 +31,8 @@ setup() {
   after="$(git -C "$ENGINE" rev-parse HEAD 2>/dev/null || echo none)"
   if [ ! -d "$ENGINE/node_modules" ] || [ "$ENGINE/package-lock.json" -nt "$ENGINE/node_modules/.package-lock.json" ]; then
     echo "· 安装依赖"
-    (cd "$ENGINE" && npm install --no-audit --no-fund --silent)
+    # npm ci 不会改动 package-lock.json：引擎目录保持干净，下次才能自动更新
+    (cd "$ENGINE" && (npm ci --no-audit --no-fund --silent 2>/dev/null || npm install --no-save --no-audit --no-fund --silent))
   fi
   # 技能是单独拷贝的：把说明同步成引擎里的最新版
   if [ "$SKILL" != "$ENGINE/skills/huajiang" ] && [ -d "$ENGINE/skills/huajiang" ]; then
