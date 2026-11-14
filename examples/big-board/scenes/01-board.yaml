@@ -1,0 +1,220 @@
+# 一块 3×3 屏的大板讲完 2008 金融危机。先定全景：一条蛇形的链子——
+# 第一排从左到右（开场、便宜的钱、次级贷款），第二排从右到左（打包卖走、切三层、保险和杠杆），
+# 中间一条横幅是整条链子共同的赌注，第三排是它倒下的过程，最底下一行是结论。
+from: "二〇〇八年"
+intent: 一条蛇形的因果链：便宜的钱 → 次级贷款 → 打包卖走 → 切三层贴上 AAA → 保险和杠杆，全押在“房价不会跌”这一条横幅上；房价掉头之后，镜头沿着链子走回去，一环一环打叉；最后拉到全景，每一环上都留着一个“风险”。
+board: [3, 3.5]                    # 三屏宽、三屏半高：每个分区正好是一屏，镜头对准一个分区时画面里只有它
+regions:
+  hook:   [0, 0, 960, 1250]        # 开场：雷曼倒了，从一栋房子烧到全世界
+  cheap:  [960, 0, 960, 1250]      # ① 便宜的钱
+  sub:    [1920, 0, 960, 1250]     # ② 次级贷款
+  pack:   [1920, 1250, 960, 1250]  # ③ 打包卖走
+  slice:  [960, 1250, 960, 1250]   # ④ 切成三层
+  bets:   [0, 1250, 960, 1250]     # ⑤ 卖保险 ⑥ 加杠杆
+  core:   [0, 2500, 2880, 300]     # 共同的赌注：一条横幅
+  fall:   [0, 2800, 960, 1250]     # ⑦ 房价掉头
+  dflt:   [960, 2800, 960, 1250]   # ⑧ 断供
+  freeze: [1920, 2800, 960, 1250]  # ⑨ 信贷冻结
+  end:    [0, 4050, 2880, 325]     # 结论
+elements:
+  # ── 开场 ──
+  yr:     { text: "2008", size: 120, color: red, in: hook, at: [690, 140] }
+  lehman: { doodle: office, size: 320, in: hook, at: [300, 400], label: 雷曼兄弟, labelSize: 44 }
+  y158:   { text: "158年", size: 76, in: hook, at: [690, 300] }
+  lx:     { mark: cross, target: lehman }
+  w1:     { doodle: candles, size: 130, in: hook, at: [170, 760], label: 股市, labelSize: 36 }
+  w2:     { doodle: factory, size: 130, in: hook, at: [480, 760], label: 工厂, labelSize: 36 }
+  w3:     { doodle: bowl, size: 130, in: hook, at: [790, 760], label: 饭碗, labelSize: 36 }
+  wd:     { doodle: trend-down, size: 150, in: hook, at: [690, 500] }
+  h0:     { doodle: house, size: 120, in: hook, at: [170, 985] }
+  g0:     { doodle: globe, size: 120, in: hook, at: [790, 985] }
+  hq:     { arrow: [h0, g0], label: "?", color: red }
+  # ── ① 便宜的钱 ──
+  t1:     { text: "① 便宜的钱", size: 110, in: cheap, at: [480, 100] }
+  fed:    { doodle: gov, size: 230, in: cheap, at: [220, 340], label: 美联储, labelSize: 44 }
+  rate:   { text: "利率 1%", size: 96, color: blue, in: cheap, at: [660, 300] }
+  rdown:  { doodle: trend-down, size: 110, in: cheap, at: [660, 430], vars: { tint: blue } }
+  loan:   { doodle: banknote, size: 170, in: cheap, at: [190, 660], vars: { text: 贷 }, label: 借钱便宜, labelSize: 38 }
+  buyer:  { figure: cheer, size: 210, in: cheap, at: [480, 650] }
+  h1:     { doodle: house, size: 170, in: cheap, at: [780, 650], label: 贷款买房, labelSize: 38 }
+  a11:    { arrow: [loan, buyer] }
+  a12:    { arrow: [buyer, h1] }
+  price:  { chart: line, data: [100, 117, 146, 184], labels: ["2000", "02", "04", "06"], w: 620, h: 210, in: cheap, at: [440, 925] }
+  pup:    { text: "房价 ↑", size: 64, color: red, in: cheap, at: [840, 880] }
+  # ── ② 次级贷款 ──
+  t2:     { text: "② 次级贷款", size: 110, in: sub, at: [480, 100] }
+  bank2:  { doodle: bank, size: 230, in: sub, at: [210, 350], label: 银行, labelSize: 44 }
+  chk:    { doodle: checklist, size: 150, in: sub, at: [560, 320] }
+  c1:     { text: "查收入", size: 50, color: gray, in: sub, at: [780, 280] }
+  c2:     { text: "要首付", size: 50, color: gray, in: sub, at: [780, 360] }
+  cx:     { mark: cross, target: chk }
+  poor:   { figure: shrug, face: worried, size: 240, in: sub, at: [650, 690] }
+  p1:     { text: "没工作", size: 50, in: sub, at: [860, 620], color: gray }
+  p2:     { text: "没存款", size: 50, in: sub, at: [860, 700], color: gray }
+  a21:    { arrow: [bank2, poor], label: 照样贷, curve: 0.15 }
+  subn:   { text: "次级贷款", size: 84, color: red, in: sub, at: [450, 940], weight: bold }
+  h2:     { doodle: house, size: 130, in: sub, at: [850, 930], label: 收回来卖掉, labelSize: 36 }
+  a22:    { arrow: [poor, h2], label: 还不上 }
+  hup:    { doodle: trend-up, size: 100, in: sub, at: [700, 960] }
+  # ── ③ 打包卖走 ──
+  t3:     { text: "③ 打包卖走", size: 100, in: pack, at: [560, 100] }
+  docs:   { crowd: 6, cols: 3, gap: [84, 100], of: { doodle: document, size: 84 }, in: pack, at: [790, 360] }
+  dn:     { text: "几千笔房贷", size: 46, color: gray, in: pack, at: [790, 520] }
+  pkg:    { doodle: goods, size: 200, in: pack, at: [430, 400], label: 一个包, labelSize: 40 }
+  a31:    { arrow: [docs, pkg] }
+  ib:     { doodle: office, size: 240, in: pack, at: [770, 800], label: 投行, labelSize: 44 }
+  a32:    { arrow: [pkg, ib], label: 卖 }
+  cash:   { doodle: banknote, size: 170, in: pack, at: [350, 790] }
+  a33:    { arrow: [ib, cash] }
+  a34:    { arrow: [cash.left, [2010, 560]], color: blue }
+  a34t:   { text: "再放新贷款", size: 42, color: blue, in: sub, at: [215, 640] }
+  rk3:    { text: "风险也卖走了", size: 60, color: red, in: pack, at: [360, 960] }
+  care:   { text: "还得起吗？不管了", size: 46, color: gray, below: rk3, gap: 14 }
+  # ── ④ 切成三层 ──
+  t4:     { text: "④ 切成三层", size: 110, in: slice, at: [480, 100] }
+  la:     { shape: rect, w: 400, h: 120, fill: green, fillAlpha: 0.45, in: slice, at: [560, 300] }
+  lb:     { shape: rect, w: 400, h: 120, fill: yellow, fillAlpha: 0.45, in: slice, at: [560, 430] }
+  lc:     { shape: rect, w: 400, h: 120, fill: red, fillAlpha: 0.45, in: slice, at: [560, 560] }
+  sa:     { text: "先拿钱", size: 54, color: green, in: slice, at: [200, 280] }
+  sa2:    { text: "最安全", size: 42, color: gray, below: sa, gap: 6 }
+  sc:     { text: "先亏损", size: 54, color: red, in: slice, at: [200, 540] }
+  sc2:    { text: "最危险", size: 42, color: gray, below: sc, gap: 6 }
+  rater:  { doodle: magnifier, size: 140, in: slice, at: [860, 210], label: 评级公司, labelSize: 36 }
+  aaa:    { text: "AAA", size: 96, color: red, in: slice, at: [560, 300], overlap: true, weight: bold }
+  eqb:    { text: "≈ 国债", size: 64, color: blue, in: slice, at: [200, 410] }
+  s1:     { doodle: globe, size: 150, in: slice, at: [190, 900], label: 全世界, labelSize: 38 }
+  s2:     { doodle: safe, size: 150, in: slice, at: [480, 900], label: 养老基金, labelSize: 38 }
+  s3:     { doodle: bank, size: 150, in: slice, at: [770, 900], label: 银行, labelSize: 38 }
+  a41:    { arrow: [lc, s2], label: 卖 }
+  a40:    { arrow: [ib.left, lb.right], label: 切, curve: 0.2 }
+  # ── ⑤ 卖保险 ⑥ 加杠杆 ──
+  t5:     { text: "⑤ 卖保险", size: 100, in: bets, at: [480, 90] }
+  aig:    { doodle: office, size: 210, in: bets, at: [200, 330], label: AIG, labelSize: 48 }
+  prem:   { doodle: coins, size: 110, in: bets, at: [560, 250], label: 保费, labelSize: 36 }
+  a51:    { arrow: [prem, aig] }
+  prom:   { doodle: document, size: 120, in: bets, at: [800, 420], label: 出事我赔, labelSize: 36 }
+  a52:    { arrow: [aig, prom], curve: 0.2 }
+  free:   { text: "白捡？", size: 70, color: green, in: bets, at: [240, 540] }
+  t6:     { text: "⑥ 加杠杆", size: 100, in: bets, at: [330, 660] }
+  lname:  { text: "雷曼", size: 70, in: bets, at: [760, 665] }
+  lev:    { axis: [0, 31], length: 800, in: bets, at: [80, 900] }
+  own:    { span: [0, 1], on: lev, at: [0, 900], color: red, in: bets, overlap: true }
+  bor:    { span: [1, 31], on: lev, at: [0, 900], color: blue, in: bets, inside: "借来的 30" }
+  ownt:   { text: "自己 1", size: 48, color: red, in: bets, at: [130, 810] }
+  x30:    { text: "30 倍", size: 96, color: blue, in: bets, at: [720, 790], weight: bold }
+  l3:     { span: [0, 0.93], on: lev, at: [0, 1000], color: red, in: bets, overlap: true }
+  l3t:    { text: "跌 3% = 本钱没了", size: 52, color: red, in: bets, at: [360, 1000] }
+  # ── 共同的赌注 ──
+  bet:    { text: "全押在：房价不会跌", size: 170, color: ink, in: core, at: [1440, 150], weight: bold }
+  b1:     { arrow: [[480, 2410], [480, 2510]], color: gray }
+  b2:     { arrow: [[1440, 2410], [1440, 2510]], color: gray }
+  b3:     { arrow: [[2400, 2410], [2400, 2510]], color: gray }
+  betx:   { mark: strike, target: bet, color: red }
+  # ── ⑦ 房价掉头 ──
+  t7:     { text: "⑦ 房价掉头", size: 110, in: fall, at: [480, 90] }
+  y06:    { text: "2006", size: 84, in: fall, at: [190, 240] }
+  r5:     { text: "利率 5%+", size: 90, color: red, in: fall, at: [620, 240] }
+  price2: { chart: line, data: [100, 117, 146, 184, 152, 145], labels: ["2000", "02", "04", "06", "08", "10"], highlight: 3, w: 660, h: 300, in: fall, at: [450, 600] }
+  pay:    { text: "月供 ↑", size: 64, in: fall, at: [230, 950] }
+  pdn:    { text: "房价 ↓", size: 84, color: red, in: fall, at: [650, 950], weight: bold }
+  # ── ⑧ 断供 ──
+  t8:     { text: "⑧ 断供", size: 110, in: dflt, at: [480, 90] }
+  poor2:  { figure: slump, face: sad, size: 240, in: dflt, at: [230, 560] }
+  noPay:  { doodle: wallet-empty, size: 130, in: dflt, at: [470, 470] }
+  h3:     { doodle: house, size: 170, in: dflt, at: [760, 560], label: 卖不出价, labelSize: 40 }
+  a81:    { arrow: [poor2, h3], curve: -0.2 }
+  # ── ⑨ 信贷冻结 ──
+  t9:     { text: "⑨ 信贷冻结", size: 110, in: freeze, at: [480, 90] }
+  bk1:    { doodle: bank, size: 170, in: freeze, at: [170, 360] }
+  bk2:    { doodle: bank, size: 170, in: freeze, at: [790, 360] }
+  bad:    { doodle: goods, size: 110, in: freeze, at: [480, 290] }
+  badq:   { text: "坏的？", size: 50, color: red, in: freeze, at: [480, 395] }
+  a91:    { arrow: [bk1, bk2], both: true, curve: 0.3 }
+  a91x:   { text: "✗ 不借", size: 60, color: red, in: freeze, at: [480, 550] }
+  lh:     { text: "雷曼", size: 64, in: freeze, at: [150, 720] }
+  lhx:    { doodle: badge-cross, size: 90, in: freeze, at: [300, 720] }
+  ai:     { text: "AIG", size: 64, in: freeze, at: [560, 720] }
+  gv:     { doodle: gov, size: 120, in: freeze, at: [830, 720] }
+  a92:    { arrow: [gv, ai], label: 救 }
+  fac:    { doodle: factory, size: 150, in: freeze, at: [170, 1010] }
+  fired:  { crowd: 3, cols: 3, gap: 110, of: { figure: slump, face: sad, size: 150 }, in: freeze, at: [690, 1010] }
+  a93:    { arrow: [fac, fired], label: 裁员 }
+  # ── 结论 ──
+  k1:     { doodle: warning, size: 130, at: [1840, 100], overlap: true }
+  k2:     { doodle: warning, size: 130, at: [2800, 100], overlap: true }
+  k3:     { doodle: warning, size: 120, at: [2815, 1350], overlap: true }
+  k4:     { doodle: warning, size: 130, at: [1840, 1350], overlap: true }
+  k5:     { doodle: warning, size: 130, at: [880, 1340], overlap: true }
+  e1:     { text: "风险没有消失", size: 150, color: red, in: end, at: [760, 160], weight: bold }
+  e2:     { text: "藏起来 → 一起回来", size: 130, color: blue, in: end, at: [2060, 160] }
+beats:
+  - { at: "二〇〇八", intent: 写下年份, do: [{ draw: yr }] }
+  - { at: "一家有", intent: 画出雷曼的楼和它的岁数, do: [{ draw: [lehman, y158] }] }
+  - { at: "一夜之", intent: 一个大叉, do: [{ draw: lx }] }
+  - { at: "接着全", intent: 股市、工厂、饭碗一样一样出现, do: [{ draw: w1 }, { draw: w2 }, { draw: w3 }] }
+  - { at: "跟着一", intent: 一个向下的箭头, do: [{ draw: wd }] }
+  - { at: "只是美", intent: 起点只是一栋房子, do: [{ draw: h0 }] }
+  - { at: "从一栋", intent: 房子晃一下：就从这儿开始, do: [{ pulse: h0 }] }
+  - { at: "烧到全", intent: 从房子到地球，中间一个问号, do: [{ draw: [g0, hq] }] }
+  - { at: "先看起", intent: 镜头向右走到第一环, do: [{ draw: t1 }] }
+  - { at: "美联储", intent: 美联储把利率降到 1%, do: [{ draw: fed }, { draw: [rate, rdown] }] }
+  - { at: "借钱变", intent: 便宜的贷款, do: [{ draw: loan }] }
+  - { at: "大家都", intent: 人拿着贷款去买房, do: [{ draw: [a11, buyer, a12, h1] }] }
+  - { at: "房价一年", intent: 房价一路往上的线, do: [{ draw: price }, { draw: pup }] }
+  - { at: "银行的", intent: 镜头再向右：第二环，银行, do: [{ draw: [t2, bank2] }] }
+  - { at: "以前要", intent: 以前的规矩：一张清单, do: [{ draw: [chk, c1] }] }
+  - { at: "要首付", intent: 要首付, do: [{ draw: c2 }] }
+  - { at: "现在没", intent: 清单打叉；来了一个没工作没存款的人, do: [{ draw: cx }, { draw: [poor, p1] }] }
+  - { at: "没存款", intent: 照样贷给他, do: [{ draw: p2 }, { draw: a21 }] }
+  - { at: "叫次级", intent: 写下名字：次级贷款, do: [{ draw: subn }] }
+  - { at: "就把房", intent: 还不上就把房子收回来卖, do: [{ draw: [a22, h2] }] }
+  - { at: "反正房", intent: 反正房子在涨, do: [{ draw: hup }] }
+  - { at: "可银行", intent: 镜头向下走到第三环, do: [{ draw: t3 }] }
+  - { at: "它把几", intent: 几千笔房贷打成一个包, do: [{ draw: [docs, dn] }, { draw: [a31, pkg] }] }
+  - { at: "卖给华", intent: 卖给投行, do: [{ draw: [a32, ib] }] }
+  - { at: "钱马上", intent: 钱马上回来, do: [{ draw: [a33, cash] }] }
+  - { at: "再去放", intent: 拉开：一条线回到上面的银行，再放新贷款, do: [{ camera: { focus: [sub, pack] } }, { draw: a34 }, { draw: a34t }] }
+  - { at: "跟着包", intent: 回到第三环：风险也卖走了, do: [{ camera: { focus: pack } }, { draw: rk3 }] }
+  - { at: "已经不", intent: 放贷的人不管了, do: [{ draw: care }] }
+  - { at: "投行拿", intent: 镜头向左走到第四环, do: [{ draw: t4 }, { draw: a40 }] }
+  - { at: "再切成", intent: 三层叠在一起, do: [{ draw: [la, lb, lc] }] }
+  - { at: "还款先", intent: 最上面一层先拿钱，最安全, do: [{ draw: sa }] }
+  - { at: "最安全", intent: 最安全, do: [{ draw: sa2 }] }
+  - { at: "亏损先", intent: 最下面一层先亏，最危险, do: [{ draw: sc }] }
+  - { at: "最危险", intent: 最危险, do: [{ draw: sc2 }] }
+  - { at: "评级公", intent: 评级公司拿着放大镜, do: [{ draw: rater }] }
+  - { at: "给最上面那", intent: 最上面那层盖上 AAA, do: [{ draw: aaa }] }
+  - { at: "于是一", intent: 给 AAA 画一圈, do: [{ draw: { mark: burst, target: aaa, color: red } }] }
+  - { at: "成了和", intent: 和国债一个级别, do: [{ draw: eqb }] }
+  - { at: "卖给了", intent: 卖给全世界、养老基金、银行, do: [{ draw: a41 }, { draw: [s1, s2, s3] }] }
+  - { at: "还有人", intent: 镜头再向左：第五环, do: [{ draw: t5 }] }
+  - { at: "保险巨", intent: AIG 收保费, do: [{ draw: aig }, { draw: [prem, a51] }] }
+  - { at: "承诺出", intent: 承诺出事它来赔, do: [{ draw: [a52, prom] }] }
+  - { at: "这笔保", intent: 它觉得这是白捡的, do: [{ draw: free }] }
+  - { at: "而投行", intent: 第六环：加杠杆, do: [{ draw: t6 }] }
+  - { at: "雷曼的", intent: 写上雷曼, do: [{ draw: lname }] }
+  - { at: "自己一", intent: 自己的一块钱：红色的一小段, do: [{ draw: [own, ownt] }] }
+  - { at: "借三十", intent: 借来的三十块：长长的一条, do: [{ draw: bor }, { draw: x30 }] }
+  - { at: "资产只", intent: 跌 3% 就是下面这一小段, do: [{ draw: l3 }] }
+  - { at: "本钱就", intent: 正好等于本钱, do: [{ draw: l3t }] }
+  - { at: "到这儿", intent: 拉到全景：三处往下指, do: [{ camera: home }, { draw: [b1, b2, b3] }] }
+  - { at: "房价不会跌#2", intent: 全景上写下共同的赌注, do: [{ draw: bet }] }
+  - { at: "二〇〇六", intent: 镜头走到第三排：2006 年, do: [{ camera: { focus: fall } }, { draw: [t7, y06] }] }
+  - { at: "利率已", intent: 利率回到 5% 以上, do: [{ draw: r5 }] }
+  - { at: "月供变", intent: 月供变重, do: [{ draw: pay }] }
+  - { at: "房价掉", intent: 房价的线掉头向下, do: [{ draw: price2 }, { draw: pdn }] }
+  - { at: "次贷的", intent: 第八环：借钱的人断供, do: [{ draw: t8 }, { draw: [poor2, noPay] }] }
+  - { at: "房子收回来也", intent: 房子收回来也卖不出价, do: [{ draw: [a81, h3] }] }
+  - { at: "最下面那", intent: 镜头回到那三层：最下面一层打叉, do: [{ camera: { focus: [la, lb, lc, sa, sc], pad: 120 } }, { draw: { mark: cross, target: lc } }] }
+  - { at: "接着是", intent: 中间一层打叉, do: [{ draw: { mark: cross, target: lb } }] }
+  - { at: "最后连", intent: 连 AAA 那层也打叉, do: [{ draw: { mark: cross, target: [la, aaa] } }] }
+  - { at: "没有人", intent: 镜头走到第九环：谁手里的包是坏的, do: [{ camera: { focus: freeze } }, { draw: t9 }, { draw: [bad, badq] }] }
+  - { at: "银行之", intent: 两家银行之间不借了, do: [{ draw: [bk1, bk2, a91] }, { draw: a91x }] }
+  - { at: "雷曼借", intent: 雷曼倒了, do: [{ draw: [lh, lhx] }] }
+  - { at: "AIG赔", intent: AIG 赔不起，政府救, do: [{ draw: ai }, { draw: [gv, a92] }] }
+  - { at: "企业借", intent: 企业借不到钱, do: [{ draw: fac }] }
+  - { at: "开始裁", intent: 裁员, do: [{ draw: [a93, fired] }] }
+  - { at: "回头看", intent: 拉到全景；划掉那条赌注, do: [{ camera: home }, { draw: betx }] }
+  - { at: "每一环", intent: 链子上每一环都亮起一个风险, do: [{ draw: k1 }, { draw: k2 }, { draw: k3 }, { draw: k4 }, { draw: k5 }] }
+  - { at: "可风险", intent: 结论：风险没有消失, do: [{ draw: e1 }] }
+  - { at: "它只是", intent: 藏起来，最后一起回来, do: [{ draw: e2 }] }

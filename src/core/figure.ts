@@ -32,6 +32,21 @@ export const POSES: Record<string, Pose> = {
   'walk-left':  { armL: [38, -45], armR: [30, 10], legL: [22, 0], legR: [26, 0], lean: -6, head: 0 },
   'run-right':  { armL: [62, -85], armR: [72, 62], legL: [42, 0], legR: [52, -72], lean: 12, head: 0 },
   stop:         { armL: [80, 75], armR: [80, 75], legL: [10, 0], legR: [10, 0], lean: 0, head: 0 },
+  // 侧身坐：两条腿朝同一边伸出去、小腿垂下。底下垫一个 stool / chair 手绘件，或者坐在别的东西的边上
+  'sit-right':  { armL: [10, 10], armR: [38, -70], legL: [-82, 82], legR: [88, -88], lean: 3, head: 0 },
+  'sit-left':   { armL: [38, -70], armR: [10, 10], legL: [88, -88], legR: [-82, 82], lean: -3, head: 0 },
+  // 坐着干活：手往前伸到桌面
+  'type-right': { armL: [-35, -50], armR: [45, 50], legL: [-82, 82], legR: [88, -88], lean: 8, head: 6 },
+  'type-left':  { armL: [45, 50], armR: [-35, -50], legL: [88, -88], legR: [-82, 82], lean: -8, head: -6 },
+  'sit-floor':  { armL: [30, -80], armR: [30, -80], legL: [72, -150], legR: [72, -150], lean: 0, head: 6 },
+  jump:         { armL: [125, 30], armR: [125, 30], legL: [30, -60], legR: [30, -60], lean: 0, head: -4 },
+  bow:          { armL: [-20, 10], armR: [30, 10], legL: [6, 0], legR: [8, 0], lean: 32, head: 20 },
+  'push-right': { armL: [-60, -40], armR: [80, 10], legL: [28, 0], legR: [-6, 30], lean: 16, head: 0 },
+  'push-left':  { armL: [80, 10], armR: [-60, -40], legL: [-6, 30], legR: [28, 0], lean: -16, head: 0 },
+  'pull-right': { armL: [-70, 0], armR: [84, 0], legL: [-14, 0], legR: [34, 0], lean: -14, head: 0 },
+  'reach-up':   { armL: [152, 8], armR: [152, 8], legL: [5, 0], legR: [5, 0], lean: 0, head: -10 },
+  'look-up':    { armL: [12, 6], armR: [60, 110], legL: [7, 0], legR: [7, 0], lean: -2, head: -18 },
+  'run-left':   { armL: [72, 62], armR: [62, -85], legL: [52, -72], legR: [42, 0], lean: -12, head: 0 },
 };
 
 type Eyes = 'dot' | 'wide' | 'closed' | 'arc' | 'x' | 'dollar';

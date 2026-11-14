@@ -7,12 +7,37 @@ export type Box = { x: number; y: number; w: number; h: number };
 
 export interface LineStroke { kind: 'line'; pts: number[]; w: number; color: string; len: number; under?: boolean; alpha?: number; cum?: number[]; /** 平头、等宽：马克笔涂色的宽笔道 */ flat?: boolean; wm?: Float32Array; /** 装饰笔画（阴影）：不算进元素的占位框 */ deco?: boolean }
 /** 汉字：整个字形 + 笔顺中线。笔沿中线走，走过的地方露出字形 */
-export interface GlyphStroke { kind: 'fglyph'; d: string; tx: number; ty: number; s: number; medians: number[][]; r: number; color: string; len: number; box: Box; mcum?: number[][] }
+export interface GlyphStroke { kind: 'fglyph'; d: string; tx: number; ty: number; s: number; medians: number[][]; r: number; color: string; len: number; box: Box; mcum?: number[][]; /** 加粗：在字形外再描一圈，单位是像素 */ bold?: number }
 /** 非汉字字形：整个字形轮廓，从左到右揭开 */
-export interface WipeStroke { kind: 'wipe'; d: string; tx: number; ty: number; s: number; color: string; len: number; box: Box }
+export interface WipeStroke { kind: 'wipe'; d: string; tx: number; ty: number; s: number; color: string; len: number; box: Box; bold?: number }
 /** 实心填充块：在自己的时间片里淡入 */
 export interface FillStroke { kind: 'fill'; pts: number[]; color: string; alpha: number; len: number; under: true }
-export type Stroke = LineStroke | GlyphStroke | WipeStroke | FillStroke;
+/** 位图（截图、照片、logo）：像一张贴到板上的照片，沿斜向揭开 */
+export interface ImageStroke { kind: 'image'; file: string; tx: number; ty: number; color: string; len: number; box: Box; under: true }
+export type Stroke = LineStroke | GlyphStroke | WipeStroke | FillStroke | ImageStroke;
+
+/** 读 PNG / JPEG / GIF / WebP 文件头里的宽高（不解码） */
+export function imageSize(b: Uint8Array): { w: number; h: number } | null {
+  const u16 = (i: number) => (b[i] << 8) | b[i + 1], u32 = (i: number) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+  if (b[0] === 0x89 && b[1] === 0x50) return { w: u32(16), h: u32(20) };
+  if (b[0] === 0x47 && b[1] === 0x49) return { w: b[6] | (b[7] << 8), h: b[8] | (b[9] << 8) };
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const m = b[i + 1];
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { w: u16(i + 7), h: u16(i + 5) };
+      i += 2 + u16(i + 2);
+    }
+  }
+  if (b[0] === 0x52 && b[8] === 0x57) { // RIFF....WEBP
+    const t = String.fromCharCode(b[12], b[13], b[14], b[15]);
+    if (t === 'VP8 ') return { w: (b[26] | (b[27] << 8)) & 0x3fff, h: (b[28] | (b[29] << 8)) & 0x3fff };
+    if (t === 'VP8L') { const n = b[21] | (b[22] << 8) | (b[23] << 16) | (b[24] << 24); return { w: (n & 0x3fff) + 1, h: ((n >> 14) & 0x3fff) + 1 }; }
+    if (t === 'VP8X') return { w: (b[24] | (b[25] << 8) | (b[26] << 16)) + 1, h: (b[27] | (b[28] << 8) | (b[29] << 16)) + 1 };
+  }
+  return null;
+}
 
 export function hash(s: string): number {
   let h = 2166136261;

@@ -11,7 +11,7 @@
     "hj": "tsx src/cli/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "check:examples": "node bin/hj.mjs check examples/compound --strict && node bin/hj.mjs check examples/patterns --strict && node bin/hj.mjs check examples/one-board --strict"
+    "check:examples": "node bin/hj.mjs check examples/compound --strict && node bin/hj.mjs check examples/patterns --strict && node bin/hj.mjs check examples/one-board --strict && node bin/hj.mjs check examples/big-board --strict"
   },
   "license": "MIT",
   "repository": {

@@ -59,7 +59,8 @@ export function lint(c: Compiled): Issue[] {
       // 3. 画得太赶
       if (tl.compress != null && tl.compress < 0.4) add('warn', where, `要用自然速度的 ${(1 / tl.compress).toFixed(1)} 倍才画得完（${(tl.drawT1! - tl.drawT0!).toFixed(2)} 秒），会像快进。简化它、给它更多时间（节拍加 lead 提前起笔），或拆到两拍`);
     }
-    if (textChars > 110) add('warn', sc.file, `这个场景板书共 ${textChars} 个字，偏多。批注要短：数字、名字、出处，一条不超过十个字`);
+    // 板大、讲得久，字的上限跟着放宽：按板的面积算
+    if (textChars > 110 * Math.max(1, (sc.board.w * sc.board.h) / (c.fmt.board.w * c.fmt.board.h))) add('warn', sc.file, `这个场景板书共 ${textChars} 个字，偏多。批注要短：数字、名字、出处，一条不超过十个字`);
     // 信息密度：一块板讲了这么久，上面应该已经是一张内容丰富的图
     const sig = new Map<string, number>();
     for (const t of shown) if (t.el.kind !== 'mark') { const k = t.el.kind + JSON.stringify(Object.fromEntries(Object.entries(t.el.src).filter(([key]) => !POS.has(key)))); sig.set(k, (sig.get(k) ?? 0) + 1); }
@@ -134,7 +135,7 @@ export function lint(c: Compiled): Issue[] {
           const isText = o.el.kind === 'text' || o.el.kind === 'note';
           if (countIn(pts, o.el.solid, isText ? 4 : 10) >= (isText ? 2 : 5)) hit.push(o.el.id);
         }
-        if (hit.length) add('warn', where, `这个${{ circle: '圈', box: '框', cross: '叉', strike: '划线', underline: '下划线' }[String(el.src.mark)] ?? '标记'}画下去会压到 ${NAMES(hit)}。标记不参与自动避让：把它们从 ${NAMES(tids)} 旁边挪开一点、调小 pad，或换一种标记（underline 占地最小）`);
+        if (hit.length) add('warn', where, `这个${{ circle: '圈', box: '框', cross: '叉', strike: '划线', underline: '下划线' }[String(el.src.mark)] ?? '标记'}画下去会压到 ${NAMES(hit)}。引擎已经把标记收到最紧了还是压到：把它们从 ${NAMES(tids)} 旁边挪开一点、调小 pad，或换一种标记（underline 占地最小）`);
       }
       // 字被线穿过（分隔线、箭头、别的批注的牵线）
       if ((el.kind === 'text' || el.kind === 'note') && !tl.moves.length) {
@@ -222,6 +223,35 @@ export function lint(c: Compiled): Issue[] {
     const homesAll = new Set(c.scenes.map(x => x.home)), camSegs = c.cams.filter(k => k.t0 >= sc.t0 - 1e-6 && k.t0 < sc.t1 && !k.cut && !(homesAll.has(k.to) && k.to !== sc.home)); // 含引擎跟拍的镜头
     const camActs = camSegs;
     if (sc.t1 - sc.t0 >= 25 && !camActs.length) add('warn', sc.file, `这块板讲了 ${(sc.t1 - sc.t0).toFixed(0)} 秒，镜头一次都没动。全程一个远景，细节看不清，也没有节奏：讲到某一块的细节时推近（{ camera: { focus: 分区名或元素 } }），讲完、要看它和别处的关系时拉回全景（{ camera: home }）`);
+    // 近景取景：推近之后画面里大半是空的、东西偏在一边，或者正在画的东西被画面边切掉
+    {
+      const FB = c.fmt.board, hz = sc.home.zoom || 1, scx = c.fmt.W / 2 - (FB.x + FB.w / 2), scy = c.fmt.H / 2 - (FB.y + FB.h / 2);
+      const all = c.cams.filter(k => k.t1 >= sc.t0 - 1e-6 && k.t0 < sc.t1);
+      const mine = c.tls.filter(tl => tl.scene === sc.index && tl.el.kind !== 'axis');
+      const bornOf = (tl: TL) => tl.drawT0 ?? tl.appear?.t ?? Infinity;
+      const boxAt = (tl: TL): Box => { const b = tl.el.kind === 'note' ? tl.el.solid : tl.el.box, m = tl.moves.length ? tl.moves[tl.moves.length - 1].to : [0, 0]; return { x: b.x + m[0], y: b.y + m[1], w: b.w, h: b.h }; };
+      const empty: string[] = [], cut: string[] = [];
+      all.forEach((k, i) => {
+        if (k.cut || k.to === sc.home || k.to.zoom / hz < 1.2) return;
+        const end = Math.min(sc.t1, all[i + 1]?.t0 ?? sc.t1);
+        if (end - k.t1 < 1.5) return;
+        const w = FB.w / k.to.zoom, h = FB.h / k.to.zoom, cx = k.to.cx - sc.origin[0] - FB.x - scx / k.to.zoom, cy = k.to.cy - FB.y - scy / k.to.zoom;
+        const v: Box = { x: cx - w / 2, y: cy - h / 2, w, h }, tc = Math.min(k.t1 + (k.region ? 12 : 2.5), end); // 对准一个分区是“走到这块地盘”，里面的东西接下来才一样样画：看它十来秒后填得怎么样
+        const vis = mine.filter(tl => bornOf(tl) <= tc && (tl.gone == null || tl.gone > tc)).map(boxAt).filter(b => inter(b, v) > 0);
+        if (vis.length) {
+          const x0 = Math.max(v.x, Math.min(...vis.map(b => b.x))), y0 = Math.max(v.y, Math.min(...vis.map(b => b.y))), x1 = Math.min(v.x + v.w, Math.max(...vis.map(b => b.x + b.w))), y1 = Math.min(v.y + v.h, Math.max(...vis.map(b => b.y + b.h)));
+          const fill = ((x1 - x0) * (y1 - y0)) / (v.w * v.h), off = Math.max(Math.abs((x0 + x1) / 2 - cx) / v.w, Math.abs((y0 + y1) / 2 - cy) / v.h);
+          if (fill < 0.05 || (!k.region && fill < 0.4 && off > 0.2)) empty.push(`${fmtT(k.t1)}（内容只占画面 ${Math.round(fill * 100)}%${off > 0.2 ? '，偏在一边' : ''}）`);
+        } else empty.push(`${fmtT(k.t1)}（画面里什么都没有）`);
+        for (const tl of mine) {
+          if (['arrow', 'line', 'mark'].includes(tl.el.kind) || bornOf(tl) < k.t1 - 0.3 || bornOf(tl) >= end) continue;
+          const b = boxAt(tl), a = b.w * b.h;
+          if (a > 0 && inter(b, v) / a < 0.85) cut.push(`${fmtT(bornOf(tl))} "${tl.el.id}"`);
+        }
+      });
+      if (empty.length) add('warn', sc.file, `有 ${empty.length} 个近景取景不好：${empty.slice(0, 4).join('、')}。近景要对准“这一刻已经画出来和正在画的东西”：focus 里别放很久以后才画的元素，pad 别留太大；或者先对准眼前这一样，等下一样要画了再用一个 camera 动作带过去`);
+      if (cut.length) add('warn', sc.file, `近景里正在画的东西被画面边切掉了：${cut.slice(0, 5).join('、')}。把它加进这一拍 camera 的 focus，或者画它之前先 { camera: home } 拉回全景`);
+    }
     // 推近却几乎没放大：竖屏里横贯全宽的东西推不近，近景要对准局部的几样东西
     {
       const homes = new Set(c.scenes.map(x => x.home)), hz = sc.home.zoom || 1, segs = c.cams.filter(k => k.t0 >= sc.t0 - 1e-6 && k.t0 < sc.t1 && !homes.has(k.to) && !k.cut); // 换板时平移到下一块板的全景不算推近

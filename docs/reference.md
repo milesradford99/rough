@@ -30,11 +30,15 @@
 | `sfx` | `true` | 落笔音效。`true`：稀疏模式，每落一次笔一声很轻的短响，两声之间至少隔 0.9 秒；`full`：更密；`false`：关 |
 | `sfxVolume` | 1 | 音效音量倍数 |
 | `sfxSamples` | 无 | 用真实录音替换合成音：`{ pen: sfx/pen.wav, mark: sfx/circle.wav, erase: sfx/wipe.wav }`（16-bit WAV，路径相对项目目录）。合成音不如录音自然，有条件就换 |
-| `pen` | `false` | 显示一个极小的笔尖 |
+| `pen` | `false` | 画的时候显示笔：`marker` 一支马克笔，`hand` 握着笔的手（从右下角伸进来）。笔跟着笔尖走，笔头是正在用的颜色；两笔挨得近就悬着滑过去，停得久了退出画面 |
+| `music` | 无 | 背景音乐文件（路径相对项目目录，如 `voice/bed.mp3`）。自动循环铺满全片、淡入淡出；有配音时人一开口音乐自动压低，停顿时浮上来。仓库不带音乐，用你有权使用的 |
+| `musicVolume` | 0.16 | 背景音乐音量。`musicDuck: false` 关掉“说话时压低” |
+| `cover` | 无 | 封面：`{ title: "两行以内\n每行八个字以内", accent: 2, sub: 一句小字, at: 口播片段 }`。`hj cover` 出图：整块板的全景加手写大标题。`accent` 是第几行用红字加黄色马克笔底（默认最后一行）；`at` 取哪一刻的画面（默认片尾全景） |
 | `shade` | `true` | 灰色马克笔阴影：手绘件、形状、柱状图的柱子画完后在右下侧扫一道灰，小人脚下有一小团影子。`false` 关掉全片的阴影 |
 | `autoframe` | `true` | 自动取景：一块板上的东西没铺满画板时，镜头推近到刚好装满（最多 1.4 倍），位置关系不变，东西和字整体变大。`false` 关掉全片；单个场景里写 `frame: false` 关掉这一场。沿用（recall）的场景和原场景取同一个景 |
 | `layout` | 无 | 默认一条片子一块板，切成很多小板会被检查器当作翻页。确实要分页（素材陈列、每页自成一体的讲法）写 `pages` |
-| `board` | 1 | 全片的板相对屏幕的倍数（1–3）。也可以写在单个场景里 |
+| `board` | 1 | 全片的板相对屏幕的倍数（1–5），或 `[横向几屏, 纵向几屏]`。也可以写在单个场景里 |
+| `minimap` | 板大于两屏时开 | 推近时在角上显示一张小地图：灰块是已经画出来的东西，红框是镜头的位置。`false` 关掉，`true` 在小一点的板上也显示 |
 | `tail` | 0.6 | 口播结束后多留几秒 |
 
 ## 画板坐标
@@ -58,7 +62,7 @@
 | `recall` | | 沿用前面某个场景的画面，见下文 |
 | `frame` | | `false`：这一场不要自动取景（见项目设置的 `autoframe`） |
 | `regions` | | 板面分区（坐标是画板坐标，画板在画面里的位置用 `hj stills --draft --guides` 看）：`区名: [x, y, w, h]`（数字或百分比）。全景的骨架。元素写 `in: 区名` 后，`at` 的数字和百分比都相对这一块；只写 `in` 不写位置就放在分区正中。镜头可以推近一个分区（`camera: { focus: 区名 }`）。划了却到最后空着的分区会被警告；分区不能和元素重名 |
-| `board` | 1 | 这块板相对屏幕的倍数（1–3）。`1.5` 表示宽高都是 1.5 倍：全景把整块板缩进画面，推近才是原大。内容多、一屏放不下时用它，不要换板 |
+| `board` | 1 | 这块板相对屏幕的倍数（1–5）。`1.5` 表示宽高都是 1.5 倍；`[3, 3.5]` 表示三屏宽、三屏半高。全景把整块板缩进画面，推近才是原大。内容多、一屏放不下时用它，不要换板。大板上镜头按分区走（要画的东西落在哪个分区就对准哪个分区）、近景最多放到 1.25 倍、跨分区的连线自动用宽景；怎么规划见 directing.md“大板”一节 |
 | `camera` | `follow` | `follow`：引擎跟着笔走：正在画的东西小就推近（往后看 3.5 秒，把接下来要画的一起框进去），跑出画面就跟过去，东西宽、切换太密或在近景里待了 15 秒就拉回全景，结尾回全景；两次移动至少隔 3.5 秒。**自己写的 `camera` 动作优先**：写了的那一拍按写的来，之后接着跟。`still`：只按自己写的动。分页写法（`layout: pages`）默认 `still`。也可以写在 `project.yaml` 里管全片 |
 | `pattern` | | 表现手法：自带构图和动作编排的场景骨架，见下文 |
 | `elements` | | `id: 定义` 的映射。id 只在本场景内有效 |
@@ -228,9 +232,22 @@ beats:
 
 **手里的东西用 `carry`，不要摆在 `小人.handR` 上。** 摆上去的东西会盖住身体，小人换姿势、走动时也不跟着。
 
+**坐到凳子上、落到桌面上。** `anchor` 除了 `center left top…`，还可以写元素自己的锚点：小人有 `hip feet head handL handR`，手绘件有它声明的锚点。坐姿这样写：
+
+```yaml
+ch:  { doodle: chair, size: 200, at: [300, 600] }
+me:  { figure: type-right, size: 260, at: ch.seat, anchor: hip, shade: false }   # 臀部落在椅面上
+dk:  { doodle: desk, size: 220, at: [510, 635] }
+lp:  { doodle: laptop, size: 90, at: dk.surface, anchor: bottom }
+```
+
+坐和动作的姿势：`sit-right sit-left type-right type-left sit-floor jump bow push-right push-left pull-right reach-up look-up run-left`（全部清单 `hj assets figure`）。`stool`、`chair` 有 `seat` 锚点，`desk` 有 `surface`。
+
 ### 通用外观
 
 `size`（大小）、`color`、`fill`（填充色）、`fillAlpha`（填充浓度）、`fillStyle`（`marker` 马克笔涂色，默认 / `hachure` 细排线 / `solid` 平涂 / `zigzag` / `cross-hatch` / `dots`）、`pen`（线宽，默认 5.5）、`rough`（抖动程度，默认 0.9）、`label` + `labelSize`（写在元素正下方的标签，随元素一起画）。
+
+`weight`（线的轻重）：`bold` 加重、`light` 放轻。不写时引擎自己分轻重：手绘件和图标的线宽跟着大小走（小东西线细、大东西线粗），84 以上的大字自动加重一点。要强调的结论写 `weight: bold`，次要的东西写 `weight: light`。
 
 `shade: false`：这个元素不要灰色阴影（默认有，见项目设置的 `shade`）。阴影是引擎自动加的，只加在外轮廓上，不占位置、不参与避让；光永远从左上来，全片一致。
 
@@ -242,7 +259,8 @@ beats:
 |---|---|---|
 | 文字 | `{ text: "+0", size: 150, color: red }` | `\n` 换行；`align`。`size` 是字高。字体是手写马克笔体「霞鹜漫黑」 |
 | 小人 | `{ figure: stand, face: happy, wear: [tophat, tie], size: 420 }` | `size` 是身高；`accent` 是配饰颜色；`carry: { doodle: moneybag, hand: left }` 手里拿一样东西（默认右手，跟着手动）。姿势/表情/配饰清单：`hj assets figure` |
-| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。123 个（`hj assets doodles` 列出每个在 `size: 200` 时的宽高：`size` 管的是长边），和小人同一画风：`hj assets doodles` 查看；`peep-` 开头的 32 个是真人插画（`peep-bust-*` 半身、`peep-sit-*` 坐蹲骑、`peep-stand-*` 站立），要坐着、蹲着、拿东西的人时用它们，火柴人仍是默认角色；`vars` 是该手绘件开放的可调项 |
+| 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。126 个（`hj assets doodles` 列出每个在 `size: 200` 时的宽高：`size` 管的是长边），和小人同一画风：`hj assets doodles` 查看；`peep-` 开头的 32 个是真人插画（`peep-bust-*` 半身、`peep-sit-*` 坐蹲骑、`peep-stand-*` 站立），要坐着、蹲着、拿东西的人时用它们，火柴人仍是默认角色；`vars` 是该手绘件开放的可调项 |
+| 图片 | `{ image: images/chart.png, size: 360, label: 来源 }` | 位图：截图、照片、logo（PNG、JPEG、WebP）。路径相对项目目录；`size` 是宽，高按比例（或写 `w`、`h`）。像一张贴到板上的照片：`draw` 时沿斜向揭开，外面手绘一圈框（`frame: false` 不要框）。只在必须给人看原物时用（一张真实的截图、一个真实的 logo）；能画出来的东西仍然画 |
 | 图标 | `{ icon: building-bank, size: 280 }` | 兜底。5000+ 个线条图标，`hj assets icons <英文关键词>` 搜索。造型偏“界面图标”，手绘件里有的就别用它 |
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 46；默认灰色。用来补数字、名字、出处 |
@@ -254,6 +272,8 @@ beats:
 | 图表 | `{ chart: bar, data: [3800, 1200], labels: [法定, 实发], values: true }` | `bar` / `line`。`highlight: 1` 或 `highlight: {1: red}` 标红某项；`unit` 数值后缀；`w`、`h` |
 | 自由图形 | `{ parts: [ … ], box: [w, h], size: 200 }` | 就地用基本图形拼一个，格式同手绘件 |
 | 人群 | `{ crowd: 10, cols: 5, of: { figure: stand, size: 140 }, at: [250, 800] }` | 一群一样的东西。`at` 是整群的中心，`cols` 每排几个，`gap: 110` 或 `gap: [横, 竖]` 调间距。成员自动叫 `<id>1`…`<id>N`；整群作为一个整体定位，不会有谁被单独挪走 |
+
+人群可以写 `in: 分区`；箭头和坐标可以把整群当一个东西：`{ arrow: [docs, pkg] }`、`at: [docs.right, 300]`。箭头、连线写了 `in: 分区` 时，直接写出的坐标点也相对这个分区。
 
 **成组引用。** 人群的名字可以当全体成员用，`名字6..名字10` 取其中一段，动作和标记的目标里都能写：`draw: p`、`walk: p6..p10`、`erase: p6..p10`、`{ mark: box, target: p1..p5 }`。
 
@@ -339,6 +359,7 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 | `hj stills <目录> --draft [--scene 场景] [--guides]` | 草稿关键帧：半分辨率、带“草稿 · 未确认”水印，输出到 `out/draft/`。给写分镜的人自查用，不需要用户确认，也不解锁后面的步骤。`--guides` 画出画板边界（蓝色虚线）：元素坐标的原点在这个框的左上角，竖屏画板是 960×1250，横屏是 1700×800，框外是平台界面和字幕的地方。分镜有错误时不出图，目录里留着的是旧图 |
 | `hj stills <目录> [--scene 场景] [--at 秒数或口播片段] [--guides]` | 正式关键帧（需先确认文字分镜）。`--guides` 画出画板边界 |
 | `hj render <目录> [--scene 场景 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染。`--draft` 为半分辨率、15 帧 |
+| `hj cover <目录> [--draft] [--out 文件]` | 封面图 `out/cover.png`（需先确认文字分镜；`--draft` 出带水印的草稿）。标题写在 project.yaml 的 `cover` 里 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |
 | `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件] [--dir 目录]` | 素材。`sheet --dir` 只画某个目录里的手绘件 |
 | `hj import excalidraw\|svg\|quickdraw <文件> …` | 把外部手绘素材转成手绘件，见“从外部导入手绘件” |
@@ -350,5 +371,6 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 |---|---|
 | 错误 | 锚点在口播里找不到；引用了不存在的元素；缺 `intent`；板书照抄口播 ≥7 字；元素整个在画板外；批注/标记比它的目标先出现（或目标从没画出来） |
 | 警告：摆放 | 标记（圈、框、叉）压到了目标以外的东西；字被线穿过；被引擎挪了很远（超过 80px）；一排东西里被单独挪走一个；贴着画板边缘；东西摆在小人手的位置上而不是 `carry`；元素重叠（引擎没能自动挪开时）；画面太空；板面有一整条横带是空的；字号太小 |
+| 警告：镜头 | 近景里大半是空的或东西偏在一边；近景里正在画的东西被画面边切掉；推近却几乎没放大；一块板全程一个景别；结尾没回全景 |
 | 警告：节奏 | 画得太赶（超过自然速度 2.5 倍）；一拍里赶着画一大群；一拍的动作拖过了下一拍；画面静止超过 4.2 秒；新板面空着超过 1.5 秒才落第一笔；连续 11 秒只有晃动、换姿势这类小动作；刚画完就被擦掉；小人走到一半原地消失；最后一个动作收在配音结束之后 |
 | 警告：内容 | 纯文字场景；信息密度偏低（讲得久、东西少；一模一样的东西重复画只算一组）；板书太多；一块板上红字超过四处；弹出/淡入用得太多；卡点落在时间不可靠的字上；锚点有歧义 |

@@ -38,6 +38,7 @@ npx hj stills work/<项目名>                   # 每拍一张关键帧 + 每�
 npx hj approve work/<项目名> keyframes --by "<用户原话>"
 npx hj render work/<项目名> --draft           # 半分辨率草稿，快
 npx hj render work/<项目名>                   # 正式成片 out/video.mp4
+npx hj cover work/<项目名>                    # 封面 out/cover.png（标题写在 project.yaml 的 cover 里；--draft 可先自己看）
 ```
 
 `work/` 已被 git 忽略：用户的稿子和配音默认不进仓库。
@@ -89,15 +90,17 @@ beats:                            # 什么时候、怎么动、镜头看哪儿
 坐标可以引用前面的东西（`at: [r1.left, 440]`），也可以落在数轴的数值上（`at: [t@2, 400]`）：后画的对着先画的摆，位置本身就在说话。**涉及长短、时间、比例的，一律用数轴和区间条，不要自己算像素。**
 
 内容多、一屏放不下时，把板放大而不是换板：场景里写 `board: 1.6`，全景是缩小的整块板，近景才是原大。
+一件复杂的事（八九环的因果链、好几方的系统、三五分钟）用大板：`board: [3, 3.5]`，一个分区一屏、排成一条蛇形的路，镜头按分区走，角上自动有小地图。照 [examples/big-board/](examples/big-board/) 写，规矩见 directing.md“大板”一节。
 很长的片子可以分章，一章一块板；确实要一页页陈列（素材展示）就在 `project.yaml` 里写 `layout: pages`。
 
 **框架替你兜底的事**（不需要你自己盯）：
 
-- 元素不会互相重叠、不会出画板：压到了引擎自动挪开，连线自动绕路，批注自动换边。
+- 元素不会互相重叠、不会出画板：压到了引擎自动挪开，连线自动绕路，批注自动换边，圈、框、下划线旁边有东西时自动收紧；压在字上的叉和划线自动画细、不和字同色。
 - 一排人用 `crowd`，永远对齐；分章的片子里前面的图再出现用 `recall`，位置永远一致；角色长相写在 `cast.yaml`，全片一个样；人站在东西上用锚点（`boat.deck`），脚一定落在上面。
 - 位置可以不写，引擎自动找空位。拿不准坐标时不写比乱写好。
 - 用表现手法时，构图、大小、动作顺序都是现成的。
 - 画的速度自动匹配语速。
+- 近景只框已经画出来和正要画的东西；画板上下的界面区、字幕区自动遮住；近景空了、切到东西了检查器会说。
 - 镜头会自己跟着笔走：推近正在画的东西、连线时拉回全景、结尾回全景。某一刻想要特别的景别就自己写 `camera: { focus: 分区或元素 }` / `camera: home`，那一拍按你写的来，其余时间引擎接着跟。
 - 长短、时间、比例用数轴（`axis`）和区间条（`span`），位置和长度由引擎算。
 - 翻页（切成很多块小板）、一块板从头到尾镜头不动、划了分区却空着、结尾没回全景，检查器都会指出来。
@@ -114,17 +117,20 @@ beats:                            # 什么时候、怎么动、镜头看哪儿
 | 要给配音方提要求 / 自己生成配音 | [docs/voice-guide.md](docs/voice-guide.md) |
 | 看九种表现手法各长什么样 | [examples/patterns/](examples/patterns/) |
 | 看一块板讲完一条片子的完整例子（**照这个写**） | [examples/one-board/](examples/one-board/) |
+| 看一块大板讲完一件复杂的事的例子（九个分区、三分钟） | [examples/big-board/](examples/big-board/) |
 | 看分页写法的例子（只在分章、陈列时用） | [examples/compound/](examples/compound/) |
 
 找手法和素材：
 
 ```bash
 npx hj patterns                    # 九种表现手法：自带构图和动作编排（先看这个）
-npx hj assets doodles              # 123 个手绘件，和小人同一画风（首选）；`peep-` 开头的是坐、蹲、站、半身的真人插画
+npx hj assets doodles              # 126 个手绘件，和小人同一画风（首选）；`peep-` 开头的是坐、蹲、站、半身的真人插画
 npx hj assets icons factory        # 5000+ 线条图标，英文关键词搜索（兜底）
 npx hj assets figure               # 小人的姿势、表情、配饰
 npx hj assets sheet --out sheet.png   # 把上面这些画成一张图，直接看长相
 ```
+
+必须给人看原物（一张真实的截图、一个 logo）时用 `image` 元素贴位图；背景音乐、握笔的手、封面标题都在 `project.yaml` 里设（`music`、`pen: hand`、`cover`，见 reference）。
 
 没有合适的素材时，在项目的 `doodles/` 目录里用基本图形自己画一个，或用 `hj import` 从外部素材库转一个进来（两种做法都见 reference），不要用文字顶替。
 

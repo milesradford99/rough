@@ -105,6 +105,42 @@ test('端到端：init → check → 两道确认闸 → 出图 → 带音频渲
   const part = hj('render', dir, '--draft', '--from', '1', '--to', '4', '--out', join(dir, 'out/part.mp4'));
   assert.equal(part.status, 0, part.stderr);
   assert.ok(Math.abs(loudestAt(join(dir, 'out/part.mp4')) - (CLICK_AT - 1)) < 0.06, `分段渲染：咔哒声应在 ${CLICK_AT - 1}s，实际 ${loudestAt(join(dir, 'out/part.mp4')).toFixed(3)}s`);
+
+  // 背景音乐：配音在 3 秒之后是静音，成片这一段有声音，说明音乐混进去了
+  const sr = 48000, tone = Buffer.alloc(44 + sr * 2);
+  tone.write('RIFF', 0); tone.writeUInt32LE(36 + sr * 2, 4); tone.write('WAVEfmt ', 8); tone.writeUInt32LE(16, 16); tone.writeUInt16LE(1, 20); tone.writeUInt16LE(1, 22);
+  tone.writeUInt32LE(sr, 24); tone.writeUInt32LE(sr * 2, 28); tone.writeUInt16LE(2, 32); tone.writeUInt16LE(16, 34); tone.write('data', 36); tone.writeUInt32LE(sr * 2, 40);
+  for (let i = 0; i < sr; i++) tone.writeInt16LE(Math.round(Math.sin(i * 0.05) * 20000), 44 + i * 2);
+  writeFileSync(join(dir, 'voice/bed.wav'), tone); // 只有 1 秒：要靠循环铺满全片
+  writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8') + '\nmusic: voice/bed.wav\n');
+  const withMusic = hj('render', dir, '--draft', '--out', join(dir, 'out/music.mp4'));
+  assert.equal(withMusic.status, 0, withMusic.stderr);
+  assert.match(withMusic.stdout, /背景音乐/);
+  const pcm = spawnSync('ffmpeg', ['-v', 'error', '-ss', '4', '-t', '1', '-i', join(dir, 'out/music.mp4'), '-vn', '-ac', '1', '-ar', '48000', '-f', 's16le', '-'], { maxBuffer: 1 << 28 }).stdout;
+  let peak = 0; for (let i = 0; i + 1 < pcm.length; i += 2) peak = Math.max(peak, Math.abs(pcm.readInt16LE(i)));
+  assert.ok(peak > 500, `第 4 秒应该听得到循环的背景音乐，实际峰值 ${peak}`);
+  assert.ok(Math.abs(loudestAt(join(dir, 'out/music.mp4')) - CLICK_AT) < 0.06, '加了音乐，配音仍在原位、仍是最响的');
+
+  // 封面
+  const cover = hj('cover', dir);
+  assert.equal(cover.status, 0, cover.stderr);
+  assert.ok(existsSync(join(dir, 'out/cover.png')));
+});
+
+test('位图元素：图片能贴到板上；路径写错时说清楚', () => {
+  const dir = project(), scene = join(dir, 'scenes/01-loop.yaml'), orig = readFileSync(scene, 'utf8');
+  // 一张 2×1 的 PNG
+  mkdirSync(join(dir, 'images'));
+  writeFileSync(join(dir, 'images/shot.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEklEQVR4nGP8z8Dwn4GBgYEJAAkGAQHZ3nqzAAAAAElFTkSuQmCC', 'base64'));
+  const withImg = orig.replace('do: [{ step: show.1 }', 'do: [{ draw: shot }, { step: show.1 }').replace(/\n$/, '') + '\nelements:\n  shot: { image: images/shot.png, size: 200 }\n';
+  writeFileSync(scene, withImg.replace('shot.png', 'nope.png'));
+  const bad = hj('check', dir);
+  assert.equal(bad.status, 1);
+  assert.match(bad.stdout, /找不到图片/);
+  writeFileSync(scene, withImg);
+  const ok = hj('layout', dir);
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  assert.match(ok.stdout, /shot\s+image\s+x\s+\d+…\d+\s+y\s+\d+…\d+/);
 });
 
 test('命令行：未知命令、缺参数、分镜写错时给出能照着改的提示，而不是堆栈', () => {

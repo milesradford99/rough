@@ -1,0 +1,6462 @@
+{
+ "provider": "fake",
+ "timing_status": "fake_uniform",
+ "duration_seconds": 183.626,
+ "units": [
+  {
+   "text": "二",
+   "display_text": "二",
+   "start": 0,
+   "end": 0.222,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "〇",
+   "display_text": "〇",
+   "start": 0.222,
+   "end": 0.444,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "〇",
+   "display_text": "〇",
+   "start": 0.444,
+   "end": 0.667,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "八",
+   "display_text": "八",
+   "start": 0.667,
+   "end": 0.889,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "年",
+   "display_text": "年，",
+   "start": 0.889,
+   "end": 1.111,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 1.331,
+   "end": 1.553,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "家",
+   "display_text": "家",
+   "start": 1.553,
+   "end": 1.776,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "有",
+   "display_text": "有",
+   "start": 1.776,
+   "end": 1.998,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 1.998,
+   "end": 2.22,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "百",
+   "display_text": "百",
+   "start": 2.22,
+   "end": 2.442,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "五",
+   "display_text": "五",
+   "start": 2.442,
+   "end": 2.664,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "十",
+   "display_text": "十",
+   "start": 2.664,
+   "end": 2.887,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "八",
+   "display_text": "八",
+   "start": 2.887,
+   "end": 3.109,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "年",
+   "display_text": "年",
+   "start": 3.109,
+   "end": 3.331,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "历",
+   "display_text": "历",
+   "start": 3.331,
+   "end": 3.553,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "史",
+   "display_text": "史",
+   "start": 3.553,
+   "end": 3.776,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 3.776,
+   "end": 3.998,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "投",
+   "display_text": "投",
+   "start": 3.998,
+   "end": 4.22,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "行",
+   "display_text": "行",
+   "start": 4.22,
+   "end": 4.442,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "雷",
+   "display_text": "雷",
+   "start": 4.442,
+   "end": 4.664,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "曼",
+   "display_text": "曼",
+   "start": 4.664,
+   "end": 4.887,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "兄",
+   "display_text": "兄",
+   "start": 4.887,
+   "end": 5.109,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "弟",
+   "display_text": "弟，",
+   "start": 5.109,
+   "end": 5.331,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 5.551,
+   "end": 5.773,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "夜",
+   "display_text": "夜",
+   "start": 5.773,
+   "end": 5.996,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "之",
+   "display_text": "之",
+   "start": 5.996,
+   "end": 6.218,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "间",
+   "display_text": "间",
+   "start": 6.218,
+   "end": 6.44,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "倒",
+   "display_text": "倒",
+   "start": 6.44,
+   "end": 6.662,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "了",
+   "display_text": "了。",
+   "start": 6.662,
+   "end": 6.884,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 0
+  },
+  {
+   "text": "接",
+   "display_text": "接",
+   "start": 7.434,
+   "end": 7.657,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "着",
+   "display_text": "着",
+   "start": 7.657,
+   "end": 7.879,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "全",
+   "display_text": "全",
+   "start": 7.879,
+   "end": 8.101,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "世",
+   "display_text": "世",
+   "start": 8.101,
+   "end": 8.323,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "界",
+   "display_text": "界",
+   "start": 8.323,
+   "end": 8.546,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 8.546,
+   "end": 8.768,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "股",
+   "display_text": "股",
+   "start": 8.768,
+   "end": 8.99,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "市",
+   "display_text": "市、",
+   "start": 8.99,
+   "end": 9.212,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "工",
+   "display_text": "工",
+   "start": 9.432,
+   "end": 9.654,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "厂",
+   "display_text": "厂、",
+   "start": 9.654,
+   "end": 9.877,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "饭",
+   "display_text": "饭",
+   "start": 10.097,
+   "end": 10.319,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "碗",
+   "display_text": "碗，",
+   "start": 10.319,
+   "end": 10.541,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "跟",
+   "display_text": "跟",
+   "start": 10.761,
+   "end": 10.983,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "着",
+   "display_text": "着",
+   "start": 10.983,
+   "end": 11.206,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 11.206,
+   "end": 11.428,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "起",
+   "display_text": "起",
+   "start": 11.428,
+   "end": 11.65,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "掉",
+   "display_text": "掉",
+   "start": 11.65,
+   "end": 11.872,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "下",
+   "display_text": "下",
+   "start": 11.872,
+   "end": 12.094,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "去",
+   "display_text": "去。",
+   "start": 12.094,
+   "end": 12.317,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 1
+  },
+  {
+   "text": "可",
+   "display_text": "可",
+   "start": 12.867,
+   "end": 13.089,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "这",
+   "display_text": "这",
+   "start": 13.089,
+   "end": 13.311,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "场",
+   "display_text": "场",
+   "start": 13.311,
+   "end": 13.533,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "危",
+   "display_text": "危",
+   "start": 13.533,
+   "end": 13.756,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "机",
+   "display_text": "机",
+   "start": 13.756,
+   "end": 13.978,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 13.978,
+   "end": 14.2,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "起",
+   "display_text": "起",
+   "start": 14.2,
+   "end": 14.422,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "点",
+   "display_text": "点，",
+   "start": 14.422,
+   "end": 14.644,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "只",
+   "display_text": "只",
+   "start": 14.864,
+   "end": 15.087,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "是",
+   "display_text": "是",
+   "start": 15.087,
+   "end": 15.309,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "美",
+   "display_text": "美",
+   "start": 15.309,
+   "end": 15.531,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "国",
+   "display_text": "国",
+   "start": 15.531,
+   "end": 15.753,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "普",
+   "display_text": "普",
+   "start": 15.753,
+   "end": 15.976,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "通",
+   "display_text": "通",
+   "start": 15.976,
+   "end": 16.198,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "人",
+   "display_text": "人",
+   "start": 16.198,
+   "end": 16.42,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "买",
+   "display_text": "买",
+   "start": 16.42,
+   "end": 16.642,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 16.642,
+   "end": 16.864,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "子",
+   "display_text": "子。",
+   "start": 16.864,
+   "end": 17.087,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 2
+  },
+  {
+   "text": "它",
+   "display_text": "它",
+   "start": 17.637,
+   "end": 17.859,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "是",
+   "display_text": "是",
+   "start": 17.859,
+   "end": 18.081,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "怎",
+   "display_text": "怎",
+   "start": 18.081,
+   "end": 18.303,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "么",
+   "display_text": "么",
+   "start": 18.303,
+   "end": 18.526,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 18.526,
+   "end": 18.748,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "步",
+   "display_text": "步",
+   "start": 18.748,
+   "end": 18.97,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 18.97,
+   "end": 19.192,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "步",
+   "display_text": "步，",
+   "start": 19.192,
+   "end": 19.414,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "从",
+   "display_text": "从",
+   "start": 19.634,
+   "end": 19.857,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 19.857,
+   "end": 20.079,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "栋",
+   "display_text": "栋",
+   "start": 20.079,
+   "end": 20.301,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 20.301,
+   "end": 20.523,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "子",
+   "display_text": "子，",
+   "start": 20.523,
+   "end": 20.746,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "烧",
+   "display_text": "烧",
+   "start": 20.966,
+   "end": 21.188,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 21.188,
+   "end": 21.41,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "全",
+   "display_text": "全",
+   "start": 21.41,
+   "end": 21.632,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "世",
+   "display_text": "世",
+   "start": 21.632,
+   "end": 21.854,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "界",
+   "display_text": "界",
+   "start": 21.854,
+   "end": 22.077,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "的",
+   "display_text": "的？",
+   "start": 22.077,
+   "end": 22.299,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 3
+  },
+  {
+   "text": "先",
+   "display_text": "先",
+   "start": 22.849,
+   "end": 23.071,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 4
+  },
+  {
+   "text": "看",
+   "display_text": "看",
+   "start": 23.071,
+   "end": 23.293,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 4
+  },
+  {
+   "text": "起",
+   "display_text": "起",
+   "start": 23.293,
+   "end": 23.516,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 4
+  },
+  {
+   "text": "点",
+   "display_text": "点。",
+   "start": 23.516,
+   "end": 23.738,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 4
+  },
+  {
+   "text": "两",
+   "display_text": "两",
+   "start": 24.288,
+   "end": 24.51,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "千",
+   "display_text": "千",
+   "start": 24.51,
+   "end": 24.732,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "年",
+   "display_text": "年",
+   "start": 24.732,
+   "end": 24.954,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "初",
+   "display_text": "初，",
+   "start": 24.954,
+   "end": 25.177,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "美",
+   "display_text": "美",
+   "start": 25.397,
+   "end": 25.619,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "联",
+   "display_text": "联",
+   "start": 25.619,
+   "end": 25.841,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "储",
+   "display_text": "储",
+   "start": 25.841,
+   "end": 26.063,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "把",
+   "display_text": "把",
+   "start": 26.063,
+   "end": 26.286,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "利",
+   "display_text": "利",
+   "start": 26.286,
+   "end": 26.508,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "率",
+   "display_text": "率",
+   "start": 26.508,
+   "end": 26.73,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 26.73,
+   "end": 26.952,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "路",
+   "display_text": "路",
+   "start": 26.952,
+   "end": 27.174,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "降",
+   "display_text": "降",
+   "start": 27.174,
+   "end": 27.397,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 27.397,
+   "end": 27.619,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "百",
+   "display_text": "百",
+   "start": 27.619,
+   "end": 27.841,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "分",
+   "display_text": "分",
+   "start": 27.841,
+   "end": 28.063,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "之",
+   "display_text": "之",
+   "start": 28.063,
+   "end": 28.286,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "一",
+   "display_text": "一。",
+   "start": 28.286,
+   "end": 28.508,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 5
+  },
+  {
+   "text": "借",
+   "display_text": "借",
+   "start": 29.058,
+   "end": 29.28,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "钱",
+   "display_text": "钱",
+   "start": 29.28,
+   "end": 29.502,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "变",
+   "display_text": "变",
+   "start": 29.502,
+   "end": 29.724,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "得",
+   "display_text": "得",
+   "start": 29.724,
+   "end": 29.947,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "特",
+   "display_text": "特",
+   "start": 29.947,
+   "end": 30.169,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "别",
+   "display_text": "别",
+   "start": 30.169,
+   "end": 30.391,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "便",
+   "display_text": "便",
+   "start": 30.391,
+   "end": 30.613,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "宜",
+   "display_text": "宜，",
+   "start": 30.613,
+   "end": 30.836,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "大",
+   "display_text": "大",
+   "start": 31.056,
+   "end": 31.278,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "家",
+   "display_text": "家",
+   "start": 31.278,
+   "end": 31.5,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "都",
+   "display_text": "都",
+   "start": 31.5,
+   "end": 31.722,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "去",
+   "display_text": "去",
+   "start": 31.722,
+   "end": 31.944,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 31.944,
+   "end": 32.167,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "款",
+   "display_text": "款",
+   "start": 32.167,
+   "end": 32.389,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "买",
+   "display_text": "买",
+   "start": 32.389,
+   "end": 32.611,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "房",
+   "display_text": "房，",
+   "start": 32.611,
+   "end": 32.833,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 33.053,
+   "end": 33.276,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "价",
+   "display_text": "价",
+   "start": 33.276,
+   "end": 33.498,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 33.498,
+   "end": 33.72,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "年",
+   "display_text": "年",
+   "start": 33.72,
+   "end": 33.942,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 33.942,
+   "end": 34.164,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "年",
+   "display_text": "年",
+   "start": 34.164,
+   "end": 34.387,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "往",
+   "display_text": "往",
+   "start": 34.387,
+   "end": 34.609,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "上",
+   "display_text": "上",
+   "start": 34.609,
+   "end": 34.831,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "涨",
+   "display_text": "涨。",
+   "start": 34.831,
+   "end": 35.053,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 6
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 35.603,
+   "end": 35.826,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "价",
+   "display_text": "价",
+   "start": 35.826,
+   "end": 36.048,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 36.048,
+   "end": 36.27,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "直",
+   "display_text": "直",
+   "start": 36.27,
+   "end": 36.492,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "涨",
+   "display_text": "涨，",
+   "start": 36.492,
+   "end": 36.714,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "银",
+   "display_text": "银",
+   "start": 36.934,
+   "end": 37.157,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "行",
+   "display_text": "行",
+   "start": 37.157,
+   "end": 37.379,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 37.379,
+   "end": 37.601,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "胆",
+   "display_text": "胆",
+   "start": 37.601,
+   "end": 37.823,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "子",
+   "display_text": "子",
+   "start": 37.823,
+   "end": 38.046,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "就",
+   "display_text": "就",
+   "start": 38.046,
+   "end": 38.268,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "大",
+   "display_text": "大",
+   "start": 38.268,
+   "end": 38.49,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "了",
+   "display_text": "了。",
+   "start": 38.49,
+   "end": 38.712,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 7
+  },
+  {
+   "text": "以",
+   "display_text": "以",
+   "start": 39.262,
+   "end": 39.484,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "前",
+   "display_text": "前",
+   "start": 39.484,
+   "end": 39.707,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "要",
+   "display_text": "要",
+   "start": 39.707,
+   "end": 39.929,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "查",
+   "display_text": "查",
+   "start": 39.929,
+   "end": 40.151,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "收",
+   "display_text": "收",
+   "start": 40.151,
+   "end": 40.373,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "入",
+   "display_text": "入、",
+   "start": 40.373,
+   "end": 40.596,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "要",
+   "display_text": "要",
+   "start": 40.816,
+   "end": 41.038,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "首",
+   "display_text": "首",
+   "start": 41.038,
+   "end": 41.26,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "付",
+   "display_text": "付，",
+   "start": 41.26,
+   "end": 41.482,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "现",
+   "display_text": "现",
+   "start": 41.702,
+   "end": 41.924,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "在",
+   "display_text": "在",
+   "start": 41.924,
+   "end": 42.147,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "没",
+   "display_text": "没",
+   "start": 42.147,
+   "end": 42.369,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "工",
+   "display_text": "工",
+   "start": 42.369,
+   "end": 42.591,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "作",
+   "display_text": "作、",
+   "start": 42.591,
+   "end": 42.813,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "没",
+   "display_text": "没",
+   "start": 43.033,
+   "end": 43.256,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "存",
+   "display_text": "存",
+   "start": 43.256,
+   "end": 43.478,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "款",
+   "display_text": "款",
+   "start": 43.478,
+   "end": 43.7,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 43.7,
+   "end": 43.922,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "人",
+   "display_text": "人",
+   "start": 43.922,
+   "end": 44.144,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "也",
+   "display_text": "也",
+   "start": 44.144,
+   "end": 44.367,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "能",
+   "display_text": "能",
+   "start": 44.367,
+   "end": 44.589,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 44.589,
+   "end": 44.811,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 44.811,
+   "end": 45.033,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "款",
+   "display_text": "款。",
+   "start": 45.033,
+   "end": 45.256,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 8
+  },
+  {
+   "text": "这",
+   "display_text": "这",
+   "start": 45.806,
+   "end": 46.028,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "种",
+   "display_text": "种",
+   "start": 46.028,
+   "end": 46.25,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 46.25,
+   "end": 46.472,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "款",
+   "display_text": "款，",
+   "start": 46.472,
+   "end": 46.694,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "叫",
+   "display_text": "叫",
+   "start": 46.914,
+   "end": 47.137,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "次",
+   "display_text": "次",
+   "start": 47.137,
+   "end": 47.359,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "级",
+   "display_text": "级",
+   "start": 47.359,
+   "end": 47.581,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 47.581,
+   "end": 47.803,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "款",
+   "display_text": "款。",
+   "start": 47.803,
+   "end": 48.026,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 9
+  },
+  {
+   "text": "银",
+   "display_text": "银",
+   "start": 48.576,
+   "end": 48.798,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "行",
+   "display_text": "行",
+   "start": 48.798,
+   "end": 49.02,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 49.02,
+   "end": 49.242,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "怕",
+   "display_text": "怕",
+   "start": 49.242,
+   "end": 49.464,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "他",
+   "display_text": "他",
+   "start": 49.464,
+   "end": 49.687,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "还",
+   "display_text": "还",
+   "start": 49.687,
+   "end": 49.909,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 49.909,
+   "end": 50.131,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "上",
+   "display_text": "上：",
+   "start": 50.131,
+   "end": 50.353,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "还",
+   "display_text": "还",
+   "start": 50.573,
+   "end": 50.796,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 50.796,
+   "end": 51.018,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "上",
+   "display_text": "上，",
+   "start": 51.018,
+   "end": 51.24,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "就",
+   "display_text": "就",
+   "start": 51.46,
+   "end": 51.682,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "把",
+   "display_text": "把",
+   "start": 51.682,
+   "end": 51.904,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 51.904,
+   "end": 52.127,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "子",
+   "display_text": "子",
+   "start": 52.127,
+   "end": 52.349,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "收",
+   "display_text": "收",
+   "start": 52.349,
+   "end": 52.571,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "回",
+   "display_text": "回",
+   "start": 52.571,
+   "end": 52.793,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "来",
+   "display_text": "来",
+   "start": 52.793,
+   "end": 53.016,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "卖",
+   "display_text": "卖",
+   "start": 53.016,
+   "end": 53.238,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "掉",
+   "display_text": "掉，",
+   "start": 53.238,
+   "end": 53.46,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "反",
+   "display_text": "反",
+   "start": 53.68,
+   "end": 53.902,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "正",
+   "display_text": "正",
+   "start": 53.902,
+   "end": 54.124,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 54.124,
+   "end": 54.347,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "子",
+   "display_text": "子",
+   "start": 54.347,
+   "end": 54.569,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "在",
+   "display_text": "在",
+   "start": 54.569,
+   "end": 54.791,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "涨",
+   "display_text": "涨。",
+   "start": 54.791,
+   "end": 55.013,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 10
+  },
+  {
+   "text": "可",
+   "display_text": "可",
+   "start": 55.563,
+   "end": 55.786,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "银",
+   "display_text": "银",
+   "start": 55.786,
+   "end": 56.008,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "行",
+   "display_text": "行",
+   "start": 56.008,
+   "end": 56.23,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "并",
+   "display_text": "并",
+   "start": 56.23,
+   "end": 56.452,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 56.452,
+   "end": 56.674,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "打",
+   "display_text": "打",
+   "start": 56.674,
+   "end": 56.897,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "算",
+   "display_text": "算",
+   "start": 56.897,
+   "end": 57.119,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "自",
+   "display_text": "自",
+   "start": 57.119,
+   "end": 57.341,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "己",
+   "display_text": "己",
+   "start": 57.341,
+   "end": 57.563,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "留",
+   "display_text": "留",
+   "start": 57.563,
+   "end": 57.786,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "着",
+   "display_text": "着",
+   "start": 57.786,
+   "end": 58.008,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "这",
+   "display_text": "这",
+   "start": 58.008,
+   "end": 58.23,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "些",
+   "display_text": "些",
+   "start": 58.23,
+   "end": 58.452,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 58.452,
+   "end": 58.674,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "款",
+   "display_text": "款。",
+   "start": 58.674,
+   "end": 58.897,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 11
+  },
+  {
+   "text": "它",
+   "display_text": "它",
+   "start": 59.447,
+   "end": 59.669,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "把",
+   "display_text": "把",
+   "start": 59.669,
+   "end": 59.891,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "几",
+   "display_text": "几",
+   "start": 59.891,
+   "end": 60.113,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "千",
+   "display_text": "千",
+   "start": 60.113,
+   "end": 60.336,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "笔",
+   "display_text": "笔",
+   "start": 60.336,
+   "end": 60.558,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 60.558,
+   "end": 60.78,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 60.78,
+   "end": 61.002,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "打",
+   "display_text": "打",
+   "start": 61.002,
+   "end": 61.224,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "成",
+   "display_text": "成",
+   "start": 61.224,
+   "end": 61.447,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 61.447,
+   "end": 61.669,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "个",
+   "display_text": "个",
+   "start": 61.669,
+   "end": 61.891,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "包",
+   "display_text": "包，",
+   "start": 61.891,
+   "end": 62.113,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "卖",
+   "display_text": "卖",
+   "start": 62.333,
+   "end": 62.556,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "给",
+   "display_text": "给",
+   "start": 62.556,
+   "end": 62.778,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "华",
+   "display_text": "华",
+   "start": 62.778,
+   "end": 63,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "尔",
+   "display_text": "尔",
+   "start": 63,
+   "end": 63.222,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "街",
+   "display_text": "街",
+   "start": 63.222,
+   "end": 63.444,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 63.444,
+   "end": 63.667,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "投",
+   "display_text": "投",
+   "start": 63.667,
+   "end": 63.889,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "行",
+   "display_text": "行，",
+   "start": 63.889,
+   "end": 64.111,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "钱",
+   "display_text": "钱",
+   "start": 64.331,
+   "end": 64.553,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "马",
+   "display_text": "马",
+   "start": 64.553,
+   "end": 64.776,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "上",
+   "display_text": "上",
+   "start": 64.776,
+   "end": 64.998,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "回",
+   "display_text": "回",
+   "start": 64.998,
+   "end": 65.22,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "来",
+   "display_text": "来，",
+   "start": 65.22,
+   "end": 65.442,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "再",
+   "display_text": "再",
+   "start": 65.662,
+   "end": 65.884,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "去",
+   "display_text": "去",
+   "start": 65.884,
+   "end": 66.107,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "放",
+   "display_text": "放",
+   "start": 66.107,
+   "end": 66.329,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "新",
+   "display_text": "新",
+   "start": 66.329,
+   "end": 66.551,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 66.551,
+   "end": 66.773,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 66.773,
+   "end": 66.996,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "款",
+   "display_text": "款。",
+   "start": 66.996,
+   "end": 67.218,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 12
+  },
+  {
+   "text": "风",
+   "display_text": "风",
+   "start": 67.768,
+   "end": 67.99,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "险",
+   "display_text": "险",
+   "start": 67.99,
+   "end": 68.212,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "呢",
+   "display_text": "呢，",
+   "start": 68.212,
+   "end": 68.434,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "跟",
+   "display_text": "跟",
+   "start": 68.654,
+   "end": 68.877,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "着",
+   "display_text": "着",
+   "start": 68.877,
+   "end": 69.099,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "包",
+   "display_text": "包",
+   "start": 69.099,
+   "end": 69.321,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 69.321,
+   "end": 69.543,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "起",
+   "display_text": "起",
+   "start": 69.543,
+   "end": 69.766,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "卖",
+   "display_text": "卖",
+   "start": 69.766,
+   "end": 69.988,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "走",
+   "display_text": "走",
+   "start": 69.988,
+   "end": 70.21,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "了",
+   "display_text": "了。",
+   "start": 70.21,
+   "end": 70.432,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 13
+  },
+  {
+   "text": "所",
+   "display_text": "所",
+   "start": 70.982,
+   "end": 71.204,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "以",
+   "display_text": "以",
+   "start": 71.204,
+   "end": 71.427,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "放",
+   "display_text": "放",
+   "start": 71.427,
+   "end": 71.649,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 71.649,
+   "end": 71.871,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 71.871,
+   "end": 72.093,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "人",
+   "display_text": "人，",
+   "start": 72.093,
+   "end": 72.316,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "已",
+   "display_text": "已",
+   "start": 72.536,
+   "end": 72.758,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "经",
+   "display_text": "经",
+   "start": 72.758,
+   "end": 72.98,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 72.98,
+   "end": 73.202,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "在",
+   "display_text": "在",
+   "start": 73.202,
+   "end": 73.424,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "乎",
+   "display_text": "乎",
+   "start": 73.424,
+   "end": 73.647,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "借",
+   "display_text": "借",
+   "start": 73.647,
+   "end": 73.869,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "钱",
+   "display_text": "钱",
+   "start": 73.869,
+   "end": 74.091,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 74.091,
+   "end": 74.313,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "人",
+   "display_text": "人",
+   "start": 74.313,
+   "end": 74.536,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "还",
+   "display_text": "还",
+   "start": 74.536,
+   "end": 74.758,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 74.758,
+   "end": 74.98,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "还",
+   "display_text": "还",
+   "start": 74.98,
+   "end": 75.202,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "得",
+   "display_text": "得",
+   "start": 75.202,
+   "end": 75.424,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "起",
+   "display_text": "起。",
+   "start": 75.424,
+   "end": 75.647,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 14
+  },
+  {
+   "text": "投",
+   "display_text": "投",
+   "start": 76.197,
+   "end": 76.419,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "行",
+   "display_text": "行",
+   "start": 76.419,
+   "end": 76.641,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "拿",
+   "display_text": "拿",
+   "start": 76.641,
+   "end": 76.863,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 76.863,
+   "end": 77.086,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "这",
+   "display_text": "这",
+   "start": 77.086,
+   "end": 77.308,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "些",
+   "display_text": "些",
+   "start": 77.308,
+   "end": 77.53,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "包",
+   "display_text": "包，",
+   "start": 77.53,
+   "end": 77.752,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "再",
+   "display_text": "再",
+   "start": 77.972,
+   "end": 78.194,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "切",
+   "display_text": "切",
+   "start": 78.194,
+   "end": 78.417,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "成",
+   "display_text": "成",
+   "start": 78.417,
+   "end": 78.639,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "三",
+   "display_text": "三",
+   "start": 78.639,
+   "end": 78.861,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "层",
+   "display_text": "层。",
+   "start": 78.861,
+   "end": 79.083,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 15
+  },
+  {
+   "text": "还",
+   "display_text": "还",
+   "start": 79.633,
+   "end": 79.856,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "款",
+   "display_text": "款",
+   "start": 79.856,
+   "end": 80.078,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "先",
+   "display_text": "先",
+   "start": 80.078,
+   "end": 80.3,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "给",
+   "display_text": "给",
+   "start": 80.3,
+   "end": 80.522,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 80.522,
+   "end": 80.744,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "上",
+   "display_text": "上",
+   "start": 80.744,
+   "end": 80.967,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "面",
+   "display_text": "面",
+   "start": 80.967,
+   "end": 81.189,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 81.189,
+   "end": 81.411,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "层",
+   "display_text": "层，",
+   "start": 81.411,
+   "end": 81.633,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 81.853,
+   "end": 82.076,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "安",
+   "display_text": "安",
+   "start": 82.076,
+   "end": 82.298,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "全",
+   "display_text": "全；",
+   "start": 82.298,
+   "end": 82.52,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "亏",
+   "display_text": "亏",
+   "start": 82.74,
+   "end": 82.962,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "损",
+   "display_text": "损",
+   "start": 82.962,
+   "end": 83.184,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "先",
+   "display_text": "先",
+   "start": 83.184,
+   "end": 83.407,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "从",
+   "display_text": "从",
+   "start": 83.407,
+   "end": 83.629,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 83.629,
+   "end": 83.851,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "下",
+   "display_text": "下",
+   "start": 83.851,
+   "end": 84.073,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "面",
+   "display_text": "面",
+   "start": 84.073,
+   "end": 84.296,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 84.296,
+   "end": 84.518,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "层",
+   "display_text": "层",
+   "start": 84.518,
+   "end": 84.74,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "扣",
+   "display_text": "扣，",
+   "start": 84.74,
+   "end": 84.962,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 85.182,
+   "end": 85.404,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "危",
+   "display_text": "危",
+   "start": 85.404,
+   "end": 85.627,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "险",
+   "display_text": "险。",
+   "start": 85.627,
+   "end": 85.849,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 16
+  },
+  {
+   "text": "评",
+   "display_text": "评",
+   "start": 86.399,
+   "end": 86.621,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "级",
+   "display_text": "级",
+   "start": 86.621,
+   "end": 86.843,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "公",
+   "display_text": "公",
+   "start": 86.843,
+   "end": 87.066,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "司",
+   "display_text": "司",
+   "start": 87.066,
+   "end": 87.288,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "看",
+   "display_text": "看",
+   "start": 87.288,
+   "end": 87.51,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "了",
+   "display_text": "了",
+   "start": 87.51,
+   "end": 87.732,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "看",
+   "display_text": "看，",
+   "start": 87.732,
+   "end": 87.954,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "给",
+   "display_text": "给",
+   "start": 88.174,
+   "end": 88.397,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 88.397,
+   "end": 88.619,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "上",
+   "display_text": "上",
+   "start": 88.619,
+   "end": 88.841,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "面",
+   "display_text": "面",
+   "start": 88.841,
+   "end": 89.063,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "那",
+   "display_text": "那",
+   "start": 89.063,
+   "end": 89.286,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "层",
+   "display_text": "层",
+   "start": 89.286,
+   "end": 89.508,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "打",
+   "display_text": "打",
+   "start": 89.508,
+   "end": 89.73,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "了",
+   "display_text": "了",
+   "start": 89.73,
+   "end": 89.952,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 89.952,
+   "end": 90.174,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "高",
+   "display_text": "高",
+   "start": 90.174,
+   "end": 90.397,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 90.397,
+   "end": 90.619,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "三",
+   "display_text": "三",
+   "start": 90.619,
+   "end": 90.841,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "个",
+   "display_text": "个",
+   "start": 90.841,
+   "end": 91.063,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "A",
+   "display_text": "A。",
+   "start": 91.063,
+   "end": 91.286,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 17
+  },
+  {
+   "text": "于",
+   "display_text": "于",
+   "start": 91.836,
+   "end": 92.058,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "是",
+   "display_text": "是",
+   "start": 92.058,
+   "end": 92.28,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 92.28,
+   "end": 92.502,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "堆",
+   "display_text": "堆",
+   "start": 92.502,
+   "end": 92.724,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "次",
+   "display_text": "次",
+   "start": 92.724,
+   "end": 92.947,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "级",
+   "display_text": "级",
+   "start": 92.947,
+   "end": 93.169,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 93.169,
+   "end": 93.391,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "款",
+   "display_text": "款，",
+   "start": 93.391,
+   "end": 93.613,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "摇",
+   "display_text": "摇",
+   "start": 93.833,
+   "end": 94.056,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "身",
+   "display_text": "身",
+   "start": 94.056,
+   "end": 94.278,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 94.278,
+   "end": 94.5,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "变",
+   "display_text": "变，",
+   "start": 94.5,
+   "end": 94.722,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "成",
+   "display_text": "成",
+   "start": 94.942,
+   "end": 95.164,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "了",
+   "display_text": "了",
+   "start": 95.164,
+   "end": 95.387,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "和",
+   "display_text": "和",
+   "start": 95.387,
+   "end": 95.609,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "国",
+   "display_text": "国",
+   "start": 95.609,
+   "end": 95.831,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "债",
+   "display_text": "债",
+   "start": 95.831,
+   "end": 96.053,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 96.053,
+   "end": 96.276,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "个",
+   "display_text": "个",
+   "start": 96.276,
+   "end": 96.498,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "级",
+   "display_text": "级",
+   "start": 96.498,
+   "end": 96.72,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "别",
+   "display_text": "别",
+   "start": 96.72,
+   "end": 96.942,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 96.942,
+   "end": 97.164,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "好",
+   "display_text": "好",
+   "start": 97.164,
+   "end": 97.387,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "东",
+   "display_text": "东",
+   "start": 97.387,
+   "end": 97.609,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "西",
+   "display_text": "西，",
+   "start": 97.609,
+   "end": 97.831,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "卖",
+   "display_text": "卖",
+   "start": 98.051,
+   "end": 98.273,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "给",
+   "display_text": "给",
+   "start": 98.273,
+   "end": 98.496,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "了",
+   "display_text": "了",
+   "start": 98.496,
+   "end": 98.718,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "全",
+   "display_text": "全",
+   "start": 98.718,
+   "end": 98.94,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "世",
+   "display_text": "世",
+   "start": 98.94,
+   "end": 99.162,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "界",
+   "display_text": "界",
+   "start": 99.162,
+   "end": 99.384,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 99.384,
+   "end": 99.607,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "养",
+   "display_text": "养",
+   "start": 99.607,
+   "end": 99.829,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "老",
+   "display_text": "老",
+   "start": 99.829,
+   "end": 100.051,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "基",
+   "display_text": "基",
+   "start": 100.051,
+   "end": 100.273,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "金",
+   "display_text": "金",
+   "start": 100.273,
+   "end": 100.496,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "和",
+   "display_text": "和",
+   "start": 100.496,
+   "end": 100.718,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "银",
+   "display_text": "银",
+   "start": 100.718,
+   "end": 100.94,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "行",
+   "display_text": "行。",
+   "start": 100.94,
+   "end": 101.162,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 18
+  },
+  {
+   "text": "还",
+   "display_text": "还",
+   "start": 101.712,
+   "end": 101.934,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "有",
+   "display_text": "有",
+   "start": 101.934,
+   "end": 102.157,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "人",
+   "display_text": "人",
+   "start": 102.157,
+   "end": 102.379,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "给",
+   "display_text": "给",
+   "start": 102.379,
+   "end": 102.601,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "这",
+   "display_text": "这",
+   "start": 102.601,
+   "end": 102.823,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "些",
+   "display_text": "些",
+   "start": 102.823,
+   "end": 103.046,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "债",
+   "display_text": "债",
+   "start": 103.046,
+   "end": 103.268,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "券",
+   "display_text": "券",
+   "start": 103.268,
+   "end": 103.49,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "卖",
+   "display_text": "卖",
+   "start": 103.49,
+   "end": 103.712,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "保",
+   "display_text": "保",
+   "start": 103.712,
+   "end": 103.934,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "险",
+   "display_text": "险。",
+   "start": 103.934,
+   "end": 104.157,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 19
+  },
+  {
+   "text": "保",
+   "display_text": "保",
+   "start": 104.707,
+   "end": 104.929,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "险",
+   "display_text": "险",
+   "start": 104.929,
+   "end": 105.151,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "巨",
+   "display_text": "巨",
+   "start": 105.151,
+   "end": 105.373,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "头",
+   "display_text": "头",
+   "start": 105.373,
+   "end": 105.596,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "A",
+   "display_text": "A",
+   "start": 105.596,
+   "end": 105.818,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "I",
+   "display_text": "I",
+   "start": 105.818,
+   "end": 106.04,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "G",
+   "display_text": "G",
+   "start": 106.04,
+   "end": 106.262,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "收",
+   "display_text": "收",
+   "start": 106.262,
+   "end": 106.484,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "保",
+   "display_text": "保",
+   "start": 106.484,
+   "end": 106.707,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "费",
+   "display_text": "费，",
+   "start": 106.707,
+   "end": 106.929,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "承",
+   "display_text": "承",
+   "start": 107.149,
+   "end": 107.371,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "诺",
+   "display_text": "诺",
+   "start": 107.371,
+   "end": 107.593,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "出",
+   "display_text": "出",
+   "start": 107.593,
+   "end": 107.816,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "了",
+   "display_text": "了",
+   "start": 107.816,
+   "end": 108.038,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "事",
+   "display_text": "事",
+   "start": 108.038,
+   "end": 108.26,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "它",
+   "display_text": "它",
+   "start": 108.26,
+   "end": 108.482,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "来",
+   "display_text": "来",
+   "start": 108.482,
+   "end": 108.704,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "赔",
+   "display_text": "赔。",
+   "start": 108.704,
+   "end": 108.927,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 20
+  },
+  {
+   "text": "它",
+   "display_text": "它",
+   "start": 109.477,
+   "end": 109.699,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "觉",
+   "display_text": "觉",
+   "start": 109.699,
+   "end": 109.921,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "得",
+   "display_text": "得",
+   "start": 109.921,
+   "end": 110.143,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 110.143,
+   "end": 110.366,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "价",
+   "display_text": "价",
+   "start": 110.366,
+   "end": 110.588,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 110.588,
+   "end": 110.81,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "会",
+   "display_text": "会",
+   "start": 110.81,
+   "end": 111.032,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "跌",
+   "display_text": "跌，",
+   "start": 111.032,
+   "end": 111.254,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "这",
+   "display_text": "这",
+   "start": 111.474,
+   "end": 111.697,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "笔",
+   "display_text": "笔",
+   "start": 111.697,
+   "end": 111.919,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "保",
+   "display_text": "保",
+   "start": 111.919,
+   "end": 112.141,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "费",
+   "display_text": "费",
+   "start": 112.141,
+   "end": 112.363,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "是",
+   "display_text": "是",
+   "start": 112.363,
+   "end": 112.586,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "白",
+   "display_text": "白",
+   "start": 112.586,
+   "end": 112.808,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "捡",
+   "display_text": "捡",
+   "start": 112.808,
+   "end": 113.03,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "的",
+   "display_text": "的。",
+   "start": 113.03,
+   "end": 113.252,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 21
+  },
+  {
+   "text": "而",
+   "display_text": "而",
+   "start": 113.802,
+   "end": 114.024,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "投",
+   "display_text": "投",
+   "start": 114.024,
+   "end": 114.247,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "行",
+   "display_text": "行",
+   "start": 114.247,
+   "end": 114.469,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "自",
+   "display_text": "自",
+   "start": 114.469,
+   "end": 114.691,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "己",
+   "display_text": "己，",
+   "start": 114.691,
+   "end": 114.913,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "也",
+   "display_text": "也",
+   "start": 115.133,
+   "end": 115.356,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "用",
+   "display_text": "用",
+   "start": 115.356,
+   "end": 115.578,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "借",
+   "display_text": "借",
+   "start": 115.578,
+   "end": 115.8,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "来",
+   "display_text": "来",
+   "start": 115.8,
+   "end": 116.022,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 116.022,
+   "end": 116.244,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "钱",
+   "display_text": "钱",
+   "start": 116.244,
+   "end": 116.467,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "大",
+   "display_text": "大",
+   "start": 116.467,
+   "end": 116.689,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "量",
+   "display_text": "量",
+   "start": 116.689,
+   "end": 116.911,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "买",
+   "display_text": "买",
+   "start": 116.911,
+   "end": 117.133,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "进",
+   "display_text": "进。",
+   "start": 117.133,
+   "end": 117.356,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 22
+  },
+  {
+   "text": "雷",
+   "display_text": "雷",
+   "start": 117.906,
+   "end": 118.128,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "曼",
+   "display_text": "曼",
+   "start": 118.128,
+   "end": 118.35,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 118.35,
+   "end": 118.572,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "杠",
+   "display_text": "杠",
+   "start": 118.572,
+   "end": 118.794,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "杆",
+   "display_text": "杆",
+   "start": 118.794,
+   "end": 119.017,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "大",
+   "display_text": "大",
+   "start": 119.017,
+   "end": 119.239,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "约",
+   "display_text": "约",
+   "start": 119.239,
+   "end": 119.461,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "是",
+   "display_text": "是",
+   "start": 119.461,
+   "end": 119.683,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "三",
+   "display_text": "三",
+   "start": 119.683,
+   "end": 119.906,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "十",
+   "display_text": "十",
+   "start": 119.906,
+   "end": 120.128,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "倍",
+   "display_text": "倍：",
+   "start": 120.128,
+   "end": 120.35,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "自",
+   "display_text": "自",
+   "start": 120.57,
+   "end": 120.792,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "己",
+   "display_text": "己",
+   "start": 120.792,
+   "end": 121.014,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 121.014,
+   "end": 121.237,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "块",
+   "display_text": "块",
+   "start": 121.237,
+   "end": 121.459,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "钱",
+   "display_text": "钱，",
+   "start": 121.459,
+   "end": 121.681,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "借",
+   "display_text": "借",
+   "start": 121.901,
+   "end": 122.123,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "三",
+   "display_text": "三",
+   "start": 122.123,
+   "end": 122.346,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "十",
+   "display_text": "十",
+   "start": 122.346,
+   "end": 122.568,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "块",
+   "display_text": "块。",
+   "start": 122.568,
+   "end": 122.79,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 23
+  },
+  {
+   "text": "资",
+   "display_text": "资",
+   "start": 123.34,
+   "end": 123.562,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "产",
+   "display_text": "产",
+   "start": 123.562,
+   "end": 123.784,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "只",
+   "display_text": "只",
+   "start": 123.784,
+   "end": 124.007,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "要",
+   "display_text": "要",
+   "start": 124.007,
+   "end": 124.229,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "跌",
+   "display_text": "跌",
+   "start": 124.229,
+   "end": 124.451,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "掉",
+   "display_text": "掉",
+   "start": 124.451,
+   "end": 124.673,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "百",
+   "display_text": "百",
+   "start": 124.673,
+   "end": 124.896,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "分",
+   "display_text": "分",
+   "start": 124.896,
+   "end": 125.118,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "之",
+   "display_text": "之",
+   "start": 125.118,
+   "end": 125.34,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "三",
+   "display_text": "三，",
+   "start": 125.34,
+   "end": 125.562,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "本",
+   "display_text": "本",
+   "start": 125.782,
+   "end": 126.004,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "钱",
+   "display_text": "钱",
+   "start": 126.004,
+   "end": 126.227,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "就",
+   "display_text": "就",
+   "start": 126.227,
+   "end": 126.449,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "没",
+   "display_text": "没",
+   "start": 126.449,
+   "end": 126.671,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "了",
+   "display_text": "了。",
+   "start": 126.671,
+   "end": 126.893,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 24
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 127.443,
+   "end": 127.666,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "这",
+   "display_text": "这",
+   "start": 127.666,
+   "end": 127.888,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "儿",
+   "display_text": "儿，",
+   "start": 127.888,
+   "end": 128.11,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "整",
+   "display_text": "整",
+   "start": 128.33,
+   "end": 128.552,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "条",
+   "display_text": "条",
+   "start": 128.552,
+   "end": 128.774,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "链",
+   "display_text": "链",
+   "start": 128.774,
+   "end": 128.997,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "子",
+   "display_text": "子",
+   "start": 128.997,
+   "end": 129.219,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "都",
+   "display_text": "都",
+   "start": 129.219,
+   "end": 129.441,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "押",
+   "display_text": "押",
+   "start": 129.441,
+   "end": 129.663,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "在",
+   "display_text": "在",
+   "start": 129.663,
+   "end": 129.886,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "同",
+   "display_text": "同",
+   "start": 129.886,
+   "end": 130.108,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 130.108,
+   "end": 130.33,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "件",
+   "display_text": "件",
+   "start": 130.33,
+   "end": 130.552,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "事",
+   "display_text": "事",
+   "start": 130.552,
+   "end": 130.774,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "上",
+   "display_text": "上：",
+   "start": 130.774,
+   "end": 130.997,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 131.217,
+   "end": 131.439,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "价",
+   "display_text": "价",
+   "start": 131.439,
+   "end": 131.661,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 131.661,
+   "end": 131.883,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "会",
+   "display_text": "会",
+   "start": 131.883,
+   "end": 132.106,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "跌",
+   "display_text": "跌。",
+   "start": 132.106,
+   "end": 132.328,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 25
+  },
+  {
+   "text": "二",
+   "display_text": "二",
+   "start": 132.878,
+   "end": 133.1,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "〇",
+   "display_text": "〇",
+   "start": 133.1,
+   "end": 133.322,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "〇",
+   "display_text": "〇",
+   "start": 133.322,
+   "end": 133.544,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "六",
+   "display_text": "六",
+   "start": 133.544,
+   "end": 133.767,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "年",
+   "display_text": "年，",
+   "start": 133.767,
+   "end": 133.989,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "利",
+   "display_text": "利",
+   "start": 134.209,
+   "end": 134.431,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "率",
+   "display_text": "率",
+   "start": 134.431,
+   "end": 134.653,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "已",
+   "display_text": "已",
+   "start": 134.653,
+   "end": 134.876,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "经",
+   "display_text": "经",
+   "start": 134.876,
+   "end": 135.098,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "加",
+   "display_text": "加",
+   "start": 135.098,
+   "end": 135.32,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "回",
+   "display_text": "回",
+   "start": 135.32,
+   "end": 135.542,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 135.542,
+   "end": 135.764,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "百",
+   "display_text": "百",
+   "start": 135.764,
+   "end": 135.987,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "分",
+   "display_text": "分",
+   "start": 135.987,
+   "end": 136.209,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "之",
+   "display_text": "之",
+   "start": 136.209,
+   "end": 136.431,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "五",
+   "display_text": "五",
+   "start": 136.431,
+   "end": 136.653,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "以",
+   "display_text": "以",
+   "start": 136.653,
+   "end": 136.876,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "上",
+   "display_text": "上，",
+   "start": 136.876,
+   "end": 137.098,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "月",
+   "display_text": "月",
+   "start": 137.318,
+   "end": 137.54,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "供",
+   "display_text": "供",
+   "start": 137.54,
+   "end": 137.762,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "变",
+   "display_text": "变",
+   "start": 137.762,
+   "end": 137.984,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "重",
+   "display_text": "重，",
+   "start": 137.984,
+   "end": 138.207,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 138.427,
+   "end": 138.649,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "价",
+   "display_text": "价",
+   "start": 138.649,
+   "end": 138.871,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "掉",
+   "display_text": "掉",
+   "start": 138.871,
+   "end": 139.093,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "头",
+   "display_text": "头",
+   "start": 139.093,
+   "end": 139.316,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "向",
+   "display_text": "向",
+   "start": 139.316,
+   "end": 139.538,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "下",
+   "display_text": "下。",
+   "start": 139.538,
+   "end": 139.76,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 26
+  },
+  {
+   "text": "次",
+   "display_text": "次",
+   "start": 140.31,
+   "end": 140.532,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 140.532,
+   "end": 140.754,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 140.754,
+   "end": 140.977,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "人",
+   "display_text": "人",
+   "start": 140.977,
+   "end": 141.199,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "开",
+   "display_text": "开",
+   "start": 141.199,
+   "end": 141.421,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "始",
+   "display_text": "始",
+   "start": 141.421,
+   "end": 141.643,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "断",
+   "display_text": "断",
+   "start": 141.643,
+   "end": 141.866,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "供",
+   "display_text": "供，",
+   "start": 141.866,
+   "end": 142.088,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "房",
+   "display_text": "房",
+   "start": 142.308,
+   "end": 142.53,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "子",
+   "display_text": "子",
+   "start": 142.53,
+   "end": 142.752,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "收",
+   "display_text": "收",
+   "start": 142.752,
+   "end": 142.974,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "回",
+   "display_text": "回",
+   "start": 142.974,
+   "end": 143.197,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "来",
+   "display_text": "来",
+   "start": 143.197,
+   "end": 143.419,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "也",
+   "display_text": "也",
+   "start": 143.419,
+   "end": 143.641,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "卖",
+   "display_text": "卖",
+   "start": 143.641,
+   "end": 143.863,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 143.863,
+   "end": 144.086,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "出",
+   "display_text": "出",
+   "start": 144.086,
+   "end": 144.308,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "价",
+   "display_text": "价。",
+   "start": 144.308,
+   "end": 144.53,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 27
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 145.08,
+   "end": 145.302,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "下",
+   "display_text": "下",
+   "start": 145.302,
+   "end": 145.524,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "面",
+   "display_text": "面",
+   "start": 145.524,
+   "end": 145.747,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "那",
+   "display_text": "那",
+   "start": 145.747,
+   "end": 145.969,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "层",
+   "display_text": "层",
+   "start": 145.969,
+   "end": 146.191,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "先",
+   "display_text": "先",
+   "start": 146.191,
+   "end": 146.413,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "亏",
+   "display_text": "亏",
+   "start": 146.413,
+   "end": 146.636,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "光",
+   "display_text": "光，",
+   "start": 146.636,
+   "end": 146.858,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "接",
+   "display_text": "接",
+   "start": 147.078,
+   "end": 147.3,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "着",
+   "display_text": "着",
+   "start": 147.3,
+   "end": 147.522,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "是",
+   "display_text": "是",
+   "start": 147.522,
+   "end": 147.744,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "中",
+   "display_text": "中",
+   "start": 147.744,
+   "end": 147.967,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "间",
+   "display_text": "间，",
+   "start": 147.967,
+   "end": 148.189,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 148.409,
+   "end": 148.631,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "后",
+   "display_text": "后",
+   "start": 148.631,
+   "end": 148.853,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "连",
+   "display_text": "连",
+   "start": 148.853,
+   "end": 149.076,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "三",
+   "display_text": "三",
+   "start": 149.076,
+   "end": 149.298,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "个",
+   "display_text": "个",
+   "start": 149.298,
+   "end": 149.52,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "A",
+   "display_text": "A",
+   "start": 149.52,
+   "end": 149.742,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "也",
+   "display_text": "也",
+   "start": 149.742,
+   "end": 149.964,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "保",
+   "display_text": "保",
+   "start": 149.964,
+   "end": 150.187,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 150.187,
+   "end": 150.409,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "住",
+   "display_text": "住。",
+   "start": 150.409,
+   "end": 150.631,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 28
+  },
+  {
+   "text": "没",
+   "display_text": "没",
+   "start": 151.181,
+   "end": 151.403,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "有",
+   "display_text": "有",
+   "start": 151.403,
+   "end": 151.626,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "人",
+   "display_text": "人",
+   "start": 151.626,
+   "end": 151.848,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "知",
+   "display_text": "知",
+   "start": 151.848,
+   "end": 152.07,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "道",
+   "display_text": "道",
+   "start": 152.07,
+   "end": 152.292,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "谁",
+   "display_text": "谁",
+   "start": 152.292,
+   "end": 152.514,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "手",
+   "display_text": "手",
+   "start": 152.514,
+   "end": 152.737,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "里",
+   "display_text": "里",
+   "start": 152.737,
+   "end": 152.959,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "的",
+   "display_text": "的",
+   "start": 152.959,
+   "end": 153.181,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "包",
+   "display_text": "包",
+   "start": 153.181,
+   "end": 153.403,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "是",
+   "display_text": "是",
+   "start": 153.403,
+   "end": 153.626,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "坏",
+   "display_text": "坏",
+   "start": 153.626,
+   "end": 153.848,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "的",
+   "display_text": "的，",
+   "start": 153.848,
+   "end": 154.07,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "银",
+   "display_text": "银",
+   "start": 154.29,
+   "end": 154.512,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "行",
+   "display_text": "行",
+   "start": 154.512,
+   "end": 154.734,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "之",
+   "display_text": "之",
+   "start": 154.734,
+   "end": 154.957,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "间",
+   "display_text": "间",
+   "start": 154.957,
+   "end": 155.179,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 155.179,
+   "end": 155.401,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "敢",
+   "display_text": "敢",
+   "start": 155.401,
+   "end": 155.623,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "再",
+   "display_text": "再",
+   "start": 155.623,
+   "end": 155.846,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "互",
+   "display_text": "互",
+   "start": 155.846,
+   "end": 156.068,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "相",
+   "display_text": "相",
+   "start": 156.068,
+   "end": 156.29,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "借",
+   "display_text": "借",
+   "start": 156.29,
+   "end": 156.512,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "钱",
+   "display_text": "钱。",
+   "start": 156.512,
+   "end": 156.734,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 29
+  },
+  {
+   "text": "雷",
+   "display_text": "雷",
+   "start": 157.284,
+   "end": 157.507,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 30
+  },
+  {
+   "text": "曼",
+   "display_text": "曼",
+   "start": 157.507,
+   "end": 157.729,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 30
+  },
+  {
+   "text": "借",
+   "display_text": "借",
+   "start": 157.729,
+   "end": 157.951,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 30
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 157.951,
+   "end": 158.173,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 30
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 158.173,
+   "end": 158.396,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 30
+  },
+  {
+   "text": "钱",
+   "display_text": "钱，",
+   "start": 158.396,
+   "end": 158.618,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 30
+  },
+  {
+   "text": "倒",
+   "display_text": "倒",
+   "start": 158.838,
+   "end": 159.06,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 30
+  },
+  {
+   "text": "了",
+   "display_text": "了。",
+   "start": 159.06,
+   "end": 159.282,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 30
+  },
+  {
+   "text": "A",
+   "display_text": "A",
+   "start": 159.832,
+   "end": 160.054,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "I",
+   "display_text": "I",
+   "start": 160.054,
+   "end": 160.277,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "G",
+   "display_text": "G",
+   "start": 160.277,
+   "end": 160.499,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "赔",
+   "display_text": "赔",
+   "start": 160.499,
+   "end": 160.721,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 160.721,
+   "end": 160.943,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "起",
+   "display_text": "起，",
+   "start": 160.943,
+   "end": 161.166,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "政",
+   "display_text": "政",
+   "start": 161.386,
+   "end": 161.608,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "府",
+   "display_text": "府",
+   "start": 161.608,
+   "end": 161.83,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "只",
+   "display_text": "只",
+   "start": 161.83,
+   "end": 162.052,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "好",
+   "display_text": "好",
+   "start": 162.052,
+   "end": 162.274,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "出",
+   "display_text": "出",
+   "start": 162.274,
+   "end": 162.497,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "手",
+   "display_text": "手",
+   "start": 162.497,
+   "end": 162.719,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "救",
+   "display_text": "救",
+   "start": 162.719,
+   "end": 162.941,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "它",
+   "display_text": "它。",
+   "start": 162.941,
+   "end": 163.163,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 31
+  },
+  {
+   "text": "信",
+   "display_text": "信",
+   "start": 163.713,
+   "end": 163.936,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "贷",
+   "display_text": "贷",
+   "start": 163.936,
+   "end": 164.158,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 164.158,
+   "end": 164.38,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "冻",
+   "display_text": "冻",
+   "start": 164.38,
+   "end": 164.602,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "结",
+   "display_text": "结，",
+   "start": 164.602,
+   "end": 164.824,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "企",
+   "display_text": "企",
+   "start": 165.044,
+   "end": 165.267,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "业",
+   "display_text": "业",
+   "start": 165.267,
+   "end": 165.489,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "借",
+   "display_text": "借",
+   "start": 165.489,
+   "end": 165.711,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "不",
+   "display_text": "不",
+   "start": 165.711,
+   "end": 165.933,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 165.933,
+   "end": 166.156,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "钱",
+   "display_text": "钱，",
+   "start": 166.156,
+   "end": 166.378,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "开",
+   "display_text": "开",
+   "start": 166.598,
+   "end": 166.82,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "始",
+   "display_text": "始",
+   "start": 166.82,
+   "end": 167.042,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "裁",
+   "display_text": "裁",
+   "start": 167.042,
+   "end": 167.264,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "员",
+   "display_text": "员，",
+   "start": 167.264,
+   "end": 167.487,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "危",
+   "display_text": "危",
+   "start": 167.707,
+   "end": 167.929,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "机",
+   "display_text": "机",
+   "start": 167.929,
+   "end": 168.151,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "就",
+   "display_text": "就",
+   "start": 168.151,
+   "end": 168.373,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "从",
+   "display_text": "从",
+   "start": 168.373,
+   "end": 168.596,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "华",
+   "display_text": "华",
+   "start": 168.596,
+   "end": 168.818,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "尔",
+   "display_text": "尔",
+   "start": 168.818,
+   "end": 169.04,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "街",
+   "display_text": "街，",
+   "start": 169.04,
+   "end": 169.262,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "烧",
+   "display_text": "烧",
+   "start": 169.482,
+   "end": 169.704,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "到",
+   "display_text": "到",
+   "start": 169.704,
+   "end": 169.927,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "了",
+   "display_text": "了",
+   "start": 169.927,
+   "end": 170.149,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "每",
+   "display_text": "每",
+   "start": 170.149,
+   "end": 170.371,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "个",
+   "display_text": "个",
+   "start": 170.371,
+   "end": 170.593,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "人",
+   "display_text": "人",
+   "start": 170.593,
+   "end": 170.816,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "身",
+   "display_text": "身",
+   "start": 170.816,
+   "end": 171.038,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "上",
+   "display_text": "上。",
+   "start": 171.038,
+   "end": 171.26,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 32
+  },
+  {
+   "text": "回",
+   "display_text": "回",
+   "start": 171.81,
+   "end": 172.032,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "头",
+   "display_text": "头",
+   "start": 172.032,
+   "end": 172.254,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "看",
+   "display_text": "看",
+   "start": 172.254,
+   "end": 172.477,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "这",
+   "display_text": "这",
+   "start": 172.477,
+   "end": 172.699,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "整",
+   "display_text": "整",
+   "start": 172.699,
+   "end": 172.921,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "块",
+   "display_text": "块",
+   "start": 172.921,
+   "end": 173.143,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "板",
+   "display_text": "板：",
+   "start": 173.143,
+   "end": 173.366,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "每",
+   "display_text": "每",
+   "start": 173.586,
+   "end": 173.808,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 173.808,
+   "end": 174.03,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "环",
+   "display_text": "环",
+   "start": 174.03,
+   "end": 174.252,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "都",
+   "display_text": "都",
+   "start": 174.252,
+   "end": 174.474,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "觉",
+   "display_text": "觉",
+   "start": 174.474,
+   "end": 174.697,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "得",
+   "display_text": "得",
+   "start": 174.697,
+   "end": 174.919,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "风",
+   "display_text": "风",
+   "start": 174.919,
+   "end": 175.141,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "险",
+   "display_text": "险",
+   "start": 175.141,
+   "end": 175.363,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "已",
+   "display_text": "已",
+   "start": 175.363,
+   "end": 175.586,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "经",
+   "display_text": "经",
+   "start": 175.586,
+   "end": 175.808,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "传",
+   "display_text": "传",
+   "start": 175.808,
+   "end": 176.03,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "给",
+   "display_text": "给",
+   "start": 176.03,
+   "end": 176.252,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "了",
+   "display_text": "了",
+   "start": 176.252,
+   "end": 176.474,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "下",
+   "display_text": "下",
+   "start": 176.474,
+   "end": 176.697,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 176.697,
+   "end": 176.919,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "家",
+   "display_text": "家。",
+   "start": 176.919,
+   "end": 177.141,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 33
+  },
+  {
+   "text": "可",
+   "display_text": "可",
+   "start": 177.691,
+   "end": 177.913,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "风",
+   "display_text": "风",
+   "start": 177.913,
+   "end": 178.136,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "险",
+   "display_text": "险",
+   "start": 178.136,
+   "end": 178.358,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "没",
+   "display_text": "没",
+   "start": 178.358,
+   "end": 178.58,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "有",
+   "display_text": "有",
+   "start": 178.58,
+   "end": 178.802,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "消",
+   "display_text": "消",
+   "start": 178.802,
+   "end": 179.024,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "失",
+   "display_text": "失，",
+   "start": 179.024,
+   "end": 179.247,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "它",
+   "display_text": "它",
+   "start": 179.467,
+   "end": 179.689,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "只",
+   "display_text": "只",
+   "start": 179.689,
+   "end": 179.911,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "是",
+   "display_text": "是",
+   "start": 179.911,
+   "end": 180.133,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "藏",
+   "display_text": "藏",
+   "start": 180.133,
+   "end": 180.356,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "了",
+   "display_text": "了",
+   "start": 180.356,
+   "end": 180.578,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "起",
+   "display_text": "起",
+   "start": 180.578,
+   "end": 180.8,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "来",
+   "display_text": "来，",
+   "start": 180.8,
+   "end": 181.022,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "最",
+   "display_text": "最",
+   "start": 181.242,
+   "end": 181.464,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "后",
+   "display_text": "后",
+   "start": 181.464,
+   "end": 181.687,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "一",
+   "display_text": "一",
+   "start": 181.687,
+   "end": 181.909,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "起",
+   "display_text": "起",
+   "start": 181.909,
+   "end": 182.131,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "回",
+   "display_text": "回",
+   "start": 182.131,
+   "end": 182.353,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  },
+  {
+   "text": "来",
+   "display_text": "来。",
+   "start": 182.353,
+   "end": 182.576,
+   "confidence": 1,
+   "timing_warnings": [],
+   "sentence_index": 34
+  }
+ ],
+ "sentences": [
+  {
+   "text": "二〇〇八年，一家有一百五十八年历史的投行雷曼兄弟，一夜之间倒了。",
+   "start": 0,
+   "end": 6.884,
+   "unit_range": [
+    0,
+    29
+   ]
+  },
+  {
+   "text": "接着全世界的股市、工厂、饭碗，跟着一起掉下去。",
+   "start": 7.434,
+   "end": 12.317,
+   "unit_range": [
+    29,
+    48
+   ]
+  },
+  {
+   "text": "可这场危机的起点，只是美国普通人买房子。",
+   "start": 12.867,
+   "end": 17.087,
+   "unit_range": [
+    48,
+    66
+   ]
+  },
+  {
+   "text": "它是怎么一步一步，从一栋房子，烧到全世界的？",
+   "start": 17.637,
+   "end": 22.299,
+   "unit_range": [
+    66,
+    85
+   ]
+  },
+  {
+   "text": "先看起点。",
+   "start": 22.849,
+   "end": 23.738,
+   "unit_range": [
+    85,
+    89
+   ]
+  },
+  {
+   "text": "两千年初，美联储把利率一路降到百分之一。",
+   "start": 24.288,
+   "end": 28.508,
+   "unit_range": [
+    89,
+    107
+   ]
+  },
+  {
+   "text": "借钱变得特别便宜，大家都去贷款买房，房价一年一年往上涨。",
+   "start": 29.058,
+   "end": 35.053,
+   "unit_range": [
+    107,
+    132
+   ]
+  },
+  {
+   "text": "房价一直涨，银行的胆子就大了。",
+   "start": 35.603,
+   "end": 38.712,
+   "unit_range": [
+    132,
+    145
+   ]
+  },
+  {
+   "text": "以前要查收入、要首付，现在没工作、没存款的人也能贷到款。",
+   "start": 39.262,
+   "end": 45.256,
+   "unit_range": [
+    145,
+    169
+   ]
+  },
+  {
+   "text": "这种贷款，叫次级贷款。",
+   "start": 45.806,
+   "end": 48.026,
+   "unit_range": [
+    169,
+    178
+   ]
+  },
+  {
+   "text": "银行不怕他还不上：还不上，就把房子收回来卖掉，反正房子在涨。",
+   "start": 48.576,
+   "end": 55.013,
+   "unit_range": [
+    178,
+    204
+   ]
+  },
+  {
+   "text": "可银行并不打算自己留着这些贷款。",
+   "start": 55.563,
+   "end": 58.897,
+   "unit_range": [
+    204,
+    219
+   ]
+  },
+  {
+   "text": "它把几千笔房贷打成一个包，卖给华尔街的投行，钱马上回来，再去放新的贷款。",
+   "start": 59.447,
+   "end": 67.218,
+   "unit_range": [
+    219,
+    251
+   ]
+  },
+  {
+   "text": "风险呢，跟着包一起卖走了。",
+   "start": 67.768,
+   "end": 70.432,
+   "unit_range": [
+    251,
+    262
+   ]
+  },
+  {
+   "text": "所以放贷的人，已经不在乎借钱的人还不还得起。",
+   "start": 70.982,
+   "end": 75.647,
+   "unit_range": [
+    262,
+    282
+   ]
+  },
+  {
+   "text": "投行拿到这些包，再切成三层。",
+   "start": 76.197,
+   "end": 79.083,
+   "unit_range": [
+    282,
+    294
+   ]
+  },
+  {
+   "text": "还款先给最上面一层，最安全；亏损先从最下面一层扣，最危险。",
+   "start": 79.633,
+   "end": 85.849,
+   "unit_range": [
+    294,
+    319
+   ]
+  },
+  {
+   "text": "评级公司看了看，给最上面那层打了最高的三个A。",
+   "start": 86.399,
+   "end": 91.286,
+   "unit_range": [
+    319,
+    340
+   ]
+  },
+  {
+   "text": "于是一堆次级贷款，摇身一变，成了和国债一个级别的好东西，卖给了全世界的养老基金和银行。",
+   "start": 91.836,
+   "end": 101.162,
+   "unit_range": [
+    340,
+    379
+   ]
+  },
+  {
+   "text": "还有人给这些债券卖保险。",
+   "start": 101.712,
+   "end": 104.157,
+   "unit_range": [
+    379,
+    390
+   ]
+  },
+  {
+   "text": "保险巨头AIG收保费，承诺出了事它来赔。",
+   "start": 104.707,
+   "end": 108.927,
+   "unit_range": [
+    390,
+    408
+   ]
+  },
+  {
+   "text": "它觉得房价不会跌，这笔保费是白捡的。",
+   "start": 109.477,
+   "end": 113.252,
+   "unit_range": [
+    408,
+    424
+   ]
+  },
+  {
+   "text": "而投行自己，也用借来的钱大量买进。",
+   "start": 113.802,
+   "end": 117.356,
+   "unit_range": [
+    424,
+    439
+   ]
+  },
+  {
+   "text": "雷曼的杠杆大约是三十倍：自己一块钱，借三十块。",
+   "start": 117.906,
+   "end": 122.79,
+   "unit_range": [
+    439,
+    459
+   ]
+  },
+  {
+   "text": "资产只要跌掉百分之三，本钱就没了。",
+   "start": 123.34,
+   "end": 126.893,
+   "unit_range": [
+    459,
+    474
+   ]
+  },
+  {
+   "text": "到这儿，整条链子都押在同一件事上：房价不会跌。",
+   "start": 127.443,
+   "end": 132.328,
+   "unit_range": [
+    474,
+    494
+   ]
+  },
+  {
+   "text": "二〇〇六年，利率已经加回到百分之五以上，月供变重，房价掉头向下。",
+   "start": 132.878,
+   "end": 139.76,
+   "unit_range": [
+    494,
+    522
+   ]
+  },
+  {
+   "text": "次贷的人开始断供，房子收回来也卖不出价。",
+   "start": 140.31,
+   "end": 144.53,
+   "unit_range": [
+    522,
+    540
+   ]
+  },
+  {
+   "text": "最下面那层先亏光，接着是中间，最后连三个A也保不住。",
+   "start": 145.08,
+   "end": 150.631,
+   "unit_range": [
+    540,
+    563
+   ]
+  },
+  {
+   "text": "没有人知道谁手里的包是坏的，银行之间不敢再互相借钱。",
+   "start": 151.181,
+   "end": 156.734,
+   "unit_range": [
+    563,
+    587
+   ]
+  },
+  {
+   "text": "雷曼借不到钱，倒了。",
+   "start": 157.284,
+   "end": 159.282,
+   "unit_range": [
+    587,
+    595
+   ]
+  },
+  {
+   "text": "AIG赔不起，政府只好出手救它。",
+   "start": 159.832,
+   "end": 163.163,
+   "unit_range": [
+    595,
+    609
+   ]
+  },
+  {
+   "text": "信贷一冻结，企业借不到钱，开始裁员，危机就从华尔街，烧到了每个人身上。",
+   "start": 163.713,
+   "end": 171.26,
+   "unit_range": [
+    609,
+    639
+   ]
+  },
+  {
+   "text": "回头看这整块板：每一环都觉得风险已经传给了下一家。",
+   "start": 171.81,
+   "end": 177.141,
+   "unit_range": [
+    639,
+    662
+   ]
+  },
+  {
+   "text": "可风险没有消失，它只是藏了起来，最后一起回来。",
+   "start": 177.691,
+   "end": 182.576,
+   "unit_range": [
+    662,
+    682
+   ]
+  }
+ ]
+}

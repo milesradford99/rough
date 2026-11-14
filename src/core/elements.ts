@@ -1,9 +1,9 @@
 // 元素：把分镜里“画什么、放哪儿”的声明变成摆好位置的笔画。
 import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { R, type Stroke, type Style, type Pt, type Box, boxOf, unionBox, translateStrokes, cloneStrokes, hash, polyLen } from './strokes';
+import { R, type Stroke, type Style, type Pt, type Box, boxOf, unionBox, translateStrokes, cloneStrokes, hash, polyLen, imageSize } from './strokes';
 import { textStrokes } from './text';
 import { iconStrokes, iconExists, scalePath } from './icons';
 import { figureStrokes, POSES, FACES, ACCESSORIES, type Pose, type FigureSpec } from './figure';
@@ -31,12 +31,12 @@ export interface El {
   nudged?: Pt;
 }
 
-export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
+export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap', 'shade', '__rigid', '__seed'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', '__rigid', '__seed'];
 const FIELDS: Record<string, string[]> = {
-  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], doodle: ['vars'], parts: ['box', 'anchors'],
+  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame'], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
   axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'],
@@ -111,6 +111,8 @@ export interface BuildCtx {
   shade?: boolean;
   /** 每个元素在画面上存在的时间段 [出现, 消失]。有它才启用自动避让 */
   life?: Map<string, [number, number]>;
+  /** 成组的元素（crowd）：组名 → 成员。箭头、坐标可以把整群当一个东西引用 */
+  groups?: Map<string, string[]>;
   note?: (where: string, msg: string, level?: 'info' | 'warn') => void;
 }
 
@@ -208,13 +210,23 @@ function axisRef(ctx: BuildCtx, v: string, where: string): Pt | null {
   return axisPoint(ax, +m[2]);
 }
 
+/** 按 id 找元素；id 是一群（crowd）的名字时，给出一个代表整群外框的替身，箭头就能指向“这一群” */
+function findEl(ctx: BuildCtx, id: string): El | undefined {
+  const el = ctx.els.get(id);
+  if (el) return el;
+  const ms = (ctx.groups?.get(id) ?? []).map(m => ctx.els.get(m)).filter((m): m is El => !!m);
+  if (!ms.length) return undefined;
+  const b = unionBox(ms.map(m => m.box)), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  return { ...ms[0], id, kind: 'group', strokes: [], box: b, solid: b, body: undefined, over: new Set(ms.flatMap(m => [m.id, ...m.over])),
+    anchors: { center: [cx, cy], top: [cx, b.y], bottom: [cx, b.y + b.h], left: [b.x, cy], right: [b.x + b.w, cy], topLeft: [b.x, b.y], topRight: [b.x + b.w, b.y], bottomLeft: [b.x, b.y + b.h], bottomRight: [b.x + b.w, b.y + b.h] } } as El;
+}
 function parseRef(ctx: BuildCtx, ref: any, where: string): { pt: Pt; el?: El; explicit: boolean } {
   if (Array.isArray(ref)) {
     // 每个坐标可以是数字、百分比，或 "元素.锚点"（取那个锚点的 x 或 y）：和别的东西共用一根轴，不用抄坐标
     const axis = (v: any, i: 0 | 1, total: number): number => {
       if (typeof v !== 'string' || /^-?[\d.]+%?$/.test(v)) return num(v, total, where);
       const ap = axisRef(ctx, v, where); if (ap) return ap[i]; // 数轴上的数值：t@2
-      const [id, a = 'center'] = v.split('.'), el = ctx.els.get(id);
+      const [id, a = 'center'] = v.split('.'), el = findEl(ctx, id);
       if (!el) throw new SrcError(where, `坐标里引用了不存在（或定义在它后面）的元素 "${id}"`);
       if (!el.anchors[a]) throw new SrcError(where, `元素 "${id}" 没有锚点 "${a}"，可用：${Object.keys(el.anchors).join(' ')}`);
       return el.anchors[a][i];
@@ -225,7 +237,7 @@ function parseRef(ctx: BuildCtx, ref: any, where: string): { pt: Pt; el?: El; ex
   const ap = axisRef(ctx, ref, where);
   if (ap) return { pt: ap, explicit: true };
   const [id, a] = ref.split('.');
-  const el = ctx.els.get(id);
+  const el = findEl(ctx, id);
   if (!el) throw new SrcError(where, `引用了不存在（或定义在它后面）的元素 "${id}"。被引用的元素要写在前面`);
   if (!a) return { pt: el.anchors.center, el, explicit: false };
   if (!el.anchors[a]) throw new SrcError(where, `元素 "${id}" 没有锚点 "${a}"，可用：${Object.keys(el.anchors).join(' ')}`);
@@ -254,7 +266,11 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
   const B = ctx.fmt.board;
   const seed = hash((src.__seed ?? ctx.scene) + '/' + id); // 沿用过来的元素用原场景的种子，抖动才一模一样
-  const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
+  // 线的轻重：weight 写 bold / light；不写时按东西的大小来——小东西线细、大东西线粗，像真人换着力道画
+  if (src.weight != null && !['bold', 'normal', 'light'].includes(src.weight)) throw new SrcError(where, 'weight 只能是 bold（加重）/ normal / light（轻）');
+  const wk = src.weight === 'bold' ? 1.35 : src.weight === 'light' ? 0.7 : 1;
+  const bySize = ['doodle', 'parts', 'icon'].includes(kind) && src.size && src.weight == null ? Math.min(1.25, Math.max(0.62, Math.pow(src.size / 190, 0.55))) : 1;
+  const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen * wk * bySize, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
   const shade = (src.shade ?? ctx.shade) !== false;
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
   let placed = false; // arrow/line/mark 直接画在场景坐标里
@@ -262,6 +278,9 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   if (kind === 'text') {
     const t = textStrokes(String(src.text), { size: src.size ?? THEME.textSize, color: st.color, align: src.align, lineGap: src.lineGap });
     el.strokes = t.strokes; el.text = String(src.text); el.missing = t.missing;
+    // 字的轻重：大字（标题、结论的数）自动加重一点，light 不加；bold 明确加重
+    const tsz = src.size ?? THEME.textSize, bold = src.weight === 'bold' ? tsz * 0.045 : src.weight == null && tsz >= 84 ? tsz * 0.028 : 0;
+    if (bold) for (const g of el.strokes) if (g.kind === 'fglyph' || g.kind === 'wipe') g.bold = bold;
   } else if (kind === 'figure') {
     const f = typeof src.figure === 'string' ? { pose: src.figure } : src.figure ?? {};
     const poseName = src.pose ?? f.pose ?? 'stand', face = src.face ?? f.face ?? 'happy', wear = src.wear ?? f.wear ?? [];
@@ -301,6 +320,15 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
         el.anchors[an] = [(pt as number[])[0] * k, (pt as number[])[1] * k];
       }
     }
+  } else if (kind === 'image') {
+    // 位图：截图、照片、logo。像贴在板上的一张照片，外面手绘一圈框
+    const file = resolve(ctx.projectDir ?? '.', String(src.image));
+    if (!existsSync(file)) throw new SrcError(where, `找不到图片 ${src.image}（路径相对项目目录，如 images/chart.png）`);
+    const dim = imageSize(readFileSync(file));
+    if (!dim || !dim.w || !dim.h) throw new SrcError(where, `读不出 ${src.image} 的尺寸。支持 PNG、JPEG、WebP、GIF`);
+    const w = src.w ?? src.size ?? 360, h = src.h ?? (w * dim.h) / dim.w;
+    el.strokes = [{ kind: 'image', file, tx: 0, ty: 0, color: '', len: (w + h) * 0.5, box: { x: 0, y: 0, w, h }, under: true }];
+    if (src.frame !== false) el.strokes.push(...R.rect(0, 0, w, h, { ...st, fill: undefined, shade: false }));
   } else if (kind === 'shape') {
     const w = src.w ?? src.size ?? 240, h = src.h ?? src.size ?? 160, sst = { ...st, shade };
     if (src.shape === 'rect') el.strokes = R.rect(0, 0, w, h, sst);
@@ -437,19 +465,42 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     if (targets.some((t: any) => !t.el)) throw new SrcError(where, 'mark 的 target 要写元素 id');
     // 叉、划线、框、高亮只盖本体，标签留在外面读得清；圈和下划线连标签一起
     const bodyOf = (e: El): Box => (e.body && ['cross', 'strike', 'box', 'highlight'].includes(src.mark) ? { x: e.box.x + e.body.x, y: e.box.y + e.body.y, w: e.body.w, h: e.body.h } : e.box);
-    const tb = unionBox(targets.map((t: any) => bodyOf(t.el!))), pad = src.pad ?? 14;
-    const b = { x: tb.x - pad, y: tb.y - pad, w: tb.w + pad * 2, h: tb.h + pad * 2 }, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const tb = unionBox(targets.map((t: any) => bodyOf(t.el!)));
     const ms: Style = { ...st, color: color(src.color, THEME.colors.red), w: src.pen ?? THEME.pen * 1.15 };
     const m = src.mark;
-    if (m === 'circle') el.strokes = R.ellipse(cx, cy, b.w + Math.max(44, b.h * 0.5), b.h * 1.12 + 14, { ...ms, rough: 1.6, double: true });
-    else if (m === 'box') el.strokes = R.rect(b.x, b.y, b.w, b.h, { ...ms, rough: 1.3 });
-    else if (m === 'underline') el.strokes = [...R.line(b.x, b.y + b.h + 2, b.x + b.w, b.y + b.h + 2, ms), ...R.line(b.x + b.w * 0.98, b.y + b.h + 14, b.x + b.w * 0.08, b.y + b.h + 14, { ...ms, seed: seed + 5 })];
-    else if (m === 'strike') el.strokes = R.line(b.x, cy + 2, b.x + b.w, cy - 2, { ...ms, w: ms.w * 1.2 });
-    else if (m === 'cross') el.strokes = [...R.line(b.x, b.y, b.x + b.w, b.y + b.h, { ...ms, w: ms.w * 1.4 }), ...R.line(b.x + b.w, b.y, b.x, b.y + b.h, { ...ms, w: ms.w * 1.4, seed: seed + 5 })];
-    else if (m === 'highlight') { const pts = [b.x + 4, cy + 3, b.x + b.w - 4, cy - 3]; el.strokes = [{ kind: 'line', pts, w: tb.h * 0.82, color: color(src.color, THEME.colors.yellow), len: polyLen(pts), under: true, alpha: 0.38 }]; }
-    else if (m === 'check') el.strokes = R.poly([[cx - b.w * 0.3, cy], [cx - b.w * 0.05, cy + b.h * 0.3], [cx + b.w * 0.4, cy - b.h * 0.4]], false, { ...ms, color: color(src.color, THEME.colors.green), w: ms.w * 1.5, rough: 0.6 });
-    else if (m === 'burst') { const n = 10; for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 - Math.PI / 2, rx = b.w / 2 + 14, ry = b.h / 2 + 14, l = 30 + (i % 2) * 16; el.strokes.push(...R.line(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, cx + Math.cos(a) * (rx + l), cy + Math.sin(a) * (ry + l), { ...ms, seed: seed + i, rough: 0.5 })); } }
-    else throw new SrcError(where, `没有标记 "${m}"。可用：circle box underline strike cross highlight check burst`);
+    // 标记是贴着目标画的，挪不走；旁边有别的东西时就收紧一点（圈小一圈、框贴近、下划线只留一道），不压到邻居
+    const tids = new Set<string>(targets.map((t: any) => t.el!.id)), me = ctx.life?.get(id);
+    const neighbours: Box[] = [];
+    if (ctx.life && src.overlap !== true) for (const o of ctx.els.values()) {
+      if (tids.has(o.id) || NON_SOLID.has(o.kind) || o.src?.overlap === true) continue;
+      if ([...tids].some(t => o.over.has(t) || ctx.els.get(t)!.over.has(o.id))) continue;                  // 本来就叠在目标上（气泡和里面的字）
+      if (o.solid.x <= tb.x + 2 && o.solid.y <= tb.y + 2 && o.solid.x + o.solid.w >= tb.x + tb.w - 2 && o.solid.y + o.solid.h >= tb.y + tb.h - 2) continue; // 目标在它里面
+      const lf = ctx.life.get(o.id);
+      if (me && lf && Math.max(me[0], lf[0]) >= Math.min(me[1], lf[1])) continue;                           // 不同时在板上
+      neighbours.push(o.solid);
+    }
+    const textTarget = targets.every((t: any) => ['text', 'note'].includes(t.el!.kind));
+    // 叉和划线跟目标同色就看不出划了什么：换成墨色
+    if ((m === 'cross' || m === 'strike') && targets.every((t: any) => color(t.el!.src?.color) === ms.color)) ms.color = ms.color === THEME.ink ? THEME.colors.red : THEME.ink;
+    const make = (k: number): Stroke[] => {
+      const pad = Math.max(3, (src.pad ?? 14) * k);
+      const b = { x: tb.x - pad, y: tb.y - pad, w: tb.w + pad * 2, h: tb.h + pad * 2 }, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      if (m === 'circle') return R.ellipse(cx, cy, b.w + Math.max(44, b.h * 0.5) * k, b.h * (1 + 0.12 * k) + 14 * k, { ...ms, rough: 1.6 * (0.5 + k / 2), double: true });
+      if (m === 'box') return R.rect(b.x, b.y, b.w, b.h, { ...ms, rough: 1.3 * (0.5 + k / 2) });
+      if (m === 'underline') return [...R.line(b.x, b.y + b.h + 2, b.x + b.w, b.y + b.h + 2, ms), ...(k < 0.5 ? [] : R.line(b.x + b.w * 0.98, b.y + b.h + 14, b.x + b.w * 0.08, b.y + b.h + 14, { ...ms, seed: seed + 5 }))];
+      // 压在字上的叉和划线画细一点、略透：划掉了，但划掉的是什么还读得出
+      if (m === 'strike') return R.line(b.x, cy + 2, b.x + b.w, cy - 2, { ...ms, w: ms.w * (textTarget ? 0.95 : 1.2) }).map(q => (textTarget && q.kind === 'line' ? { ...q, alpha: 0.82 } : q));
+      if (m === 'cross') return [...R.line(b.x, b.y, b.x + b.w, b.y + b.h, { ...ms, w: ms.w * (textTarget ? 0.95 : 1.4) }), ...R.line(b.x + b.w, b.y, b.x, b.y + b.h, { ...ms, w: ms.w * (textTarget ? 0.95 : 1.4), seed: seed + 5 })].map(q => (textTarget && q.kind === 'line' ? { ...q, alpha: 0.82 } : q));
+      if (m === 'highlight') { const pts = [b.x + 4, cy + 3, b.x + b.w - 4, cy - 3]; return [{ kind: 'line', pts, w: tb.h * 0.82, color: color(src.color, THEME.colors.yellow), len: polyLen(pts), under: true, alpha: 0.38 }]; }
+      if (m === 'check') return R.poly([[cx - b.w * 0.3, cy], [cx - b.w * 0.05, cy + b.h * 0.3], [cx + b.w * 0.4, cy - b.h * 0.4]], false, { ...ms, color: color(src.color, THEME.colors.green), w: ms.w * 1.5, rough: 0.6 });
+      if (m === 'burst') { const out: Stroke[] = [], n = 10; for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 - Math.PI / 2, rx = b.w / 2 + 14 * k, ry = b.h / 2 + 14 * k, l = (30 + (i % 2) * 16) * (0.4 + 0.6 * k); out.push(...R.line(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, cx + Math.cos(a) * (rx + l), cy + Math.sin(a) * (ry + l), { ...ms, seed: seed + i, rough: 0.5 })); } return out; }
+      return [];
+    };
+    el.strokes = make(1);
+    if (neighbours.length && ['circle', 'box', 'underline', 'burst', 'cross'].includes(m)) {
+      for (const k of [1, 0.7, 0.45, 0.2, 0]) { el.strokes = make(k); if (!hits(boxOf(el.strokes), neighbours)) break; }
+    }
+    if (!el.strokes.length) throw new SrcError(where, `没有标记 "${m}"。可用：circle box underline strike cross highlight check burst`);
     placed = true;
   } else if (kind === 'chart') {
     const csrc = { ...src };
@@ -479,8 +530,10 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     else if ('at' in src) {
       const r = parseRef(ctx, src.at, where);
       const an = src.anchor ?? 'center';
-      const ax = /left/i.test(an) ? b.x : /right/i.test(an) ? b.x + b.w : b.x + b.w / 2;
-      const ay = /top/i.test(an) ? b.y : /bottom/i.test(an) ? b.y + b.h : b.y + b.h / 2;
+      // anchor 也可以是元素自己的锚点：小人的 hip（坐到凳子上）、feet、handR，手绘件自己声明的锚点
+      const own = !RESERVED_ANCHORS.includes(an) && el.anchors[an];
+      const ax = own ? own[0] : /left/i.test(an) ? b.x : /right/i.test(an) ? b.x + b.w : b.x + b.w / 2;
+      const ay = own ? own[1] : /top/i.test(an) ? b.y : /bottom/i.test(an) ? b.y + b.h : b.y + b.h / 2;
       tx = r.pt[0] - ax; ty = r.pt[1] - ay;
       if (r.el) { el.over.add(r.el.id); for (const o of r.el.over) el.over.add(o); } // 明确叠放在它上面
     } else {
