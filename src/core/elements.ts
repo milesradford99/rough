@@ -29,12 +29,17 @@ export interface El {
   axis?: [number, number];
   /** 被引擎自动挪动的距离 */
   nudged?: Pt;
+  /** 被引擎吸附对齐的距离 */
+  snapped?: Pt;
 }
 
+/** 大小的档位：写名字不写数字，同一类东西全片一样大。字四档，东西三档 */
+export const TEXT_TIERS: Record<string, number> = { hero: 108, key: 64, label: 46, note: 40 };
+export const THING_TIERS: Record<string, number> = { big: 210, mid: 160, small: 120 };
 export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', '__rigid', '__seed'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame'], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
@@ -264,6 +269,11 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   const kind = KINDS.find(k => k in src);
   if (!kind) throw new SrcError(where, `看不出这是什么元素。需要包含其中一个键：${KINDS.join(' ')}`);
   for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
+  if (typeof src.size === 'string') {
+    const tiers = kind === 'text' || kind === 'note' ? TEXT_TIERS : ['figure', 'doodle', 'parts', 'icon', 'image', 'shape'].includes(kind) ? THING_TIERS : null;
+    if (!tiers || !(src.size in tiers)) throw new SrcError(where, tiers ? `size 没有 "${src.size}" 这一档。${tiers === TEXT_TIERS ? '字' : '东西'}的档位：${Object.entries(tiers).map(([k, v]) => `${k}（${v}）`).join(' ')}；也可以直接写数字` : `${kind} 的 size 要写数字`);
+    src = { ...src, size: tiers[src.size], __tier: src.size };
+  }
   const B = ctx.fmt.board;
   const seed = hash((src.__seed ?? ctx.scene) + '/' + id); // 沿用过来的元素用原场景的种子，抖动才一模一样
   // 线的轻重：weight 写 bold / light；不写时按东西的大小来——小东西线细、大东西线粗，像真人换着力道画
@@ -560,6 +570,22 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       else { ty = rb.y - gap - b.y - b.h; tx = alignX(); }
     }
     tx += src.dx ?? 0; ty += src.dy ?? 0;
+    // 差一点对齐的，引擎帮着对齐：手写的坐标离同类东西的边只差十几个像素时吸过去。字对左边和中线，东西对底边和中线
+    if (ctx.life && src.snap !== false && src.__rigid !== true && Array.isArray(src.at) && src.at.every((v: any) => typeof v === 'number')) {
+      const me = ctx.life.get(id), isText = kind === 'text', THINGS = ['figure', 'doodle', 'icon', 'parts', 'image'], nb = { x: b.x + tx, y: b.y + ty, w: b.w, h: b.h };
+      let sx = 0, sy = 0, bx = 19, by = 19;
+      if (me && (isText || THINGS.includes(kind))) for (const o of ctx.els.values()) {
+        if (isText ? o.kind !== 'text' : !THINGS.includes(o.kind)) continue;
+        if (o.src?.__rigid === true) continue;
+        const lf = ctx.life.get(o.id); if (!lf || Math.max(me[0], lf[0]) >= Math.min(me[1], lf[1])) continue;
+        const ob = o.body ? { x: o.box.x + o.body.x, y: o.box.y + o.body.y, w: o.body.w, h: o.body.h } : o.box;
+        const gapX = Math.max(ob.x - (nb.x + nb.w), nb.x - (ob.x + ob.w)), gapY = Math.max(ob.y - (nb.y + nb.h), nb.y - (ob.y + ob.h));
+        // 上下排着的对左边 / 中线；左右排着的对底边 / 中线
+        if (gapY > -4 && gapY < 320 && gapX < 0) for (const d of isText ? [ob.x - nb.x, ob.x + ob.w / 2 - nb.x - nb.w / 2] : [ob.x + ob.w / 2 - nb.x - nb.w / 2]) if (Math.abs(d) > 0.5 && Math.abs(d) < bx) { bx = Math.abs(d); sx = d; }
+        if (gapX > -4 && gapX < 320 && gapY < 0) for (const d of isText ? [ob.y + ob.h / 2 - nb.y - nb.h / 2] : [ob.y + ob.h - nb.y - (el.body ? el.body.y + el.body.h : nb.h), ob.y + ob.h / 2 - nb.y - nb.h / 2]) if (Math.abs(d) > 0.5 && Math.abs(d) < by) { by = Math.abs(d); sy = d; }
+      }
+      if (sx || sy) { tx += sx; ty += sy; el.snapped = [sx, sy]; }
+    }
     if (el.figure) { el.figure.dx = 0; el.figure.dy = 0; el.figure.labelStrokes = labelStrokes; }
     shiftEl(el, tx, ty);
     if (ctx.life) {
