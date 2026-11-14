@@ -9,6 +9,7 @@ import { POSES, FACES, type Pose } from './figure';
 import { FORMATS, THEME, type Format } from './theme';
 import { type Pt, type Box, unionBox } from './strokes';
 import { PATTERNS } from './patterns';
+import { loadPlan, planRegions, checkPlan, type Plan } from './plan';
 
 export interface Issue { level: 'error' | 'warn' | 'info'; where: string; msg: string }
 export interface Tween { t0: number; t1: number; from: number; to: number }
@@ -35,7 +36,13 @@ export interface CScene { recall?: string; id: string; file: string; index: numb
 export interface Compiled {
   dir: string; meta: any; fmt: Format; fps: number; al: Alignment; duration: number;
   scenes: CScene[]; tls: TL[]; erases: EraseGroup[]; cams: CamSeg[]; subs: SubLine[]; issues: Issue[];
+  /** 第一道确认（计划 / 文字分镜）认的版本 */
   planHash: string;
+  /** 第二道确认（关键帧）认的版本：计划加上每一拍画什么 */
+  keyHash: string;
+  /** 规划者的计划（有 plan.yaml 时） */
+  plan?: Plan;
+  castUse?: Map<string, CastUse>;
 }
 
 const NATURAL: Record<string, number> = { move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
@@ -55,37 +62,65 @@ export function naturalDraw(el: El): number {
 const weight = (s: any) => ((s.under ? 0.2 : s.kind === 'line' && s.w < 3 ? 0.3 : 1) * s.len + penUp(s) * (s.under ? 0.4 : 1));
 const penUp = (s: { kind: string; len: number }) => ((s as any).deco ? 0 : s.kind === 'line' && (s as any).w < 3 ? 1.5 : s.kind === 'fglyph' ? 40 : s.kind === 'wipe' ? 10 : (s as any).flat ? 10 : Math.min(75, 18 + s.len * 0.3));
 
-export function loadProject(dir: string): { meta: any; scenes: { file: string; src: any }[] } {
+export interface CastUse { /** 元素名 → 它是哪个角色 */ els: Map<string, string>; /** 手法的参数里用到的角色 */ pattern: Set<string>; /** 场景文件里直接写出来的元素名 */ declared: Set<string> }
+export function loadProject(dir: string): { meta: any; scenes: { file: string; src: any }[]; plan: Plan | null; planIssues: Issue[]; castUse: Map<string, CastUse> } {
   const pf = join(dir, 'project.yaml');
   if (!existsSync(pf)) throw new Error(`${dir} 里没有 project.yaml，这不是一个画讲项目（用 hj init 创建）`);
   const meta = YAML.parse(readFileSync(pf, 'utf8')) ?? {};
   const sd = join(dir, 'scenes');
   const files = existsSync(sd) ? readdirSync(sd).filter(f => /\.ya?ml$/.test(f)).sort() : [];
-  const scenes = files.map(f => {
+  let scenes = files.map(f => {
     try { return { file: 'scenes/' + f, src: YAML.parse(readFileSync(join(sd, f), 'utf8'), { prettyErrors: true }) ?? {} }; }
     catch (e: any) { throw new Error(`scenes/${f} 的 YAML 写错了：${e.message}`); }
   });
+  // 计划：有 plan.yaml 时，板的划分、开口位置、全景、分区、板的大小、角色表都由它决定，场景文件只管“怎么画”
+  const plan = loadPlan(dir), planIssues: Issue[] = [];
+  const sceneId = (s: { file: string; src: any }) => String(s.src.id ?? basename(s.file).replace(/\.ya?ml$/, '').replace(/^\d+[-_]?/, ''));
   // 角色表：全片反复出现的人和东西，长相只定义一次
   const cf = join(dir, 'cast.yaml');
   let cast: Record<string, any> = {};
   if (existsSync(cf)) { try { cast = YAML.parse(readFileSync(cf, 'utf8')) ?? {}; } catch (e: any) { throw new Error(`cast.yaml 的 YAML 写错了：${e.message}`); } }
   if (typeof cast !== 'object' || Array.isArray(cast)) throw new Error('cast.yaml 应该是 "角色名: 元素定义" 的映射');
+  if (plan) {
+    cast = { ...cast, ...Object.fromEntries(Object.entries(plan.cast).filter(([, v]) => v.look && typeof v.look === 'object').map(([k, v]) => [k, v.look])) };
+    const fmt = FORMATS[meta.format ?? 'portrait'] ?? FORMATS.portrait;
+    for (const s of scenes) if (!plan.boards.some(b => b.id === sceneId(s))) planIssues.push({ level: 'error', where: s.file, msg: `计划里没有叫 "${sceneId(s)}" 的板。场景文件和计划的板一一对应（文件名去掉序号就是板的 id）；计划的板有：${plan.boards.map(b => b.id).join(' ')}。要加一块板，请规划者改 plan.yaml` });
+    const ordered: typeof scenes = [];
+    plan.boards.forEach((b, bi) => {
+      const s = scenes.find(x => sceneId(x) === b.id);
+      if (!s) { planIssues.push({ level: 'error', where: `plan.yaml / ${b.id}`, msg: `这块板还没有场景文件。运行 hj scaffold ${dir} 生成骨架（scenes/${String(bi + 1).padStart(2, '0')}-${b.id}.yaml），再把它画完` }); return; }
+      for (const k of ['regions', 'board', 'recall']) if (s.src[k] != null) planIssues.push({ level: 'error', where: s.file, msg: `场景里不要写 ${k}：它由计划决定（plan.yaml 里这块板的 ${k === 'regions' ? 'grid' : k === 'board' ? 'size' : 'recall'}）。删掉这一行；要改请规划者改计划` });
+      const from = b.segments[0]?.at;
+      if (s.src.from != null && String(s.src.from).trim() !== String(from).trim()) planIssues.push({ level: 'error', where: s.file, msg: `from 由计划决定（这块板第一段的 at："${from}"），场景里写的不一样。删掉这一行` });
+      const { regions } = planRegions(b, fmt);
+      s.src = { ...s.src, from, intent: s.src.intent ?? b.picture, regions, ...(b.size != null ? { board: b.size } : {}), ...(b.recall ? { recall: b.recall } : {}) };
+      if (bi === 0) delete s.src.from;
+      ordered.push(s);
+    });
+    scenes = ordered;
+  }
   const bad: string[] = [];
-  const useCast = (v: any): any => {
-    if (Array.isArray(v)) return v.map(useCast);
+  const castUse = new Map<string, CastUse>();
+  const useCast = (v: any, seen?: Set<string>): any => {
+    if (Array.isArray(v)) return v.map(x => useCast(x, seen));
     if (!v || typeof v !== 'object') return v;
-    const o: any = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, useCast(x)]));
-    if (typeof o.cast === 'string') { const base = cast[o.cast]; if (!base) { bad.push(o.cast); return o; } const { cast: _c, ...rest } = o; void _c; return { ...base, ...rest }; }
+    const o: any = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, useCast(x, seen)]));
+    if (typeof o.cast === 'string') { const base = cast[o.cast]; if (!base) { bad.push(o.cast); return o; } seen?.add(o.cast); const { cast: _c, ...rest } = o; void _c; return { ...base, ...rest }; }
     return o;
   };
-  for (const sc of scenes) { for (const k of ['pattern', 'elements', 'beats']) if (sc.src[k] != null) sc.src[k] = useCast(sc.src[k]); }
-  if (bad.length) throw new Error(`cast.yaml 里没有这些角色：${[...new Set(bad)].join('、')}。已有：${Object.keys(cast).join('、') || '（空）'}`);
-  return { meta, scenes };
+  for (const sc of scenes) {
+    const use: CastUse = { els: new Map(), pattern: new Set(), declared: new Set(Object.keys(sc.src.elements && typeof sc.src.elements === 'object' ? sc.src.elements : {})) };
+    for (const [eid, e] of Object.entries(sc.src.elements && typeof sc.src.elements === 'object' ? sc.src.elements : {}) as [string, any][]) { const cn = e?.cast ?? e?.of?.cast; if (typeof cn === 'string') use.els.set(eid, cn); }
+    castUse.set(sc.file, use);
+    for (const k of ['pattern', 'elements', 'beats']) if (sc.src[k] != null) sc.src[k] = useCast(sc.src[k], k === 'pattern' ? use.pattern : undefined);
+  }
+  if (bad.length) throw new Error(`${plan ? 'plan.yaml 的 cast' : 'cast.yaml'} 里没有这些角色：${[...new Set(bad)].join('、')}。已有：${Object.keys(cast).join('、') || '（空）'}`);
+  return { meta, scenes, plan, planIssues, castUse };
 }
 
 export function compile(dir: string): Compiled {
-  const { meta, scenes: srcScenes } = loadProject(dir);
-  const issues: Issue[] = [];
+  const { meta, scenes: srcScenes, plan, planIssues, castUse } = loadProject(dir);
+  const issues: Issue[] = [...planIssues];
   const err = (where: string, msg: string) => issues.push({ level: 'error', where, msg });
   const warn = (where: string, msg: string) => issues.push({ level: 'warn', where, msg });
   const fmt = FORMATS[meta.format ?? 'portrait'];
@@ -666,9 +701,12 @@ export function compile(dir: string): Compiled {
   // 镜头：按时间排好
   camEvents.sort((a, b) => a.t0 - b.t0);
   const subs = meta.subtitles === false ? [] : buildSubtitles(al, meta.subtitleMaxChars ?? fmt.subMax);
-  const planHash = createHash('sha256').update(JSON.stringify({ format: fmt.name, scenes: srcScenes.map(s => [s.src.from, s.src.intent, s.src.enter, ...(s.src.recall != null ? [s.src.recall] : []), [].concat(s.src.pattern ?? []).map((x: any) => (typeof x === 'string' ? x : x?.kind)), (s.src.beats ?? []).map((b: any) => [b?.at, b?.intent])]) })).digest('hex').slice(0, 16);
+  const sceneHash = createHash('sha256').update(JSON.stringify({ format: fmt.name, scenes: srcScenes.map(s => [s.src.from, s.src.intent, s.src.enter, ...(s.src.recall != null ? [s.src.recall] : []), [].concat(s.src.pattern ?? []).map((x: any) => (typeof x === 'string' ? x : x?.kind)), (s.src.beats ?? []).map((b: any) => [b?.at, b?.intent])]) })).digest('hex').slice(0, 16);
   tls.sort((a, b) => a.order - b.order);
-  return { dir, meta, fmt, fps, al, duration, scenes, tls, erases, cams: camEvents, subs, issues, planHash };
+  // 有计划时，第一道确认认的是计划本身：执行者怎么画不会让它失效
+  const planHash = plan ? plan.hash : sceneHash, keyHash = plan ? createHash('sha256').update(plan.hash + sceneHash).digest('hex').slice(0, 16) : sceneHash;
+  if (plan) issues.push(...checkPlan(plan, al, fmt, duration));
+  return { dir, meta, fmt, fps, al, duration, scenes, tls, erases, cams: camEvents, subs, issues, planHash, keyHash, ...(plan ? { plan } : {}), castUse };
 }
 
 function describe(el: El): string {

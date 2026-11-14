@@ -1,7 +1,7 @@
 // 端到端：真的去跑 hj 命令，验证流程闸门、出图、带音频渲染，以及音画对齐。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -33,6 +33,7 @@ function project(): string {
   writeFileSync(join(voice, 'alignment.json'), JSON.stringify(al));
   clickWav(join(voice, 'narration.wav'), al.duration_seconds);
   assert.equal(hj('init', dir, '--voice', voice, '--title', 'e2e').status, 0);
+  rmSync(join(dir, 'plan.yaml')); // 这条测试走的是不带计划的老写法；带计划的流程在 plan.test.ts
   writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8').replace('sfx: true', 'sfx: false'));
   writeFileSync(join(dir, 'scenes/01-loop.yaml'), `intent: 钞票转一圈回到公司
 pattern:

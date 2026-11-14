@@ -3,6 +3,7 @@ import type { Compiled, Issue, TL } from './compile';
 import { stripPunct } from './alignment';
 import type { Box, Pt } from './strokes';
 import type { El } from './elements';
+import { conform } from './plan';
 
 /** 沿元素的线条每隔约 10px 取一个点（只取线，不取字形和填充） */
 function linePoints(el: El, pathOnly = false): Pt[] {
@@ -268,7 +269,7 @@ export function lint(c: Compiled): Issue[] {
     if (next && acts.length) { const last = Math.max(...acts.map(a => a.t1)); if (last > next.t0 - 0.3) add('warn', sc.file, `最后一个动作 ${fmtT(last)} 才结束，但 ${fmtT(next.t0)} 就要转到下一个场景了，会画到一半被带走`); }
   }
   // 翻页：一条片子被切成一页页互不相干的小板。默认应该是一块板，从一个点切入、一点点展开、最后连成一张全景
-  if (c.scenes.length >= 2 && c.meta.layout !== 'pages') {
+  if (c.scenes.length >= 2 && c.meta.layout !== 'pages' && !c.plan) { // 有计划时，分几块板是规划者定的，由计划的检查来管
     const avg = c.duration / c.scenes.length;
     if (avg < 40) add('warn', '全片', `这条片子有 ${c.scenes.length} 块板，平均一块只讲 ${avg.toFixed(0)} 秒——这是翻页，不是边画边讲。两分钟以内的内容应该画在一块板上：先定全景和分区（regions），画过的东西留在原位，后面的内容对着前面的摆、用线连回去；靠镜头的远近（camera focus / home）换景，而不是换板。确实要分页（很长的片子分章、素材陈列）就在 project.yaml 里写 layout: pages`);
   }
@@ -285,6 +286,7 @@ export function lint(c: Compiled): Issue[] {
     if (last > Math.max(voiceEnd + 0.15, c.al.duration + 0.05)) add('warn', lastSc.file, `最后一个动作 ${fmtT(last)} 才做完，配音 ${fmtT(voiceEnd)} 就说完了：片子会在画到一半、或刚画完的那一下结束。最后一拍只留一件事，并用 lead 提前，让它在最后一个字之前落定`);
   }
   if (draws + appears > 6 && appears / (draws + appears) > 0.4) add('warn', '全片', `有 ${appears} 个元素是直接弹出/淡入的（共 ${draws + appears} 个）。这是 PPT 的出场方式；手绘视频里东西应该是画出来的，pop/fade 只留给“变戏法”的时刻`);
+  out.push(...conform(c));
   if (c.scenes.length > 2 && figures === 0) add('info', '全片', '全片没有出现小人。一个会指、会愣、会摊手的小人是“有人在讲”的来源，考虑让它贯穿全片');
   return out;
 }

@@ -15,6 +15,9 @@ import { POSES, FACES, ACCESSORIES } from '../core/figure';
 import { doodleDirs } from '../core/elements';
 import { textStrokes } from '../core/text';
 import { PATTERNS } from '../core/patterns';
+import { loadPlan, checkPlan, planStoryboard, scaffold, type Plan } from '../core/plan';
+import type { Issue } from '../core/compile';
+import { synthesize, synthesizeEdge, scriptHash, scriptWarnings, DEFAULT_SPEAKER, DEFAULT_EDGE_VOICE, EDGE_VOICES, KEY_ENV } from '../core/tts';
 import { THEME, FORMATS } from '../core/theme';
 
 const images = new Map<string, any>();
@@ -64,14 +67,26 @@ function load(dir: string, strict = true): Compiled {
 }
 const approvalsFile = (dir: string) => join(dir, 'approvals.json');
 const approvals = (dir: string): any => (existsSync(approvalsFile(dir)) ? JSON.parse(readFileSync(approvalsFile(dir), 'utf8')) : {});
+/** 只看计划、不编译场景：规划者写计划、交用户确认时用（这时候还没有场景文件） */
+function planCtx(dir: string): { meta: any; fmt: (typeof FORMATS)[string]; al: ReturnType<typeof loadAlignment>; duration: number; plan: Plan; issues: Issue[] } | null {
+  let plan: Plan | null;
+  try { plan = loadPlan(dir); } catch (e: any) { return die(e.message); }
+  if (!plan) return null;
+  if (!existsSync(join(dir, 'project.yaml'))) die(`${dir} 里没有 project.yaml，这不是一个画讲项目（用 hj init 创建）`);
+  const meta = YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {}, fmt = FORMATS[meta.format ?? 'portrait'] ?? die('project.yaml: format 只能是 portrait 或 landscape');
+  if (!existsSync(join(dir, meta.voice ?? 'voice/alignment.json'))) die(`找不到时间表 ${join(dir, meta.voice ?? 'voice/alignment.json')}：还没有配音。hj status ${dir} 看下一步`);
+  const al = loadAlignment(join(dir, meta.voice ?? 'voice/alignment.json')), duration = al.duration + (meta.tail ?? 0.6);
+  return { meta, fmt, al, duration, plan, issues: checkPlan(plan, al, fmt, duration) };
+}
+const hasScenes = (dir: string) => existsSync(join(dir, 'scenes')) && readdirSync(join(dir, 'scenes')).some(f => /\.ya?ml$/.test(f));
 function gate(c: Compiled, stage: 'plan' | 'keyframes') {
   const a = approvals(c.dir);
-  const label = stage === 'plan' ? '文字分镜' : '关键帧';
+  const label = stage === 'plan' ? (c.plan ? '分镜计划' : '文字分镜') : '关键帧', now = stage === 'plan' ? c.planHash : c.keyHash;
   const how = stage === 'plan'
     ? `先运行 hj plan ${c.dir} 生成 storyboard.md 交给用户看；用户明确同意后运行 hj approve ${c.dir} plan --by "<用户的确认原话>"\n  想在交给用户之前自己先看看画面：hj stills ${c.dir} --draft（带水印的草稿，不需要确认）`
     : `先运行 hj stills ${c.dir} 出关键帧交给用户看；用户明确同意后运行 hj approve ${c.dir} keyframes --by "<用户的确认原话>"`;
   if (!a[stage]) die(`${label}还没有得到用户确认，不能继续。\n  ${how}`);
-  if (a[stage].planHash !== c.planHash) die(`${label}确认之后，分镜内容（场景划分 / 每拍画什么）又改过了（确认的是 ${a[stage].planHash}，现在是 ${c.planHash}），需要用户重新确认。\n  ${how}\n  只调位置、大小、颜色、时长这类细节不会触发重新确认。`);
+  if (a[stage].planHash !== now) die(`${label}确认之后，${stage === 'plan' && c.plan ? '计划（plan.yaml）' : '分镜内容（场景划分 / 每拍画什么）'}又改过了（确认的是 ${a[stage].planHash}，现在是 ${now}），需要用户重新确认。\n  ${how}\n  只调位置、大小、颜色、时长这类细节不会触发重新确认。`);
 }
 
 /** 一个场景板上的三层信息各有几样（一模一样的重复元素算一样） */
@@ -90,40 +105,43 @@ function layers(c: Compiled, sc: CScene) {
   return { main, support: Math.min(support, 99), notes };
 }
 
-const CAST_TEMPLATE = `# 角色表：全片反复出现的人和东西，长相只在这里定义一次。
-# 场景里写 { cast: 名字, at: [x, y], size: 300 } 引用；可以再加 pose / face / carry / size 覆盖。
-# 同一个角色全片一个样，观众才认得出来。
+const PLAN_TEMPLATE = `# 计划：规划者的产物。写完后 hj check → hj plan → 交用户确认 → 执行者照它画。
+# 这里不写坐标，只回答“讲的是一个什么系统”。写法和完整例子见技能里的 planner.md。
+# 把下面的注释去掉、填上内容（现在整份是空的，hj 会拒绝往下走）。
 #
-# me:     { figure: stand }                                  # 讲述者
-# boss:   { figure: stand, face: smug, wear: [tophat] }      # 老板永远戴礼帽
-# money:  { doodle: banknote }                               # 钱永远是那张绿钞票
-`;
-const OUTLINE_TEMPLATE = `# 提纲（写分镜之前先填；填不出来说明还没想清楚，不要急着写 YAML）
-
-## 全景
-这条片子讲完，整块板是一张什么图？用几句话把它描述出来：有哪几块、各是什么形状（一排横条、一个圈、一条时间轴…）、块和块之间用什么连起来。
-观众最后看到的就是这张图；全片都是在一点点把它画出来。
-
-## 分区（写进场景的 regions）
-| 分区 | 在板上的位置 | 放什么 | 它和哪一块相连、怎么连（对齐、箭头、括号…） |
-|---|---|---|---|
-
-## 切入点
-从全景的哪一个点画起？（第一句话落地时板上就要有它）
-
-## 角色表（同步写进 cast.yaml）
-| 角色 | 长相 | 代表什么 |
-|---|---|---|
-
-## 逐段：这段话往全景上添什么
-| 口播从哪句到哪句 | 这段在干什么（设问/说法/理由/算账/数据/转折/结论） | 画在哪个分区 | 添什么（主体 / 数字 / 批注） | 对着前面的哪样东西摆、连到哪儿 | 镜头：近景看谁，还是拉回全景 |
-|---|---|---|---|---|---|
-
-## 颜色分工
-墨色画什么、蓝色标什么、红色只留给哪一样（全片的答案）？
-
-## 结尾
-最后一句话落下时，镜头回到全景，板上只多一样东西。是什么？
+# thesis: 用一句话说出全片的结论
+#
+# cast:                      # 角色：这件事里的人、机构、钱、货。每个定一个固定的长相（只能是画出来的东西）
+#   bank: { name: 银行, look: { doodle: bank } }
+#   me:   { name: 你,   look: { figure: stand } }
+#
+# relations:                 # 关系：谁对谁做了什么。这是系统的骨架，每一条都要在某一段画出来
+#   deposit: { from: me, to: bank, label: 存 }
+#
+# boards:                    # 板：一块板是一张连在一起的图。放得下就一块；放不下再分，板和板之间要有共同的东西
+#   - id: main
+#     picture: 这块板讲完是一张什么图（有哪几块、什么形状、怎么连）
+#     grid:                  # 板面怎么分：同名的格子连成一个分区
+#       rows: [1, 2, 1]      # 每一行占多高（比例），可省
+#       areas:
+#         - [who, who]
+#         - [loop, side]
+#         - [sum, sum]
+#     regions:               # 每个分区放什么
+#       who: 谁、往哪儿存
+#       loop: 第一圈
+#       side: 钱去了哪儿
+#       sum: 汇总
+#     segments:              # 分段：按口播的顺序，每一段往板上添什么
+#       - at: "假设你存进"   # 这一段从口播的哪几个字开始（从 brief.md 的“分句卡点”里抄）
+#         act: 例子          # 设问 说法 理由 例子 算账 数据 对比 转折 推翻 结论 补充
+#         in: who            # 画在哪个分区
+#         show: [me, bank]   # 谁出场
+#         link: [deposit]    # 画哪条关系
+#         # diagram: 一条 100 的横条，红色的一成和蓝色的九成     # 要画的图（不是角色的那些：横条、时间轴、柱子…）
+#         # revisit: [bank]  # 回头改前面画过的谁（打叉、改数字、再连一条线）
+#         words: ["100"]     # 板书：只写关键词和数字，每条不超过 10 个字
+#         intent: 你把 100 块存进银行
 `;
 
 function canvasFor(c: Compiled, scale: number) { const cv = createCanvas(Math.round(c.fmt.W * scale), Math.round(c.fmt.H * scale)); return { cv, ctx: cv.getContext('2d') }; }
@@ -134,21 +152,26 @@ function sceneArg(c: Compiled): CScene | null {
 
 const commands: Record<string, () => Promise<void> | void> = {
   init() {
-    const dir = args[0] ?? die('用法：hj init <项目目录> --voice <配音材料目录或 alignment.json> [--format portrait|landscape] [--title 标题]');
-    const voice = flags.voice ? String(flags.voice) : die('需要 --voice：配音材料目录（含 alignment.json），或一份时间表文件');
+    const usage = '用法：hj init <项目目录> --voice <配音材料目录或 alignment.json> [--format portrait|landscape] [--title 标题]\n      或：hj init <项目目录> --script <朗读稿.txt>   （还没有配音：先建项目，稿子确认后用 hj voice 配）';
+    const dir = args[0] ?? die(usage);
+    const voice = typeof flags.voice === 'string' ? flags.voice : null, script = typeof flags.script === 'string' ? flags.script : null;
+    if (!voice && !script) die('需要 --voice（已有配音和时间表）或 --script（只有稿子，之后用 hj voice 配音）\n' + usage);
     mkdirSync(join(dir, 'voice'), { recursive: true }); mkdirSync(join(dir, 'scenes'), { recursive: true });
-    const srcAl = existsSync(join(voice, 'alignment.json')) ? join(voice, 'alignment.json') : existsSync(join(voice, 'subtitles.srt')) ? join(voice, 'subtitles.srt') : voice;
-    if (!existsSync(srcAl)) die(`找不到时间表：${srcAl}`);
-    const alName = /\.srt$/i.test(srcAl) ? 'subtitles.srt' : 'alignment.json';
-    copyFileSync(srcAl, join(dir, 'voice', alName));
-    let audio = '';
-    for (const n of ['narration.wav', 'narration.mp3', 'narration.m4a']) { const f = join(existsSync(join(voice, n)) ? voice : resolve(voice, '..'), n); if (existsSync(f)) { copyFileSync(f, join(dir, 'voice', n)); audio = 'voice/' + n; break; } }
+    let alName = 'alignment.json', audio = '';
+    if (script) { if (!existsSync(script)) die(`找不到朗读稿：${script}`); writeFileSync(join(dir, 'script.txt'), readFileSync(script, 'utf8').trim() + '\n'); }
+    if (voice) {
+      const srcAl = existsSync(join(voice, 'alignment.json')) ? join(voice, 'alignment.json') : existsSync(join(voice, 'subtitles.srt')) ? join(voice, 'subtitles.srt') : voice;
+      if (!existsSync(srcAl)) die(`找不到时间表：${srcAl}`);
+      alName = /\.srt$/i.test(srcAl) ? 'subtitles.srt' : 'alignment.json';
+      copyFileSync(srcAl, join(dir, 'voice', alName));
+      for (const n of ['narration.wav', 'narration.mp3', 'narration.m4a']) { const f = join(existsSync(join(voice, n)) ? voice : resolve(voice, '..'), n); if (existsSync(f)) { copyFileSync(f, join(dir, 'voice', n)); audio = 'voice/' + n; break; } }
+    }
     const fmt = String(flags.format ?? 'portrait');
     if (!FORMATS[fmt]) die('format 只能是 portrait 或 landscape');
     if (!existsSync(join(dir, 'project.yaml'))) writeFileSync(join(dir, 'project.yaml'), `title: ${JSON.stringify(String(flags.title ?? basename(resolve(dir))))}\nformat: ${fmt}        # portrait 竖屏 1080×1920 / landscape 横屏 1920×1080\nfps: 30\nvoice: voice/${alName}\n${audio ? `audio: ${audio}` : '# audio: voice/narration.wav   # 配音文件放进 voice/ 后取消注释'}\nsubtitles: true\nsfx: true              # 落笔音效\npen: false             # 笔：false 不显示 / marker 一支马克笔 / hand 握着笔的手\n`);
-    if (!existsSync(join(dir, 'cast.yaml'))) writeFileSync(join(dir, 'cast.yaml'), CAST_TEMPLATE);
-    if (!existsSync(join(dir, 'outline.md'))) writeFileSync(join(dir, 'outline.md'), OUTLINE_TEMPLATE);
-    console.log(`✓ 项目已创建：${dir}\n  时间表：voice/${alName}${audio ? `\n  配音：${audio}` : '\n  （没找到配音文件，渲染出来只有落笔音效；把 narration.wav 放进 voice/ 并在 project.yaml 里填 audio）'}\n下一步：hj brief ${dir}   通读口播和时间；先填 outline.md（论证、母图、角色表），再在 scenes/ 里写分镜`);
+    if (!existsSync(join(dir, 'plan.yaml'))) writeFileSync(join(dir, 'plan.yaml'), PLAN_TEMPLATE);
+    if (!voice) { console.log(`✓ 项目已创建：${dir}（还没有配音）\n  朗读稿：script.txt\n下一步：hj voice ${dir} 会列出朗读稿、音色和要注意的读法。把它们给用户看，用户确认稿子后才能配音（付费接口）`); return; }
+    console.log(`✓ 项目已创建：${dir}\n  时间表：voice/${alName}${audio ? `\n  配音：${audio}` : '\n  （没找到配音文件，渲染出来只有落笔音效；把 narration.wav 放进 voice/ 并在 project.yaml 里填 audio）'}\n下一步（规划者）：hj brief ${dir} 通读口播和时间，然后写 ${join(dir, 'plan.yaml')}。随时运行 hj status ${dir} 看现在该谁做什么`);
   },
 
   brief() {
@@ -191,8 +214,17 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   check() {
     const dir = args[0] ?? die('用法：hj check <项目目录>');
+    // 规划阶段：有计划、还没有场景文件，只查计划
+    const pc = planCtx(dir);
+    if (pc && !hasScenes(dir)) {
+      console.log(`计划：${pc.plan.boards.length} 块板，${pc.plan.boards.reduce((n, b) => n + b.segments.length, 0)} 段，${Object.keys(pc.plan.cast).length} 个角色，${Object.keys(pc.plan.relations).length} 条关系，时长 ${fmtT(pc.duration)}，计划版本 ${pc.plan.hash}\n`);
+      const r = printIssues(pc.issues), a = approvals(dir);
+      console.log(`确认状态：计划 ${a.plan ? (a.plan.planHash === pc.plan.hash ? '✓ 已确认' : '✗ 确认后又改过，需重新确认') : '未确认'}。还没有场景文件：计划确认后由执行者运行 hj scaffold ${dir}`);
+      if (r.errors || (flags.strict && r.warns)) process.exit(1);
+      return;
+    }
     const c = load(dir, false);
-    console.log(`${c.scenes.length} 个场景，${c.tls.length} 个元素，时长 ${fmtT(c.duration)}，分镜版本 ${c.planHash}\n`);
+    console.log(`${c.scenes.length} 个场景，${c.tls.length} 个元素，时长 ${fmtT(c.duration)}，${c.plan ? `计划版本 ${c.planHash}，画面版本 ${c.keyHash}` : `分镜版本 ${c.planHash}`}\n`);
     // 每个场景的三层信息各有多少：主体（人、物）/ 支撑（数字、图表、箭头）/ 批注（小字）。哪一层是 0，哪一层就该补
     for (const sc of c.scenes) {
       const L = layers(c, sc);
@@ -201,12 +233,23 @@ const commands: Record<string, () => Promise<void> | void> = {
     console.log('');
     const r = printIssues(c.issues);
     const a = approvals(dir);
-    console.log(`确认状态：文字分镜 ${a.plan ? (a.plan.planHash === c.planHash ? '✓ 已确认' : '✗ 确认后又改过，需重新确认') : '未确认'}；关键帧 ${a.keyframes ? (a.keyframes.planHash === c.planHash ? '✓ 已确认' : '✗ 需重新确认') : '未确认'}`);
+    console.log(`确认状态：${c.plan ? '计划' : '文字分镜'} ${a.plan ? (a.plan.planHash === c.planHash ? '✓ 已确认' : '✗ 确认后又改过，需重新确认') : '未确认'}；关键帧 ${a.keyframes ? (a.keyframes.planHash === c.keyHash ? '✓ 已确认' : '✗ 需重新确认') : '未确认'}`);
     if (r.errors || (flags.strict && r.warns)) process.exit(1); // --strict：有警告也算失败（给 CI 用）
   },
 
   plan() {
     const dir = args[0] ?? die('用法：hj plan <项目目录>');
+    const pc = planCtx(dir);
+    if (pc) {
+      // 有计划：分镜表由计划排出来，这时候不需要、也不看任何场景文件
+      if (pc.issues.some(i => i.level === 'error')) { printIssues(pc.issues); die('计划有错误，先修掉再生成分镜表（hj check 可随时重查）'); }
+      writeFileSync(join(dir, 'storyboard.md'), planStoryboard(pc.plan, pc.meta, pc.al, pc.fmt, pc.duration, pc.issues));
+      const w = pc.issues.filter(i => i.level === 'warn').length;
+      console.log(`✓ 分镜计划已生成：${join(dir, 'storyboard.md')}（计划版本 ${pc.plan.hash}）`);
+      if (w) console.log(`  注意：还有 ${w} 个警告，已经原样写进了分镜计划的末尾。交给用户之前最好处理掉，或向用户说明。`);
+      console.log('把这份分镜计划交给用户确认。用户同意之前，不出正式的图、不渲染。');
+      return;
+    }
     const c = load(dir);
     const warns = c.issues.filter(i => i.level === 'warn');
     writeFileSync(join(dir, 'storyboard.md'), planMarkdown(c));
@@ -217,13 +260,102 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   approve() {
     const dir = args[0], stage = args[1] as 'plan' | 'keyframes';
-    if (!dir || !['plan', 'keyframes'].includes(stage) || typeof flags.by !== 'string') die('用法：hj approve <项目目录> plan|keyframes --by "<用户的确认原话>"\n只有在用户明确表示同意之后才能运行。');
-    const c = load(dir);
-    if (stage === 'keyframes') gate(c, 'plan');
-    const a = approvals(dir);
-    a[stage] = { planHash: c.planHash, by: flags.by, at: new Date().toISOString() };
+    if (!dir || !['script', 'plan', 'keyframes'].includes(stage) || typeof flags.by !== 'string') die('用法：hj approve <项目目录> script|plan|keyframes --by "<用户的确认原话>"\n只有在用户明确表示同意之后才能运行。');
+    if ((stage as string) === 'script') {
+      // 朗读稿：用户确认的是这一版稿子的每一个字。改一个字就要重新确认
+      const sf = join(dir, 'script.txt'); if (!existsSync(sf)) die(`没有朗读稿 ${sf}`);
+      const a0 = approvals(dir), h = scriptHash(readFileSync(sf, 'utf8'));
+      a0.script = { planHash: h, by: flags.by, at: new Date().toISOString() };
+      writeFileSync(approvalsFile(dir), JSON.stringify(a0, null, 2) + '\n');
+      console.log(`✓ 已记录用户对朗读稿的确认（稿子版本 ${h}）。下一步：hj voice ${dir}`);
+      return;
+    }
+    const a = approvals(dir), pc = stage === 'plan' ? planCtx(dir) : null;
+    let hash: string;
+    if (pc) { if (pc.issues.some(i => i.level === 'error')) { printIssues(pc.issues); die('计划有错误，不能确认'); } hash = pc.plan.hash; }
+    else { const c = load(dir); if (stage === 'keyframes') gate(c, 'plan'); hash = stage === 'plan' ? c.planHash : c.keyHash; }
+    a[stage] = { planHash: hash, by: flags.by, at: new Date().toISOString() };
     writeFileSync(approvalsFile(dir), JSON.stringify(a, null, 2) + '\n');
-    console.log(`✓ 已记录用户对${stage === 'plan' ? '文字分镜' : '关键帧'}的确认（分镜版本 ${c.planHash}）。下一步：${stage === 'plan' ? `hj stills ${dir}` : `hj render ${dir}`}`);
+    console.log(`✓ 已记录用户对${stage === 'plan' ? (pc ? '分镜计划' : '文字分镜') : '关键帧'}的确认（版本 ${hash}）。下一步：${stage === 'plan' ? (pc ? `执行者运行 hj scaffold ${dir}，照计划把场景画出来` : `hj stills ${dir}`) : `hj render ${dir}`}`);
+  },
+
+  // 配音：火山引擎豆包语音合成。付费接口：用户确认过这一版朗读稿才调用，不自动重试
+  async voice() {
+    if (flags.voices) { console.log('edge-tts 的音色（免费）。语速和音高不写时用表里的默认值：按这个语速，成片大约每秒 4.1–4.3 个字，画得过来\n'); for (const [id, v] of Object.entries(EDGE_VOICES)) console.log(`  ${id.padEnd(34)} ${v.name}　默认 ${v.rate} ${v.pitch}　${v.note}`); console.log(`\n火山引擎（付费）默认音色：${DEFAULT_SPEAKER}`); return; }
+    const dir = args[0] ?? die('用法：hj voice <项目目录> [--engine volc|edge] [--speaker 音色id] [--rate 语速] [--pitch 音高] [--redo]\n  volc：火山引擎豆包语音（付费，默认）。--rate 是 -50..100 的整数\n  edge：edge-tts（免费）。--rate 形如 +8%，--pitch 形如 -4Hz；hj voice --voices 列出音色');
+    const sf = join(dir, 'script.txt'), pf = join(dir, 'project.yaml');
+    if (!existsSync(pf)) die(`${dir} 还不是一个项目。先运行 hj init ${dir} --script <朗读稿.txt>`);
+    if (!existsSync(sf)) die(`没有朗读稿 ${sf}。把要读出来的字（不是屏幕上显示的字）写进去，UTF-8`);
+    const engine = String(flags.engine ?? 'volc');
+    if (!['volc', 'edge'].includes(engine)) die('--engine 只能是 volc（火山引擎，付费）或 edge（edge-tts，免费）');
+    const text = readFileSync(sf, 'utf8').trim(), h = scriptHash(text), a = approvals(dir), paid = engine === 'volc';
+    const speaker = typeof flags.speaker === 'string' ? flags.speaker : paid ? DEFAULT_SPEAKER : DEFAULT_EDGE_VOICE;
+    const rate = paid ? (flags.rate != null ? Number(flags.rate) : 0) : typeof flags.rate === 'string' ? flags.rate : EDGE_VOICES[speaker]?.rate ?? '+0%';
+    const pitch = paid ? '' : typeof flags.pitch === 'string' ? flags.pitch : EDGE_VOICES[speaker]?.pitch ?? '+0Hz';
+    if (paid && (!Number.isInteger(rate) || (rate as number) < -50 || (rate as number) > 100)) die('火山引擎的 --rate 是 -50 到 100 的整数：0 原速，100 约两倍速');
+    if (!paid && (!/^[+-]\d+%$/.test(String(rate)) || !/^[+-]\d+Hz$/.test(pitch))) die('edge 的 --rate 写成 +8% 这样（带正负号和百分号），--pitch 写成 -4Hz 这样');
+    if (!paid && Math.abs(parseInt(pitch)) > 15) die('音高调整超过 ±15Hz 会有明显的变声器失真');
+    const chars = text.replace(/[\s\p{P}]/gu, '').length, warns = scriptWarnings(text);
+    const summary = `朗读稿（${sf}，${chars} 个字，按每秒 4 个字估约 ${Math.round(chars / 4)} 秒，稿子版本 ${h}）：\n\n${text.split('\n').map(l => '  ' + l).join('\n')}\n\n引擎：${paid ? '火山引擎（付费）' : 'edge-tts（免费）'}　音色：${speaker}${paid ? (rate ? `，语速 ${rate}` : '') : `，语速 ${rate}，音高 ${pitch}`}\n${warns.map(w => `! ${w}`).join('\n')}${warns.length ? '\n' : ''}`;
+    // 付费引擎：用户确认过这一版稿子才调用。免费引擎不拦，但稿子的读法问题照样列出来
+    if (paid && a.script?.planHash !== h) { console.log(summary); die(`${a.script ? '朗读稿在用户确认之后改过了，要重新确认。' : '这一版朗读稿还没有得到用户确认。'}火山引擎是付费接口，每次调用都花钱。\n  把上面的朗读稿全文、音色${warns.length ? '和带 ! 的读法问题' : ''}给用户看；用户明确同意后运行 hj approve ${dir} script --by "<用户的确认原话>"，再运行 hj voice ${dir}。\n  给密钥、说“继续”、批准大纲，都不等于确认了这一版稿子。\n  想先免费听个大概：hj voice ${dir} --engine edge（edge-tts，不需要密钥和确认）`); }
+    const key = (process.env[KEY_ENV] ?? '').trim();
+    if (paid && !key) die(`没有配置火山引擎的密钥。请用户自己在终端里设置环境变量（不要让用户把密钥贴进对话，也不要把它写进任何文件或命令行参数）：\n  export ${KEY_ENV}=<API Key>\n密钥在火山引擎控制台的“豆包语音”里创建，需要开通语音合成大模型（seed-tts-2.0）。配好之后重新运行 hj voice ${dir}\n  不想付费：hj voice ${dir} --engine edge（edge-tts，免费，不需要密钥）`);
+    const metaF = join(dir, 'voice', 'metadata.json');
+    if (paid && existsSync(metaF) && !flags.redo) { const m = JSON.parse(readFileSync(metaF, 'utf8')); if (m.provider === 'volcengine' && m.script_hash === h && m.speaker === speaker && (m.speech_rate ?? 0) === rate) die(`这一版稿子已经用同样的音色和语速配过了（${join(dir, 'voice', 'narration.wav')}，${Number(m.duration_seconds).toFixed(1)} 秒）。再配一次要再花一次钱：确实要重配加 --redo`); }
+    if (!paid && warns.length) console.log(warns.map(w => `! ${w}`).join('\n'));
+    const runs = join(dir, 'voice', 'runs'); mkdirSync(runs, { recursive: true });
+    const out = join(runs, String(readdirSync(runs).length + 1).padStart(3, '0'));
+    console.log(`开始配音（${paid ? '火山引擎' : 'edge-tts'}，${chars} 个字，音色 ${speaker}）…`);
+    let r;
+    try {
+      r = paid
+        ? await synthesize({ text, key, outDir: out, speaker, speechRate: rate as number, ...(typeof flags.context === 'string' ? { context: flags.context } : {}), ...(typeof flags.resource === 'string' ? { resource: flags.resource } : {}), ...(process.env.HJ_TTS_ENDPOINT ? { endpoint: process.env.HJ_TTS_ENDPOINT } : {}) })
+        : await synthesizeEdge({ text, outDir: out, voice: speaker, rate: String(rate), pitch });
+    } catch (e: any) { return die(`配音失败：${e.message}${paid ? `\n  没有自动重试。这次的记录在 ${out}/events.jsonl` : ''}`); }
+    for (const f of ['narration.wav', 'alignment.json', 'metadata.json']) copyFileSync(join(out, f), join(dir, 'voice', f));
+    // 项目设置里指到这条配音
+    let py = readFileSync(pf, 'utf8');
+    if (!/^audio:/m.test(py)) py = /^# audio:.*$/m.test(py) ? py.replace(/^# audio:.*$/m, 'audio: voice/narration.wav') : py.trimEnd() + '\naudio: voice/narration.wav\n';
+    py = /^voice:/m.test(py) ? py.replace(/^voice:.*$/m, 'voice: voice/alignment.json') : py.trimEnd() + '\nvoice: voice/alignment.json\n';
+    writeFileSync(pf, py);
+    const cps = chars / r.duration;
+    console.log(`✓ 配音完成：${join(dir, 'voice', 'narration.wav')}（${r.duration.toFixed(1)} 秒，每秒 ${cps.toFixed(1)} 个字，${r.units} 个字词${r.shaky ? `，其中 ${r.shaky} 个时间不可靠，hj brief 里用 ~波浪线~ 标出，卡点别落在它们上面` : ''}）${cps > 4.7 ? '\n  ! 语速偏快（每秒 4.7 个字以上，画面会被迫快进）：把语速调低一点重配' : ''}\n  先让用户听一遍。之后不要对音频做任何剪切、变速、去静音：时间表会失效。\n下一步：hj brief ${dir}`);
+  },
+
+  // 由计划生成场景骨架：每块板一个文件，角色、关系、板书和每一段的节拍都列好
+  scaffold() {
+    const dir = args[0] ?? die('用法：hj scaffold <项目目录> [--force]');
+    const pc = planCtx(dir) ?? die('这个项目没有 plan.yaml。骨架是照计划生成的：先由规划者写计划');
+    if (pc.issues.some(i => i.level === 'error')) { printIssues(pc.issues); die('计划有错误，先请规划者修掉'); }
+    mkdirSync(join(dir, 'scenes'), { recursive: true });
+    const existing = readdirSync(join(dir, 'scenes')).filter(f => /\.ya?ml$/.test(f));
+    pc.plan.boards.forEach((b, i) => {
+      const had = existing.find(f => f.replace(/\.ya?ml$/, '').replace(/^\d+[-_]?/, '') === b.id), f = join(dir, 'scenes', had ?? `${String(i + 1).padStart(2, '0')}-${b.id}.yaml`);
+      if (had && !flags.force) { console.log(`· 已有 ${f}，没有动它（要重新生成加 --force，会覆盖）`); return; }
+      writeFileSync(f, scaffold(pc.plan, b, pc.fmt, pc.al, pc.duration));
+      console.log(`✓ ${f}`);
+    });
+    console.log(`骨架里每样东西都还没摆位置。下一步：hj layout ${dir} 看落点 → 改场景文件 → hj check ${dir} → hj stills ${dir} --draft 看图`);
+  },
+
+  // 现在轮到谁、下一步做什么
+  status() {
+    const dir = args[0] ?? die('用法：hj status <项目目录>');
+    if (!existsSync(join(dir, 'project.yaml'))) die(`${dir} 还不是一个项目。先运行 hj init ${dir} --voice <配音材料目录>`);
+    const say = (role: string, what: string) => console.log(`现在轮到：${role}\n下一步：${what}`);
+    { const m = YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {}; if (!existsSync(join(dir, m.voice ?? 'voice/alignment.json'))) return say('配音', existsSync(join(dir, 'script.txt')) ? `还没有配音。运行 hj voice ${dir}：它会列出朗读稿和音色，给用户确认后再配（付费接口）。` : `还没有配音和时间表。把朗读稿写进 ${join(dir, 'script.txt')} 再运行 hj voice ${dir}；或把已有的配音材料（narration.wav + alignment.json）放进 ${join(dir, 'voice')}/。`); }
+    if (!existsSync(join(dir, 'plan.yaml'))) { console.log('这个项目没有 plan.yaml（不走计划的老写法）。'); const c = load(dir, false), a = approvals(dir); printIssues(c.issues); console.log(`确认状态：文字分镜 ${a.plan?.planHash === c.planHash ? '✓' : '未确认'}；关键帧 ${a.keyframes?.planHash === c.keyHash ? '✓' : '未确认'}`); return; }
+    let plan: Plan | null = null;
+    try { plan = loadPlan(dir); } catch (e: any) { return say('规划者', `${e.message}\n  先运行 hj brief ${dir} 通读口播。`); }
+    const pc = planCtx(dir)!, a = approvals(dir), pe = pc.issues.filter(i => i.level === 'error').length, pw = pc.issues.filter(i => i.level === 'warn').length;
+    if (pe) return say('规划者', `计划有 ${pe} 个错误。运行 hj check ${dir} 看是哪些，修掉。`);
+    if (!a.plan || a.plan.planHash !== plan!.hash) return say('规划者', `${a.plan ? '计划在用户确认之后又改过，需要重新确认。' : ''}${pw ? `计划还有 ${pw} 个警告（hj check ${dir}），先修掉或准备好向用户说明。` : ''}运行 hj plan ${dir}，把 storyboard.md 交给用户；用户明确同意后运行 hj approve ${dir} plan --by "<用户原话>"。`);
+    if (!hasScenes(dir)) return say('执行者', `计划已确认。运行 hj scaffold ${dir} 生成场景骨架，然后照 executor.md 把每块板画完。`);
+    const c = load(dir, false), ce = c.issues.filter(i => i.level === 'error').length, cw = c.issues.filter(i => i.level === 'warn').length;
+    if (ce) return say('执行者', `场景有 ${ce} 个错误。运行 hj check ${dir} 看是哪些，修掉。`);
+    if (!a.keyframes || a.keyframes.planHash !== c.keyHash) return say('执行者', `${cw ? `还有 ${cw} 个警告（hj check ${dir}）：修掉，或准备好向用户说明。` : ''}先 hj stills ${dir} --draft 自己逐张看、改到满意；再 hj stills ${dir} 出正式关键帧交给用户；用户明确同意后运行 hj approve ${dir} keyframes --by "<用户原话>"。`);
+    say('执行者', `关键帧已确认。hj render ${dir} 出成片（out/video.mp4）；需要封面再 hj cover ${dir}。`);
   },
 
   // 布局线框：不画任何笔画，只把每个元素最后落在哪儿画成方框。写分镜时随时看，不需要用户确认
@@ -571,22 +703,34 @@ if (cmd === '--version' || cmd === '-v') { console.log(JSON.parse(readFileSync(f
 if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]) {
   console.log(`画讲 hj —— 把带时间表的口播做成“边画边讲”的手绘视频
 
-  hj init <目录> --voice <配音材料>   建项目，导入时间表
-  hj brief <目录>                     口播逐句时间简报（写分镜前先读）
-  hj check <目录>                     编译 + 质量检查（随时跑，很快）
+  hj status <目录>                    现在轮到谁（配音 / 规划者 / 执行者）、下一步做什么。拿不准就跑它
+
+  hj init <目录> --voice <配音材料>   建项目，导入已有的配音和时间表
+  hj init <目录> --script <稿.txt>    建项目，只有稿子（之后用 hj voice 配音）
+  hj voice <目录>                     配音（火山引擎，付费）：先列出朗读稿给用户确认，确认后才合成
+  hj voice <目录> --engine edge       配音（edge-tts，免费）；hj voice --voices 列出音色和默认参数
+  hj brief <目录>                     口播逐句时间简报（写计划前先读）
+
+  规划者：
+  hj check <目录>                     查计划（还没有场景时）；有场景后连画面一起查
+  hj plan <目录>                      由 plan.yaml 排出分镜计划 storyboard.md → 交用户确认
+  hj approve <目录> script|plan|keyframes --by "<用户确认原话>"
+
+  执行者：
+  hj scaffold <目录>                  照计划生成场景骨架（每块板一个文件）
   hj layout <目录> [--scene x]        布局线框：每个元素最后落在哪儿（随时跑，不需要确认）
-  hj plan <目录>                      生成文字分镜表 storyboard.md → 交用户确认
-  hj approve <目录> plan|keyframes --by "<用户确认原话>"
-  hj stills <目录> --draft            草稿关键帧：带水印、半分辨率，写分镜时自查用（不需要确认）
-  hj stills <目录> [--scene x]        出关键帧（需先确认文字分镜）→ 交用户确认
+  hj stills <目录> --draft            草稿关键帧：带水印、半分辨率，自查用（不需要确认）
+  hj stills <目录> [--scene x]        出关键帧（需先确认计划）→ 交用户确认
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
   hj cover <目录> [--draft]                封面图：全景 + 手写大标题（标题写在 project.yaml 的 cover 里）
+
+  素材：
   hj patterns [名字]                  表现手法：自带构图和动作编排的场景骨架
   hj assets doodles | figure | icons <关键词> | colors | sheet
   hj import excalidraw|svg|quickdraw <文件>   把外部手绘素材转成手绘件
   hj fake-align <稿.txt>              没配音时造匀速时间表打草稿
 
-完整工作流见 AGENTS.md`);
+制作视频的完整说明在技能里：skills/huajiang/SKILL.md`);
   process.exit(!cmd || ['--help', '-h', 'help'].includes(cmd) ? 0 : 1);
 }
 try { await commands[cmd](); }
