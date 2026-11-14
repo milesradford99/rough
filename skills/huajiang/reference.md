@@ -220,6 +220,10 @@ lp:  { doodle: laptop, size: 90, at: dk.surface, anchor: bottom }
 
 `shade: false`：这个元素不要灰色阴影（默认有，见项目设置的 `shade`）。阴影是引擎自动加的，只加在外轮廓上，不占位置、不参与避让；光永远从左上来，全片一致。
 
+`size` 可以写档位名：字和批注 `hero`（108）`key`（64）`label`（46）`note`（40）；手绘件、小人、图标、图片、形状 `big`（210）`mid`（160）`small`（120）。
+
+`snap: false`：不要自动吸附对齐（默认：手写的数字坐标离同类东西的左边、中线、底边差不到 18px 时吸过去）。
+
 颜色名：`ink red blue green yellow orange purple gray paper`，也可以直接写 `"#rrggbb"`。
 
 ### 各类元素
@@ -324,13 +328,15 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 | `hj voice <目录> [--engine volc\|edge] [--speaker 音色] [--rate 语速] [--pitch 音高] [--redo]` | 配音，见 voice.md。`hj voice --voices` 列出免费音色 |
 | `hj brief <目录>` | 口播逐句时间简报 |
 | `hj check <目录> [--strict]` | 查计划；有场景后连画面一起查。有错误时退出码为 1；`--strict` 时有警告也算失败 |
-| `hj plan <目录>` | 由 `plan.yaml` 排出分镜计划 `storyboard.md` |
-| `hj approve <目录> script\|plan\|keyframes --by "<用户原话>"` | 记录用户确认 |
+| `hj plan <目录>` | 由 `plan.yaml` 排出分镜计划 `storyboard.md` 和审片页 `out/review/plan.png`、`plan.html`（结构草图） |
+| `hj layouts [名字]` | 版式：现成的分区方案 |
+| `hj approve <目录> script\|plan\|look\|keyframes --by "<用户原话>"` | 记录用户确认。后三道要求这一版的审片页已经生成，且原话里带着图上的四位确认码 |
+| `hj look <目录>` | 全景定稿的审片页 `out/review/look.png`、`look.html`：每块板讲完时的全景和眯眼图（需先确认计划） |
 | `hj scaffold <目录> [--force]` | 照计划生成场景骨架。已有的场景文件不动，`--force` 覆盖 |
 | `hj layout <目录> [--scene 板]` | 布局线框：每个元素最后落在哪儿（坐标表、占用图、线框 PNG）。不需要确认，随时跑 |
 | `hj stills <目录> --draft [--scene 板] [--guides]` | 草稿关键帧：半分辨率、带水印，输出到 `out/draft/`。自查用，不需要确认。`--guides` 画出画板边界。场景有错误时不出图，目录里留着的是旧图 |
-| `hj stills <目录> [--scene 板] [--at 秒数或口播片段]` | 正式关键帧（需先确认计划） |
-| `hj render <目录> [--scene 板 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染（需先确认关键帧）。`--draft` 为半分辨率、15 帧 |
+| `hj stills <目录> [--scene 板] [--at 秒数或口播片段]` | 正式关键帧和审片页 `out/review/keyframes.png`、`keyframes.html`（需先确认计划和全景定稿）。`--scene`、`--at` 只出图，不更新审片页 |
+| `hj render <目录> [--scene 板 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染（需先确认全景定稿和关键帧）。`--draft` 为半分辨率、15 帧 |
 | `hj cover <目录> [--draft] [--out 文件]` | 封面图 `out/cover.png`。标题写在 project.yaml 的 `cover` 里 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |
 | `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件]` | 素材 |
@@ -346,6 +352,7 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 | 警告：计划 | 角色没连成网；分区是孤岛；一块板不回头；板太碎；一段太长 |
 | 错误 | 锚点在口播里找不到；引用了不存在的元素；缺 `intent`；板书照抄口播 ≥7 字；元素整个在画板外；批注/标记比它的目标先出现（或目标从没画出来） |
 | 警告：摆放 | 标记（圈、框、叉）压到了目标以外的东西；字被线穿过；被引擎挪了很远（超过 80px）；一排东西里被单独挪走一个；贴着画板边缘；东西摆在小人手的位置上而不是 `carry`；元素重叠（引擎没能自动挪开时）；画面太空；板面有一整条横带是空的；字号太小 |
+| 警告：构图（带计划的项目） | 主角不是最大的、被东西围住、讲完时不在板上；字号超过五种；两行字差一点对齐；一行字周围没有任何东西；左右轻重失衡 |
 | 警告：镜头 | 近景里大半是空的或东西偏在一边；近景里正在画的东西被画面边切掉；推近却几乎没放大；一块板全程一个景别；结尾没回全景 |
 | 警告：节奏 | 画得太赶（超过自然速度 2.5 倍）；一拍里赶着画一大群；一拍的动作拖过了下一拍；画面静止超过 4.2 秒；新板面空着超过 1.5 秒才落第一笔；连续 11 秒只有晃动、换姿势这类小动作；刚画完就被擦掉；小人走到一半原地消失；最后一个动作收在配音结束之后 |
 | 警告：内容 | 纯文字场景；信息密度偏低（讲得久、东西少；一模一样的东西重复画只算一组）；板书太多；一块板上红字超过四处；弹出/淡入用得太多；卡点落在时间不可靠的字上；锚点有歧义 |
