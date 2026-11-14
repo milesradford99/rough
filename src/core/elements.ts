@@ -453,19 +453,42 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     if (targets.some((t: any) => !t.el)) throw new SrcError(where, 'mark 的 target 要写元素 id');
     // 叉、划线、框、高亮只盖本体，标签留在外面读得清；圈和下划线连标签一起
     const bodyOf = (e: El): Box => (e.body && ['cross', 'strike', 'box', 'highlight'].includes(src.mark) ? { x: e.box.x + e.body.x, y: e.box.y + e.body.y, w: e.body.w, h: e.body.h } : e.box);
-    const tb = unionBox(targets.map((t: any) => bodyOf(t.el!))), pad = src.pad ?? 14;
-    const b = { x: tb.x - pad, y: tb.y - pad, w: tb.w + pad * 2, h: tb.h + pad * 2 }, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    const tb = unionBox(targets.map((t: any) => bodyOf(t.el!)));
     const ms: Style = { ...st, color: color(src.color, THEME.colors.red), w: src.pen ?? THEME.pen * 1.15 };
     const m = src.mark;
-    if (m === 'circle') el.strokes = R.ellipse(cx, cy, b.w + Math.max(44, b.h * 0.5), b.h * 1.12 + 14, { ...ms, rough: 1.6, double: true });
-    else if (m === 'box') el.strokes = R.rect(b.x, b.y, b.w, b.h, { ...ms, rough: 1.3 });
-    else if (m === 'underline') el.strokes = [...R.line(b.x, b.y + b.h + 2, b.x + b.w, b.y + b.h + 2, ms), ...R.line(b.x + b.w * 0.98, b.y + b.h + 14, b.x + b.w * 0.08, b.y + b.h + 14, { ...ms, seed: seed + 5 })];
-    else if (m === 'strike') el.strokes = R.line(b.x, cy + 2, b.x + b.w, cy - 2, { ...ms, w: ms.w * 1.2 });
-    else if (m === 'cross') el.strokes = [...R.line(b.x, b.y, b.x + b.w, b.y + b.h, { ...ms, w: ms.w * 1.4 }), ...R.line(b.x + b.w, b.y, b.x, b.y + b.h, { ...ms, w: ms.w * 1.4, seed: seed + 5 })];
-    else if (m === 'highlight') { const pts = [b.x + 4, cy + 3, b.x + b.w - 4, cy - 3]; el.strokes = [{ kind: 'line', pts, w: tb.h * 0.82, color: color(src.color, THEME.colors.yellow), len: polyLen(pts), under: true, alpha: 0.38 }]; }
-    else if (m === 'check') el.strokes = R.poly([[cx - b.w * 0.3, cy], [cx - b.w * 0.05, cy + b.h * 0.3], [cx + b.w * 0.4, cy - b.h * 0.4]], false, { ...ms, color: color(src.color, THEME.colors.green), w: ms.w * 1.5, rough: 0.6 });
-    else if (m === 'burst') { const n = 10; for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 - Math.PI / 2, rx = b.w / 2 + 14, ry = b.h / 2 + 14, l = 30 + (i % 2) * 16; el.strokes.push(...R.line(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, cx + Math.cos(a) * (rx + l), cy + Math.sin(a) * (ry + l), { ...ms, seed: seed + i, rough: 0.5 })); } }
-    else throw new SrcError(where, `没有标记 "${m}"。可用：circle box underline strike cross highlight check burst`);
+    // 标记是贴着目标画的，挪不走；旁边有别的东西时就收紧一点（圈小一圈、框贴近、下划线只留一道），不压到邻居
+    const tids = new Set<string>(targets.map((t: any) => t.el!.id)), me = ctx.life?.get(id);
+    const neighbours: Box[] = [];
+    if (ctx.life && src.overlap !== true) for (const o of ctx.els.values()) {
+      if (tids.has(o.id) || NON_SOLID.has(o.kind) || o.src?.overlap === true) continue;
+      if ([...tids].some(t => o.over.has(t) || ctx.els.get(t)!.over.has(o.id))) continue;                  // 本来就叠在目标上（气泡和里面的字）
+      if (o.solid.x <= tb.x + 2 && o.solid.y <= tb.y + 2 && o.solid.x + o.solid.w >= tb.x + tb.w - 2 && o.solid.y + o.solid.h >= tb.y + tb.h - 2) continue; // 目标在它里面
+      const lf = ctx.life.get(o.id);
+      if (me && lf && Math.max(me[0], lf[0]) >= Math.min(me[1], lf[1])) continue;                           // 不同时在板上
+      neighbours.push(o.solid);
+    }
+    const textTarget = targets.every((t: any) => ['text', 'note'].includes(t.el!.kind));
+    // 叉和划线跟目标同色就看不出划了什么：换成墨色
+    if ((m === 'cross' || m === 'strike') && targets.every((t: any) => color(t.el!.src?.color) === ms.color)) ms.color = ms.color === THEME.ink ? THEME.colors.red : THEME.ink;
+    const make = (k: number): Stroke[] => {
+      const pad = Math.max(3, (src.pad ?? 14) * k);
+      const b = { x: tb.x - pad, y: tb.y - pad, w: tb.w + pad * 2, h: tb.h + pad * 2 }, cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      if (m === 'circle') return R.ellipse(cx, cy, b.w + Math.max(44, b.h * 0.5) * k, b.h * (1 + 0.12 * k) + 14 * k, { ...ms, rough: 1.6 * (0.5 + k / 2), double: true });
+      if (m === 'box') return R.rect(b.x, b.y, b.w, b.h, { ...ms, rough: 1.3 * (0.5 + k / 2) });
+      if (m === 'underline') return [...R.line(b.x, b.y + b.h + 2, b.x + b.w, b.y + b.h + 2, ms), ...(k < 0.5 ? [] : R.line(b.x + b.w * 0.98, b.y + b.h + 14, b.x + b.w * 0.08, b.y + b.h + 14, { ...ms, seed: seed + 5 }))];
+      // 压在字上的叉和划线画细一点、略透：划掉了，但划掉的是什么还读得出
+      if (m === 'strike') return R.line(b.x, cy + 2, b.x + b.w, cy - 2, { ...ms, w: ms.w * (textTarget ? 0.95 : 1.2) }).map(q => (textTarget && q.kind === 'line' ? { ...q, alpha: 0.82 } : q));
+      if (m === 'cross') return [...R.line(b.x, b.y, b.x + b.w, b.y + b.h, { ...ms, w: ms.w * (textTarget ? 0.95 : 1.4) }), ...R.line(b.x + b.w, b.y, b.x, b.y + b.h, { ...ms, w: ms.w * (textTarget ? 0.95 : 1.4), seed: seed + 5 })].map(q => (textTarget && q.kind === 'line' ? { ...q, alpha: 0.82 } : q));
+      if (m === 'highlight') { const pts = [b.x + 4, cy + 3, b.x + b.w - 4, cy - 3]; return [{ kind: 'line', pts, w: tb.h * 0.82, color: color(src.color, THEME.colors.yellow), len: polyLen(pts), under: true, alpha: 0.38 }]; }
+      if (m === 'check') return R.poly([[cx - b.w * 0.3, cy], [cx - b.w * 0.05, cy + b.h * 0.3], [cx + b.w * 0.4, cy - b.h * 0.4]], false, { ...ms, color: color(src.color, THEME.colors.green), w: ms.w * 1.5, rough: 0.6 });
+      if (m === 'burst') { const out: Stroke[] = [], n = 10; for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 - Math.PI / 2, rx = b.w / 2 + 14 * k, ry = b.h / 2 + 14 * k, l = (30 + (i % 2) * 16) * (0.4 + 0.6 * k); out.push(...R.line(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, cx + Math.cos(a) * (rx + l), cy + Math.sin(a) * (ry + l), { ...ms, seed: seed + i, rough: 0.5 })); } return out; }
+      return [];
+    };
+    el.strokes = make(1);
+    if (neighbours.length && ['circle', 'box', 'underline', 'burst', 'cross'].includes(m)) {
+      for (const k of [1, 0.7, 0.45, 0.2, 0]) { el.strokes = make(k); if (!hits(boxOf(el.strokes), neighbours)) break; }
+    }
+    if (!el.strokes.length) throw new SrcError(where, `没有标记 "${m}"。可用：circle box underline strike cross highlight check burst`);
     placed = true;
   } else if (kind === 'chart') {
     const csrc = { ...src };

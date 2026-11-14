@@ -612,3 +612,19 @@ test('握笔的手跟着笔尖；线的轻重跟着大小；小人能按自己�
   const cv = createCanvas(c.fmt.W / 2, c.fmt.H / 2);
   drawFrame(cv.getContext('2d'), c, mid, { createCanvas, Path2D }, { scale: 0.5, pen: 'hand' });
 });
+
+test('标记旁边有东西时自动收紧；压在字上的叉不和字同色', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先写两个词。再圈一个。最后划掉一个。')));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const scene = (gap: number) => `from: "先写"\nintent: 圈和叉\nframe: false\nelements:\n  a: { text: "光", size: 70, at: [300, 300] }\n  b: { text: "霜", size: 70, at: [${300 + gap}, 300] }\n  c: { text: "错的", size: 70, color: red, at: [300, 700] }\n  ring: { mark: circle, target: a }\n  x: { mark: cross, target: c }\nbeats:\n  - { at: "先写", intent: 写, do: [{ draw: [a, b, c] }] }\n  - { at: "再圈", intent: 圈, do: [{ draw: ring }] }\n  - { at: "最后划掉", intent: 叉, do: [{ draw: x }] }\n`;
+  const build = (gap: number) => { writeFileSync(join(d, 'scenes/01.yaml'), scene(gap)); return compile(d); };
+  const far = build(400), near = build(95);
+  const el = (c: any, id: string) => c.tls.find((t: any) => t.el.id === id)!.el;
+  assert.ok(el(near, 'ring').box.w < el(far, 'ring').box.w - 15, '邻居挨得近，圈收小');
+  const rb = el(near, 'ring').box, bb = el(near, 'b').box;
+  assert.ok(rb.x + rb.w <= bb.x + 8, '收小之后不压到旁边的字');
+  assert.doesNotMatch(lint(near).map(i => i.msg).join(), /画下去会压到/);
+  assert.notEqual(el(far, 'x').strokes[0].color, el(far, 'c').strokes[0].color, '红字上的叉不是红的');
+  rmSync(d, { recursive: true });
+});
