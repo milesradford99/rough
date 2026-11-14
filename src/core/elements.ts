@@ -1,9 +1,9 @@
 // 元素：把分镜里“画什么、放哪儿”的声明变成摆好位置的笔画。
 import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { R, type Stroke, type Style, type Pt, type Box, boxOf, unionBox, translateStrokes, cloneStrokes, hash, polyLen } from './strokes';
+import { R, type Stroke, type Style, type Pt, type Box, boxOf, unionBox, translateStrokes, cloneStrokes, hash, polyLen, imageSize } from './strokes';
 import { textStrokes } from './text';
 import { iconStrokes, iconExists, scalePath } from './icons';
 import { figureStrokes, POSES, FACES, ACCESSORIES, type Pose, type FigureSpec } from './figure';
@@ -31,12 +31,12 @@ export interface El {
   nudged?: Pt;
 }
 
-export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
+export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
 const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap', 'shade', '__rigid', '__seed'];
 const FIELDS: Record<string, string[]> = {
-  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], doodle: ['vars'], parts: ['box', 'anchors'],
+  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame'], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
   axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'],
@@ -301,6 +301,15 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
         el.anchors[an] = [(pt as number[])[0] * k, (pt as number[])[1] * k];
       }
     }
+  } else if (kind === 'image') {
+    // 位图：截图、照片、logo。像贴在板上的一张照片，外面手绘一圈框
+    const file = resolve(ctx.projectDir ?? '.', String(src.image));
+    if (!existsSync(file)) throw new SrcError(where, `找不到图片 ${src.image}（路径相对项目目录，如 images/chart.png）`);
+    const dim = imageSize(readFileSync(file));
+    if (!dim || !dim.w || !dim.h) throw new SrcError(where, `读不出 ${src.image} 的尺寸。支持 PNG、JPEG、WebP、GIF`);
+    const w = src.w ?? src.size ?? 360, h = src.h ?? (w * dim.h) / dim.w;
+    el.strokes = [{ kind: 'image', file, tx: 0, ty: 0, color: '', len: (w + h) * 0.5, box: { x: 0, y: 0, w, h }, under: true }];
+    if (src.frame !== false) el.strokes.push(...R.rect(0, 0, w, h, { ...st, fill: undefined, shade: false }));
   } else if (kind === 'shape') {
     const w = src.w ?? src.size ?? 240, h = src.h ?? src.size ?? 160, sst = { ...st, shade };
     if (src.shape === 'rect') el.strokes = R.rect(0, 0, w, h, sst);

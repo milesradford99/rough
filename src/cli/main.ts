@@ -3,11 +3,11 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readd
 import { join, resolve, basename } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createCanvas, Path2D } from '@napi-rs/canvas';
+import { createCanvas, Path2D, loadImage } from '@napi-rs/canvas';
 import YAML from 'yaml';
 import { compile, type Compiled, type CScene } from '../core/compile';
 import { lint, printIssues, planMarkdown } from '../core/lint';
-import { drawFrame, drawStrokes, type Env } from '../core/render';
+import { drawFrame, drawStrokes, drawStroke, type Env } from '../core/render';
 import { writeSfx } from '../core/sfx';
 import { loadAlignment, fakeAlignment, resolveAnchor } from '../core/alignment';
 import { searchIcons } from '../core/icons';
@@ -17,7 +17,30 @@ import { textStrokes } from '../core/text';
 import { PATTERNS } from '../core/patterns';
 import { THEME, FORMATS } from '../core/theme';
 
-const env: Env = { createCanvas, Path2D };
+const images = new Map<string, any>();
+const env: Env = { createCanvas, Path2D, image: f => images.get(f) };
+/** 位图要先解码好：画面是时间的纯函数，画的时候不能等 */
+async function preload(c: Compiled) { for (const tl of c.tls) for (const s of tl.el.strokes) if (s.kind === 'image' && !images.has(s.file)) images.set(s.file, await loadImage(readFileSync(s.file))); }
+
+/** 把配音、落笔音效、背景音乐混成一路。返回 ffmpeg 的 filter_complex 和要 map 的音轨 */
+export function audioGraph(o: { voiceIn: number; sfxIn: number; musicIn: number; dur: number; volume: number; duck: boolean }): { filter: string; map: string } {
+  const parts: string[] = [], mix: string[] = [];
+  let voice = o.voiceIn > 0 ? `[${o.voiceIn}:a]` : '';
+  if (o.musicIn > 0) {
+    const fade = Math.min(2, o.dur / 4);
+    parts.push(`[${o.musicIn}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${o.volume},afade=t=in:d=${Math.min(1.2, fade).toFixed(2)},afade=t=out:st=${Math.max(0, o.dur - fade).toFixed(2)}:d=${fade.toFixed(2)}[bg]`);
+    if (voice && o.duck) {
+      parts.push(`${voice}asplit=2[vo][key]`, `[bg][key]sidechaincompress=threshold=0.02:ratio=6:attack=40:release=600[bgd]`);
+      voice = '[vo]'; mix.push('[bgd]');
+    } else mix.push('[bg]');
+  }
+  if (voice) mix.unshift(voice);
+  if (o.sfxIn > 0) mix.push(`[${o.sfxIn}:a]`);
+  if (!mix.length) return { filter: '', map: '' };
+  if (mix.length === 1 && !parts.length) return { filter: '', map: mix[0].slice(1, -1) };
+  parts.push(`${mix.join('')}amix=inputs=${mix.length}:normalize=0:duration=longest[a]`);
+  return { filter: parts.join(';'), map: '[a]' };
+}
 process.stdout.on('error', () => process.exit(0)); // 输出被 head 之类截断时安静退出
 const argv = process.argv.slice(2);
 const cmd = argv[0];
@@ -249,7 +272,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   async stills() {
     const dir = args[0] ?? die('用法：hj stills <项目目录> [--draft] [--scene 场景] [--at 秒数或口播片段] [--guides]');
-    const c = load(dir);
+    const c = load(dir); await preload(c);
     // --draft：给写分镜的人自己看的草稿。半分辨率、打水印、单独存放，不需要确认，也不能当作交付
     const draft = !!flags.draft, sc0 = draft ? 0.5 : 1;
     if (!draft) gate(c, 'plan');
@@ -309,7 +332,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   async render() {
     const dir = args[0] ?? die('用法：hj render <项目目录> [--scene 场景 | --from 秒 --to 秒] [--draft] [--out 文件]');
-    const c = load(dir);
+    const c = load(dir); await preload(c);
     gate(c, 'plan'); gate(c, 'keyframes');
     const only = sceneArg(c);
     const from = only ? Math.max(0, only.t0 - 0.6) : +(flags.from ?? 0), to = only ? only.t1 : +(flags.to ?? c.duration);
@@ -319,13 +342,22 @@ const commands: Record<string, () => Promise<void> | void> = {
     const { cv, ctx } = canvasFor(c, scale);
     const inputs: string[] = ['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${cv.width}x${cv.height}`, '-r', String(fps), '-i', '-'];
     const audio = c.meta.audio ? join(dir, c.meta.audio) : '';
-    const amix: string[] = [];
-    if (audio && existsSync(audio)) { inputs.push('-ss', String(from), '-t', String(to - from), '-i', audio); amix.push(`[${amix.length + 1}:a]`); }
-    else console.log('  （没有配音文件，成片只有落笔音效）');
-    if (c.meta.sfx !== false) { const sfx = join(outDir, 'sfx.wav'); const r = writeSfx(c, sfx); console.log(`  音效：${r.mode === 'sparse' ? '稀疏' : '密集'}模式，全片 ${r.count} 声（平均每分钟 ${((r.count / c.duration) * 60).toFixed(0)} 声）`); inputs.push('-ss', String(from), '-t', String(to - from), '-i', sfx); amix.push(`[${amix.length + 1}:a]`); }
+    const hasVoice = !!audio && existsSync(audio), dur = to - from;
+    let n = 0, voiceIn = -1, sfxIn = -1, musicIn = -1;
+    if (hasVoice) { inputs.push('-ss', String(from), '-t', String(dur), '-i', audio); voiceIn = ++n; }
+    else console.log('  （没有配音文件，成片只有落笔音效' + (c.meta.music ? '和背景音乐' : '') + '）');
+    if (c.meta.sfx !== false) { const sfx = join(outDir, 'sfx.wav'); const r = writeSfx(c, sfx); console.log(`  音效：${r.mode === 'sparse' ? '稀疏' : '密集'}模式，全片 ${r.count} 声（平均每分钟 ${((r.count / c.duration) * 60).toFixed(0)} 声）`); inputs.push('-ss', String(from), '-t', String(dur), '-i', sfx); sfxIn = ++n; }
+    // 背景音乐：循环铺满全片，淡入淡出；有配音时人一开口音乐自动压低（侧链压缩），停顿时再浮上来
+    if (c.meta.music) {
+      const music = join(dir, String(c.meta.music));
+      if (!existsSync(music)) die(`project.yaml 里的 music 指向 ${c.meta.music}，但文件不存在`);
+      inputs.push('-stream_loop', '-1', '-t', String(dur), '-i', music); musicIn = ++n;
+      console.log(`  背景音乐：${c.meta.music}（音量 ${c.meta.musicVolume ?? 0.16}${hasVoice && c.meta.musicDuck !== false ? '，说话时自动压低' : ''}）`);
+    }
     const ff = ['-y', '-loglevel', 'error', ...inputs];
-    if (amix.length > 1) ff.push('-filter_complex', `${amix.join('')}amix=inputs=${amix.length}:normalize=0[a]`, '-map', '0:v', '-map', '[a]');
-    else if (amix.length === 1) ff.push('-map', '0:v', '-map', '1:a');
+    const g = audioGraph({ voiceIn, sfxIn, musicIn, dur, volume: +(c.meta.musicVolume ?? 0.16), duck: c.meta.musicDuck !== false });
+    if (g.filter) ff.push('-filter_complex', g.filter);
+    if (g.map) ff.push('-map', '0:v', '-map', g.map);
     ff.push('-c:v', 'libx264', '-preset', draft ? 'veryfast' : 'medium', '-crf', draft ? '26' : '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', name);
     const p = spawn('ffmpeg', ff, { stdio: ['pipe', 'inherit', 'inherit'] });
     p.on('error', () => die('没有找到 ffmpeg，请先安装'));
@@ -339,6 +371,60 @@ const commands: Record<string, () => Promise<void> | void> = {
     p.stdin.end();
     if ((await done) !== 0) die('ffmpeg 合成失败');
     console.log(`✓ ${name}  （${fmtT(from)}–${fmtT(to)}，${total} 帧，${((Date.now() - started) / 1000).toFixed(0)}s）`);
+  },
+
+  // 封面：整块板的全景缩到下半张，上面是手写的大标题。平台的封面图 / 视频的第一眼
+  async cover() {
+    const dir = args[0] ?? die('用法：hj cover <项目目录> [--draft] [--out 文件]\n  标题写在 project.yaml：cover: { title: "两行以内\\n第二行", accent: 2, sub: "一句小字", at: "口播片段或秒数（默认片尾全景）" }');
+    const c = load(dir); await preload(c);
+    const draft = !!flags.draft, k = draft ? 0.5 : 1;
+    if (!draft) gate(c, 'plan');
+    const cfg = typeof c.meta.cover === 'object' && c.meta.cover ? c.meta.cover : {};
+    const title = String(cfg.title ?? c.meta.title ?? '').trim();
+    if (!title) die('封面需要标题：在 project.yaml 里写 cover: { title: "…" }');
+    const lines = title.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length > 3 || lines.some(l => [...l].length > 9)) console.log('  ! 封面标题最好两行以内、每行不超过 8 个字：手机信息流里封面只有拇指大');
+    const { W, H, board } = c.fmt, portrait = H > W;
+    let t = c.duration - 0.05;
+    if (cfg.at != null) { if (typeof cfg.at === 'number') t = cfg.at; else { try { t = resolveAnchor(c.al, String(cfg.at)).time + 3; } catch { die(`cover.at 写的 "${cfg.at}" 在口播里找不到`); } } }
+    // 先画出那一刻的画面（不带字幕），裁出画板
+    const src = createCanvas(W, H), sx = src.getContext('2d');
+    drawFrame(sx, c, Math.min(Math.max(0, t), c.duration - 0.01), env, { scale: 1, subtitles: false, bare: true });
+    const cv = createCanvas(Math.round(W * k), Math.round(H * k)), x = cv.getContext('2d');
+    x.setTransform(k, 0, 0, k, 0, 0);
+    drawFrame(x, { ...c, tls: [], subs: [] } as Compiled, 0, env, { scale: k, subtitles: false }); // 一张空白的纸
+    x.setTransform(k, 0, 0, k, 0, 0);
+    // 标题区：竖屏在上方三分之一，横屏在左边四成
+    const T = portrait ? { x: 70, y: 150, w: W - 140, h: H * 0.3 } : { x: 90, y: 90, w: W * 0.4, h: H - 180 };
+    const P = portrait ? { x: 50, y: T.y + T.h + 30, w: W - 100, h: H - (T.y + T.h + 30) - 150 } : { x: T.x + T.w + 40, y: 60, w: W - (T.x + T.w + 40) - 60, h: H - 120 };
+    const ps = Math.min(P.w / board.w, P.h / board.h);
+    x.drawImage(src, board.x, board.y, board.w, board.h, P.x + (P.w - board.w * ps) / 2, P.y + (P.h - board.h * ps) / 2, board.w * ps, board.h * ps);
+    x.globalCompositeOperation = 'source-over';
+    // 标题：字尽量大，撑满标题区的宽
+    const sub = cfg.sub ? String(cfg.sub) : '', gap = 0.2;
+    let size = portrait ? 210 : 170;
+    const fit = () => { const ws = lines.map(l => textStrokes(l, { size, color: THEME.ink }).w); return Math.max(...ws) <= T.w && lines.length * size * (1 + gap) + (sub ? size * 0.55 : 0) <= T.h; };
+    while (size > 60 && !fit()) size -= 6;
+    const accent = cfg.accent == null ? lines.length : +cfg.accent; // 第几行用强调色（从 1 数），默认最后一行
+    const total = lines.length * size * (1 + gap) + (sub ? size * 0.55 : 0);
+    let y = T.y + (T.h - total) / 2;
+    x.lineCap = 'round'; x.lineJoin = 'round';
+    lines.forEach((l, i) => {
+      const hot = i + 1 === accent, r = textStrokes(l, { size, color: hot ? THEME.colors.red : THEME.ink }), lx = portrait ? T.x + (T.w - r.w) / 2 : T.x;
+      if (hot) { // 强调行底下一道黄色马克笔
+        x.save(); x.globalCompositeOperation = 'multiply'; x.globalAlpha = 0.55; x.strokeStyle = THEME.colors.yellow; x.lineWidth = size * 0.42; x.lineCap = 'butt';
+        x.beginPath(); x.moveTo(lx - size * 0.12, y + size * 0.74); x.quadraticCurveTo(lx + r.w / 2, y + size * 0.7, lx + r.w + size * 0.12, y + size * 0.76); x.stroke(); x.restore();
+      }
+      x.save(); x.translate(lx, y);
+      for (const st of r.strokes) for (const dx of [0, 1.5]) { x.save(); x.translate(dx, 0); drawStroke(x, env, st, 1, 1); x.restore(); } // 描两遍，字更重
+      x.restore(); x.globalAlpha = 1;
+      y += size * (1 + gap);
+    });
+    if (sub) { const r = textStrokes(sub, { size: size * 0.36, color: THEME.colors.gray }); x.save(); x.translate(portrait ? T.x + (T.w - r.w) / 2 : T.x, y + size * 0.05); drawStrokes(x, env, r.strokes); x.restore(); }
+    if (draft) { const stamp = textStrokes('草稿 · 未确认', { size: 54, color: '#d9433a' }); x.save(); x.globalAlpha = 0.6; x.translate(W / 2 - stamp.w / 2, H * 0.94); drawStrokes(x, env, stamp.strokes, 0.6); x.restore(); }
+    const out = String(flags.out ?? join(dir, 'out', draft ? 'draft' : '', 'cover.png')); mkdirSync(join(out, '..'), { recursive: true });
+    writeFileSync(out, await cv.encode('png'));
+    console.log(`✓ 封面：${out}${draft ? '（草稿，带水印；正式封面需先确认文字分镜）' : ''}`);
   },
 
   assets() {
@@ -493,6 +579,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj stills <目录> --draft            草稿关键帧：带水印、半分辨率，写分镜时自查用（不需要确认）
   hj stills <目录> [--scene x]        出关键帧（需先确认文字分镜）→ 交用户确认
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
+  hj cover <目录> [--draft]                封面图：全景 + 手写大标题（标题写在 project.yaml 的 cover 里）
   hj patterns [名字]                  表现手法：自带构图和动作编排的场景骨架
   hj assets doodles | figure | icons <关键词> | colors | sheet
   hj import excalidraw|svg|quickdraw <文件>   把外部手绘素材转成手绘件

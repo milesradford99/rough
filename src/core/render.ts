@@ -5,8 +5,8 @@ import { lerpPose } from './figure';
 import { textStrokes } from './text';
 import { THEME } from './theme';
 
-export interface Env { createCanvas(w: number, h: number): any; Path2D: any }
-export interface FrameOpts { scale?: number; subtitles?: boolean; pen?: boolean; guides?: boolean }
+export interface Env { createCanvas(w: number, h: number): any; Path2D: any; /** 读一张位图（image 元素用） */ image?(file: string): any }
+export interface FrameOpts { scale?: number; subtitles?: boolean; pen?: boolean; guides?: boolean; /** 只画板上的东西，不画纸面、暗角和上下的遮罩（透明底，给封面等二次合成用） */ bare?: boolean }
 
 const ease = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 const clamp01 = (k: number) => (k < 0 ? 0 : k > 1 ? 1 : k);
@@ -83,6 +83,21 @@ export function drawStroke(ctx: any, env: Env, s: Stroke, frac: number, alpha: n
     ctx.fillStyle = s.color; ctx.beginPath(); ctx.moveTo(s.pts[0], s.pts[1]);
     for (let i = 2; i < s.pts.length; i += 2) ctx.lineTo(s.pts[i], s.pts[i + 1]);
     ctx.closePath(); ctx.fill(); ctx.restore();
+  } else if (s.kind === 'image') {
+    // 位图：先垫一张白底（照片的白边），沿斜向揭开
+    const img = env.image?.(s.file); if (!img) return;
+    ctx.save(); ctx.globalAlpha = alpha;
+    if (frac < 1) {
+      const b = s.box, lo = b.x * 0.83 + b.y * 0.55, hi = (b.x + b.w) * 0.83 + (b.y + b.h) * 0.55, edge = lo + (hi - lo) * frac, R = 1e5;
+      ctx.beginPath();
+      ctx.moveTo(edge * 0.83 - 0.55 * R, edge * 0.55 + 0.83 * R); ctx.lineTo(edge * 0.83 + 0.55 * R, edge * 0.55 - 0.83 * R);
+      ctx.lineTo(edge * 0.83 + 0.55 * R - 0.83 * R, edge * 0.55 - 0.83 * R - 0.55 * R); ctx.lineTo(edge * 0.83 - 0.55 * R - 0.83 * R, edge * 0.55 + 0.83 * R - 0.55 * R);
+      ctx.closePath(); ctx.clip();
+    }
+    ctx.fillStyle = 'rgba(60,45,25,0.16)'; ctx.fillRect(s.box.x + 5, s.box.y + 7, s.box.w, s.box.h);
+    ctx.fillStyle = '#fff'; ctx.fillRect(s.box.x, s.box.y, s.box.w, s.box.h);
+    ctx.drawImage(img, s.box.x, s.box.y, s.box.w, s.box.h);
+    ctx.restore();
   } else {
     ctx.globalAlpha = alpha; ctx.save();
     if (frac < 1) {
@@ -261,7 +276,8 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
   // 纸面铺在世界坐标里：镜头移动时纸纹跟着画一起走
   const tex = paperTexture(env, W, H);
   world(ctx);
-  for (let i = Math.floor(vx0 / W); i * W < vx1; i++) for (let j = Math.floor(vy0 / H); j * H < vy1; j++) {
+  if (o.bare) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W * k, H * k); ctx.restore(); }
+  else for (let i = Math.floor(vx0 / W); i * W < vx1; i++) for (let j = Math.floor(vy0 / H); j * H < vy1; j++) {
     // 相邻两块互为镜像，接缝处纹理连续
     ctx.save(); ctx.translate(i * W + (i & 1 ? W : 0), j * H + (j & 1 ? H : 0)); ctx.scale(i & 1 ? -1 : 1, j & 1 ? -1 : 1);
     ctx.drawImage(tex, -0.5, -0.5, W + 1, H + 1); ctx.restore();
@@ -299,7 +315,7 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
   }
   // 画板上下是平台界面和字幕的地方：近景时邻近的东西会漫进去，用纸面把它们柔和地收掉
   ctx.setTransform(k, 0, 0, k, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-  ctx.drawImage(veil(env, tex, W, H, board), 0, 0, W, H);
+  if (!o.bare) ctx.drawImage(veil(env, tex, W, H, board), 0, 0, W, H);
   // 笔尖（可选，极小）
   if (o.pen && pen) {
     const sc = c.scenes[pen.scene];
@@ -315,7 +331,7 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
   // 四角略暗，像拍下来的纸面
   const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.62);
   vg.addColorStop(0, 'rgba(60,45,25,0)'); vg.addColorStop(1, 'rgba(60,45,25,0.13)');
-  ctx.globalAlpha = 1; ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1; ctx.fillStyle = vg; if (!o.bare) ctx.fillRect(0, 0, W, H);
   if (o.subtitles !== false) {
     const line = c.subs.find(s => t >= s.start && t < s.end);
     if (line) {
