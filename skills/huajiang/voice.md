@@ -62,8 +62,8 @@ export VOLCENGINE_TTS_API_KEY=<API Key>
 
 ```bash
 hj voice --voices                            # 列出音色和各自的默认语速、音高
-hj voice <项目> --engine edge                # 默认音色：云希
-hj voice <项目> --engine edge --speaker zh-CN-YunjianNeural
+hj voice <项目> --engine edge                # 默认音色：云健
+hj voice <项目> --engine edge --speaker zh-CN-YunxiNeural
 ```
 
 免费，所以不需要用户确认稿子，失败会自动重试几次。它是微软的非官方接口，偶尔会 403 或超时，过一会儿再试。
@@ -72,8 +72,8 @@ hj voice <项目> --engine edge --speaker zh-CN-YunjianNeural
 
 | 音色 | 特点 | 默认语速 | 默认音高 | 原速实测 |
 |---|---|---|---|---|
-| `zh-CN-YunxiNeural` 云希（默认） | 男，年轻、口语感最好 | `+0%` | `-4Hz` | 4.25 字/秒 |
-| `zh-CN-YunjianNeural` 云健 | 男，厚实、起伏大；历史、财经、悬疑 | `+4%` | `-4Hz` | 4.07 |
+| `zh-CN-YunjianNeural` 云健（默认） | 男，厚实、起伏大 | `+4%` | `-4Hz` | 4.07 字/秒 |
+| `zh-CN-YunxiNeural` 云希 | 男，年轻、口语感最好 | `+0%` | `-4Hz` | 4.25 |
 | `zh-CN-XiaoxiaoNeural` 晓晓 | 女，清亮、吐字最稳 | `+4%` | `-2Hz` | 4.10 |
 | `zh-CN-XiaoyiNeural` 晓伊 | 女，低一点、温和 | `+0%` | `-2Hz` | 4.23 |
 | `en-US-BrianMultilingualNeural` | 男，多语言模型说中文，松弛的播客腔 | `+16%` | `-3Hz` | 3.59 |

@@ -149,14 +149,14 @@ export async function synthesize(o: TtsOptions): Promise<TtsResult> {
 export interface EdgeVoice { name: string; rate: string; pitch: string; note: string }
 /** 每个音色的默认语速：让成片落在每秒 4.1–4.3 个字（画得过来的速度）。原速实测：云希 4.25、晓伊 4.23、晓晓 4.10、云健 4.07、Brian 3.59、Andrew 3.20 字/秒 */
 export const EDGE_VOICES: Record<string, EdgeVoice> = {
-  'zh-CN-YunxiNeural': { name: '云希', rate: '+0%', pitch: '-4Hz', note: '男，年轻、口语感最好。默认' },
-  'zh-CN-YunjianNeural': { name: '云健', rate: '+4%', pitch: '-4Hz', note: '男，厚实、起伏大。历史、财经、悬疑' },
+  'zh-CN-YunxiNeural': { name: '云希', rate: '+0%', pitch: '-4Hz', note: '男，年轻、口语感最好' },
+  'zh-CN-YunjianNeural': { name: '云健', rate: '+4%', pitch: '-4Hz', note: '男，厚实、起伏大。默认' },
   'zh-CN-XiaoxiaoNeural': { name: '晓晓', rate: '+4%', pitch: '-2Hz', note: '女，清亮、吐字最稳。通用' },
   'zh-CN-XiaoyiNeural': { name: '晓伊', rate: '+0%', pitch: '-2Hz', note: '女，低一点、温和。慢节奏内容' },
   'en-US-BrianMultilingualNeural': { name: 'Brian（多语言，说中文）', rate: '+16%', pitch: '-3Hz', note: '男，松弛的播客腔，原速偏慢所以提速' },
   'en-US-AndrewMultilingualNeural': { name: 'Andrew（多语言，说中文）', rate: '+28%', pitch: '-3Hz', note: '男，胸腔共鸣重，原速很慢（3.2 字/秒）' },
 };
-export const DEFAULT_EDGE_VOICE = 'zh-CN-YunxiNeural';
+export const DEFAULT_EDGE_VOICE = 'zh-CN-YunjianNeural';
 
 const isCJK = (ch: string) => /[㐀-鿿]/.test(ch);
 /** edge-tts 的逐词时间 → 时间表的单位。纯汉字的词按字均分（一个词只有两三个字、零点几秒，均分的误差在几十毫秒内）；数字和英文保持整体并标成不可靠。标点从原文里补回来 */
