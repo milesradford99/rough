@@ -34,7 +34,7 @@ export interface El {
 export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'near', 'overlap', 'shade', '__rigid', '__seed'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', '__rigid', '__seed'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame'], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
@@ -254,7 +254,11 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
   const B = ctx.fmt.board;
   const seed = hash((src.__seed ?? ctx.scene) + '/' + id); // 沿用过来的元素用原场景的种子，抖动才一模一样
-  const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
+  // 线的轻重：weight 写 bold / light；不写时按东西的大小来——小东西线细、大东西线粗，像真人换着力道画
+  if (src.weight != null && !['bold', 'normal', 'light'].includes(src.weight)) throw new SrcError(where, 'weight 只能是 bold（加重）/ normal / light（轻）');
+  const wk = src.weight === 'bold' ? 1.35 : src.weight === 'light' ? 0.7 : 1;
+  const bySize = ['doodle', 'parts', 'icon'].includes(kind) && src.size && src.weight == null ? Math.min(1.25, Math.max(0.62, Math.pow(src.size / 190, 0.55))) : 1;
+  const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen * wk * bySize, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
   const shade = (src.shade ?? ctx.shade) !== false;
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
   let placed = false; // arrow/line/mark 直接画在场景坐标里
@@ -262,6 +266,9 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   if (kind === 'text') {
     const t = textStrokes(String(src.text), { size: src.size ?? THEME.textSize, color: st.color, align: src.align, lineGap: src.lineGap });
     el.strokes = t.strokes; el.text = String(src.text); el.missing = t.missing;
+    // 字的轻重：大字（标题、结论的数）自动加重一点，light 不加；bold 明确加重
+    const tsz = src.size ?? THEME.textSize, bold = src.weight === 'bold' ? tsz * 0.045 : src.weight == null && tsz >= 84 ? tsz * 0.028 : 0;
+    if (bold) for (const g of el.strokes) if (g.kind === 'fglyph' || g.kind === 'wipe') g.bold = bold;
   } else if (kind === 'figure') {
     const f = typeof src.figure === 'string' ? { pose: src.figure } : src.figure ?? {};
     const poseName = src.pose ?? f.pose ?? 'stand', face = src.face ?? f.face ?? 'happy', wear = src.wear ?? f.wear ?? [];
@@ -488,8 +495,10 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     else if ('at' in src) {
       const r = parseRef(ctx, src.at, where);
       const an = src.anchor ?? 'center';
-      const ax = /left/i.test(an) ? b.x : /right/i.test(an) ? b.x + b.w : b.x + b.w / 2;
-      const ay = /top/i.test(an) ? b.y : /bottom/i.test(an) ? b.y + b.h : b.y + b.h / 2;
+      // anchor 也可以是元素自己的锚点：小人的 hip（坐到凳子上）、feet、handR，手绘件自己声明的锚点
+      const own = !RESERVED_ANCHORS.includes(an) && el.anchors[an];
+      const ax = own ? own[0] : /left/i.test(an) ? b.x : /right/i.test(an) ? b.x + b.w : b.x + b.w / 2;
+      const ay = own ? own[1] : /top/i.test(an) ? b.y : /bottom/i.test(an) ? b.y + b.h : b.y + b.h / 2;
       tx = r.pt[0] - ax; ty = r.pt[1] - ay;
       if (r.el) { el.over.add(r.el.id); for (const o of r.el.over) el.over.add(o); } // 明确叠放在它上面
     } else {

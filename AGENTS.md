@@ -38,6 +38,7 @@ npx hj stills work/<项目名>                   # 每拍一张关键帧 + 每�
 npx hj approve work/<项目名> keyframes --by "<用户原话>"
 npx hj render work/<项目名> --draft           # 半分辨率草稿，快
 npx hj render work/<项目名>                   # 正式成片 out/video.mp4
+npx hj cover work/<项目名>                    # 封面 out/cover.png（标题写在 project.yaml 的 cover 里；--draft 可先自己看）
 ```
 
 `work/` 已被 git 忽略：用户的稿子和配音默认不进仓库。
@@ -98,6 +99,7 @@ beats:                            # 什么时候、怎么动、镜头看哪儿
 - 位置可以不写，引擎自动找空位。拿不准坐标时不写比乱写好。
 - 用表现手法时，构图、大小、动作顺序都是现成的。
 - 画的速度自动匹配语速。
+- 近景只框已经画出来和正要画的东西；画板上下的界面区、字幕区自动遮住；近景空了、切到东西了检查器会说。
 - 镜头会自己跟着笔走：推近正在画的东西、连线时拉回全景、结尾回全景。某一刻想要特别的景别就自己写 `camera: { focus: 分区或元素 }` / `camera: home`，那一拍按你写的来，其余时间引擎接着跟。
 - 长短、时间、比例用数轴（`axis`）和区间条（`span`），位置和长度由引擎算。
 - 翻页（切成很多块小板）、一块板从头到尾镜头不动、划了分区却空着、结尾没回全景，检查器都会指出来。
@@ -120,11 +122,13 @@ beats:                            # 什么时候、怎么动、镜头看哪儿
 
 ```bash
 npx hj patterns                    # 九种表现手法：自带构图和动作编排（先看这个）
-npx hj assets doodles              # 123 个手绘件，和小人同一画风（首选）；`peep-` 开头的是坐、蹲、站、半身的真人插画
+npx hj assets doodles              # 126 个手绘件，和小人同一画风（首选）；`peep-` 开头的是坐、蹲、站、半身的真人插画
 npx hj assets icons factory        # 5000+ 线条图标，英文关键词搜索（兜底）
 npx hj assets figure               # 小人的姿势、表情、配饰
 npx hj assets sheet --out sheet.png   # 把上面这些画成一张图，直接看长相
 ```
+
+必须给人看原物（一张真实的截图、一个 logo）时用 `image` 元素贴位图；背景音乐、握笔的手、封面标题都在 `project.yaml` 里设（`music`、`pen: hand`、`cover`，见 reference）。
 
 没有合适的素材时，在项目的 `doodles/` 目录里用基本图形自己画一个，或用 `hj import` 从外部素材库转一个进来（两种做法都见 reference），不要用文字顶替。
 

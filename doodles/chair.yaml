@@ -1,0 +1,11 @@
+desc: "椅子，靠背在左（sit-right 的小人用 anchor hip 坐到 seat 上）"
+box: [130, 220]
+anchors: { seat: [70, 112] }
+parts:
+  - line: [22, 10, 22, 212]
+  - rect: [22, 112, 96, 16]
+    fill: "orange"
+    fillAlpha: 0.5
+  - line: [112, 128, 112, 212]
+  - line: [22, 40, 40, 40]
+  - line: [22, 70, 40, 70]

@@ -7,9 +7,9 @@ export type Box = { x: number; y: number; w: number; h: number };
 
 export interface LineStroke { kind: 'line'; pts: number[]; w: number; color: string; len: number; under?: boolean; alpha?: number; cum?: number[]; /** 平头、等宽：马克笔涂色的宽笔道 */ flat?: boolean; wm?: Float32Array; /** 装饰笔画（阴影）：不算进元素的占位框 */ deco?: boolean }
 /** 汉字：整个字形 + 笔顺中线。笔沿中线走，走过的地方露出字形 */
-export interface GlyphStroke { kind: 'fglyph'; d: string; tx: number; ty: number; s: number; medians: number[][]; r: number; color: string; len: number; box: Box; mcum?: number[][] }
+export interface GlyphStroke { kind: 'fglyph'; d: string; tx: number; ty: number; s: number; medians: number[][]; r: number; color: string; len: number; box: Box; mcum?: number[][]; /** 加粗：在字形外再描一圈，单位是像素 */ bold?: number }
 /** 非汉字字形：整个字形轮廓，从左到右揭开 */
-export interface WipeStroke { kind: 'wipe'; d: string; tx: number; ty: number; s: number; color: string; len: number; box: Box }
+export interface WipeStroke { kind: 'wipe'; d: string; tx: number; ty: number; s: number; color: string; len: number; box: Box; bold?: number }
 /** 实心填充块：在自己的时间片里淡入 */
 export interface FillStroke { kind: 'fill'; pts: number[]; color: string; alpha: number; len: number; under: true }
 /** 位图（截图、照片、logo）：像一张贴到板上的照片，沿斜向揭开 */

@@ -6,7 +6,7 @@ import { textStrokes } from './text';
 import { THEME } from './theme';
 
 export interface Env { createCanvas(w: number, h: number): any; Path2D: any; /** 读一张位图（image 元素用） */ image?(file: string): any }
-export interface FrameOpts { scale?: number; subtitles?: boolean; pen?: boolean; guides?: boolean; /** 只画板上的东西，不画纸面、暗角和上下的遮罩（透明底，给封面等二次合成用） */ bare?: boolean }
+export interface FrameOpts { scale?: number; subtitles?: boolean; /** 笔：marker 只有一支马克笔，hand 是握着笔的手；true 等于 marker */ pen?: boolean | 'marker' | 'hand'; guides?: boolean; /** 只画板上的东西，不画纸面、暗角和上下的遮罩（透明底，给封面等二次合成用） */ bare?: boolean }
 
 const ease = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 const clamp01 = (k: number) => (k < 0 ? 0 : k > 1 ? 1 : k);
@@ -119,6 +119,7 @@ export function drawStroke(ctx: any, env: Env, s: Stroke, frac: number, alpha: n
     }
     ctx.translate(s.tx, s.ty); ctx.scale(s.s, s.s);
     ctx.fillStyle = s.color; ctx.fill(P(env, s.d));
+    if (s.bold) { ctx.strokeStyle = s.color; ctx.lineJoin = 'round'; ctx.lineWidth = s.bold / s.s; ctx.stroke(P(env, s.d)); }
     ctx.restore();
   }
 }
@@ -263,6 +264,102 @@ export function penAt(tl: TL, t: number): Pt | null {
   return null;
 }
 
+// ── 握笔的手 ──
+interface PenSeg { t0: number; t1: number; tl: TL; i: number }
+const penSegs = new WeakMap<object, PenSeg[]>();
+function segsOf(c: Compiled): PenSeg[] {
+  let segs = penSegs.get(c);
+  if (segs) return segs;
+  segs = [];
+  for (const tl of c.tls) {
+    if (!tl.sched || tl.drawT0 == null) continue;
+    for (let i = 0; i < tl.el.strokes.length; i++) {
+      const s = tl.el.strokes[i], a = tl.sched[2 * i], b = tl.sched[2 * i + 1];
+      if ((s as any).deco || !(b > a)) continue;
+      segs.push({ t0: a, t1: b, tl, i });
+    }
+  }
+  segs.sort((x, y) => x.t0 - y.t0);
+  penSegs.set(c, segs);
+  return segs;
+}
+/** 一笔画到 f 时笔尖在哪儿（元素坐标） */
+function tipOf(s: Stroke, f: number): Pt {
+  if (s.kind === 'line') return pointAt(s.pts, cumLen(s), f);
+  if (s.kind === 'fglyph') {
+    s.mcum ??= s.medians.map(m => cumLen({ pts: m }));
+    const total = s.mcum.reduce((n, c) => n + c[c.length - 1], 0);
+    let left = f * total;
+    for (let mi = 0; mi < s.medians.length; mi++) { const L = s.mcum[mi][s.mcum[mi].length - 1]; if (left <= L || mi === s.medians.length - 1) return pointAt(s.medians[mi], s.mcum[mi], L ? Math.min(1, left / L) : 0); left -= L; }
+  }
+  if (s.kind === 'wipe') return [s.box.x + s.box.w * f, s.box.y + s.box.h * (0.6 + 0.25 * Math.sin(f * 9))];
+  // 涂色、贴图：沿斜向来回扫
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  if (s.kind === 'fill') { for (let i = 0; i < s.pts.length; i += 2) { x0 = Math.min(x0, s.pts[i]); x1 = Math.max(x1, s.pts[i]); y0 = Math.min(y0, s.pts[i + 1]); y1 = Math.max(y1, s.pts[i + 1]); } }
+  else { x0 = s.box.x; y0 = s.box.y; x1 = s.box.x + s.box.w; y1 = s.box.y + s.box.h; }
+  const sw = Math.sin(f * Math.PI * Math.max(3, Math.round((x1 - x0 + y1 - y0) / 60))) * 0.5, d = Math.min(x1 - x0, y1 - y0) * 0.45;
+  return [x0 + (x1 - x0) * f + sw * d * 0.55, y0 + (y1 - y0) * f - sw * d * 0.83];
+}
+export interface HandPos { x: number; y: number; color: string; scene: number; down: boolean }
+/** 这一刻手（笔尖）在屏幕上的位置；不在画面里时返回 null */
+export function handAt(c: Compiled, t: number, cam: Cam): HandPos | null {
+  const segs = segsOf(c);
+  if (!segs.length) return null;
+  const { W, H, board } = c.fmt;
+  const screen = (g: PenSeg, f: number): [number, number] => {
+    const sc = c.scenes[g.tl.scene], p = tipOf(g.tl.el.strokes[g.i], f);
+    return [(sc.origin[0] + board.x + p[0] - cam.cx) * cam.zoom + W / 2, (sc.origin[1] + board.y + p[1] - cam.cy) * cam.zoom + H / 2];
+  };
+  const colorOf = (g: PenSeg) => (g.tl.el.strokes[g.i] as any).color || THEME.ink;
+  // 二分找到最后一个 t0 <= t 的
+  let lo = 0, hi = segs.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (segs[m].t0 <= t) lo = m + 1; else hi = m; }
+  let cur: PenSeg | null = null, prev: PenSeg | null = null;
+  for (let i = lo - 1; i >= 0 && i >= lo - 40; i--) { const g = segs[i]; if (t < g.t1) { cur = g; break; } if (!prev || g.t1 > prev.t1) prev = g; }
+  if (cur) { const k = (t - cur.t0) / (cur.t1 - cur.t0), p = screen(cur, k * 0.55 + k * k * (3 - 2 * k) * 0.45); return { x: p[0], y: p[1], color: colorOf(cur), scene: cur.tl.scene, down: true }; }
+  const next = segs[lo] ?? null, rest: [number, number] = [W * 0.92, H * 1.12];
+  const a = prev ? screen(prev, 1) : rest, b = next ? screen(next, 0) : rest;
+  const tp = prev ? prev.t1 : -Infinity, tn = next ? next.t0 : Infinity, gap = tn - tp, IN = 0.42, OUT = 0.5, lift = -14;
+  const mix = (p: [number, number], q: [number, number], k: number, col: string, scene: number): HandPos => ({ x: p[0] + (q[0] - p[0]) * k, y: p[1] + (q[1] - p[1]) * k + lift * Math.sin(Math.PI * k), color: col, scene, down: false });
+  if (prev && next && gap < IN + OUT + 0.5) return mix(a, b, ease((t - tp) / gap), colorOf(next), next.tl.scene); // 两笔挨得近：悬着滑过去
+  if (prev && t - tp < OUT) return mix(a, rest, ease((t - tp) / OUT), colorOf(prev), prev.tl.scene);
+  if (next && tn - t < IN) return mix(rest, b, ease(1 - (tn - t) / IN), colorOf(next), next.tl.scene);
+  return null;
+}
+function drawHand(ctx: any, hp: HandPos, hand: boolean, size: number) {
+  ctx.save();
+  ctx.translate(hp.x, hp.y); ctx.rotate(0.92); ctx.scale(size, size); // 笔杆朝右下
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  const ink = THEME.ink, skin = '#fdfaf3';
+  const rr = (x: number, y: number, w: number, h: number, r: number) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); };
+  const paint = (fill: string, lw = 5) => { ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = lw; ctx.stroke(); };
+  // 落在纸上的影子
+  ctx.save(); ctx.translate(10, 16); ctx.globalAlpha = 0.1; ctx.fillStyle = '#3c2d19';
+  rr(16, -15, 250, 30, 14); ctx.fill();
+  if (hand) { ctx.beginPath(); ctx.ellipse(150, 44, 74, 54, 0.25, 0, 6.2832); ctx.fill(); }
+  ctx.restore();
+  if (hand) { // 小臂和袖口：从右下角伸进来
+    ctx.beginPath(); ctx.moveTo(196, 6); ctx.lineTo(2600, 190); ctx.lineTo(2600, 610); ctx.lineTo(170, 96); ctx.closePath(); paint(skin);
+    ctx.beginPath(); ctx.moveTo(330, 8); ctx.lineTo(2600, 160); ctx.lineTo(2600, 650); ctx.lineTo(306, 134); ctx.closePath(); paint('#5d7fa8');
+    // 手掌（压在笔杆下面的那几根手指）
+    ctx.beginPath(); ctx.ellipse(150, 46, 72, 50, 0.25, 0, 6.2832); paint(skin);
+  }
+  // 马克笔：笔头、笔杆、笔帽一样的色环
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(20, -8); ctx.lineTo(20, 8); ctx.closePath(); paint(hp.color, 4);
+  rr(20, -11, 22, 22, 4); paint('#e9e5db', 4);
+  rr(40, -17, 220, 34, 12); paint('#fbfaf6');
+  rr(52, -17, 26, 34, 3); paint(hp.color, 4);
+  if (hand) {
+    // 食指搭在笔杆上，拇指从下面抵住
+    ctx.beginPath(); ctx.moveTo(206, -14); ctx.quadraticCurveTo(150, -52, 84, -30); ctx.quadraticCurveTo(62, -20, 76, -6); ctx.quadraticCurveTo(140, -14, 196, 16); ctx.closePath(); paint(skin);
+    ctx.beginPath(); ctx.moveTo(176, 40); ctx.quadraticCurveTo(120, 34, 92, 14); ctx.quadraticCurveTo(82, 0, 100, -2); ctx.quadraticCurveTo(150, 4, 196, 22); ctx.closePath(); paint(skin);
+    // 指节
+    ctx.strokeStyle = ink; ctx.lineWidth = 4;
+    for (const [x, y] of [[128, 66], [160, 76], [192, 78]]) { ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + 10, y + 12, x + 24, y + 8); ctx.stroke(); }
+  }
+  ctx.restore();
+}
+
 const subCache = new Map<string, { strokes: Stroke[]; w: number }>();
 let layer: any = null;
 
@@ -282,7 +379,6 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     ctx.save(); ctx.translate(i * W + (i & 1 ? W : 0), j * H + (j & 1 ? H : 0)); ctx.scale(i & 1 ? -1 : 1, j & 1 ? -1 : 1);
     ctx.drawImage(tex, -0.5, -0.5, W + 1, H + 1); ctx.restore();
   }
-  let pen: { p: Pt; scene: number } | null = null;
   const groups = new Map<number, { tl: TL; st: ElState }[]>();
   let curScene = -1;
   for (const tl of c.tls) {
@@ -293,7 +389,6 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     if (tl.erase != null) { const g = c.erases[tl.erase]; if (t >= g.t0) { if (!groups.has(tl.erase)) groups.set(tl.erase, []); groups.get(tl.erase)!.push({ tl, st }); continue; } }
     if (tl.scene !== curScene) { world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y); curScene = tl.scene; }
     drawEl(ctx, env, tl, t, st);
-    if (st.drawing) { const p = penAt(tl, t); if (p) pen = { p: [p[0] + st.dx, p[1] + st.dy], scene: tl.scene }; }
   }
   // 正在被擦的元素：画到单独一层，用板擦路径抠掉
   for (const [gi, items] of groups) {
@@ -316,13 +411,10 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
   // 画板上下是平台界面和字幕的地方：近景时邻近的东西会漫进去，用纸面把它们柔和地收掉
   ctx.setTransform(k, 0, 0, k, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   if (!o.bare) ctx.drawImage(veil(env, tex, W, H, board), 0, 0, W, H);
-  // 笔尖（可选，极小）
-  if (o.pen && pen) {
-    const sc = c.scenes[pen.scene];
-    world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y);
-    ctx.globalAlpha = 0.9; ctx.lineCap = 'round'; ctx.strokeStyle = THEME.ink; ctx.lineWidth = 9 / cam.zoom;
-    ctx.beginPath(); ctx.moveTo(pen.p[0] + 5 / cam.zoom, pen.p[1] - 5 / cam.zoom); ctx.lineTo(pen.p[0] + 44 / cam.zoom, pen.p[1] - 44 / cam.zoom); ctx.stroke();
-    ctx.globalAlpha = 1;
+  // 笔 / 握笔的手：跟着笔尖走；两笔之间悬着滑过去，停得久了退出画面，要画时再进来
+  if (o.pen) {
+    const hp = handAt(c, t, cam);
+    if (hp) { ctx.setTransform(k, 0, 0, k, 0, 0); drawHand(ctx, hp, o.pen === 'hand', Math.sqrt(cam.zoom / (c.scenes[hp.scene]?.home.zoom || 1)) * (W < H ? 1 : 0.85)); }
   }
   ctx.setTransform(k, 0, 0, k, 0, 0);
   if (o.guides) {

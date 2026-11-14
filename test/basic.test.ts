@@ -7,7 +7,7 @@ import { createCanvas, Path2D } from '@napi-rs/canvas';
 import { fakeAlignment, resolveAnchor, buildSubtitles, loadAlignment } from '../src/core/alignment';
 import { compile } from '../src/core/compile';
 import { lint } from '../src/core/lint';
-import { drawFrame } from '../src/core/render';
+import { drawFrame, camAt, handAt } from '../src/core/render';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'hj-'));
 function alignmentOf(text: string) { const d = tmp(), f = join(d, 'alignment.json'); writeFileSync(f, JSON.stringify(fakeAlignment(text))); return loadAlignment(f); }
@@ -569,4 +569,46 @@ test('跟拍：引擎推近正在画的东西、结尾回全景；自己写的�
   assert.ok(e.segs[0].t0 < 0.5 && e.segs[0].to.zoom > 1.5, '写了的那一拍照写的走');
   assert.ok(e.segs.length >= 2, '之后接着跟拍');
   rmSync(d, { recursive: true });
+});
+
+test('近景只框已经画出来的；后画的到时候再带进来；空近景和被切掉的东西会警告', () => {
+  const mk = (beats: string) => {
+    const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+    writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先看上面这一个东西是什么。再过一会儿。又过了好一会儿。最后才轮到下面那一个。然后回头看看整体是什么样。')));
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\ncamera: still\n');
+    writeFileSync(join(d, 'scenes/01.yaml'), `from: "先看"\nintent: 两样东西一上一下\nframe: false\nelements:\n  a: { doodle: bank, size: 160, at: [800, 150] }\n  b: { doodle: factory, size: 160, at: [800, 650] }\n  far: { doodle: house, size: 160, at: [150, 1100] }\nbeats:\n${beats}`);
+    const c = compile(d); rmSync(d, { recursive: true }); return c;
+  };
+  const viewY = (c: any, cam: any) => cam.cy - c.fmt.board.y - (c.fmt.H / 2 - (c.fmt.board.y + c.fmt.board.h / 2)) / cam.zoom;
+  const c = mk(`  - { at: "先看", intent: 推近, do: [{ camera: { focus: [a, b], pad: 60 } }, { draw: a }] }\n  - { at: "最后才", intent: 下面那个, do: [{ draw: b }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: far }] }\n`);
+  const segs = c.cams.filter(k => k.t0 > -1 && k.to !== c.scenes[0].home), a = c.tls.find(t => t.el.id === 'a')!, b = c.tls.find(t => t.el.id === 'b')!;
+  assert.equal(segs.length, 2, '先对准 a，b 要画时再带过去');
+  assert.ok(Math.abs(viewY(c, segs[0].to) - (a.el.box.y + a.el.box.h / 2)) < 5, '第一个近景以 a 为中心，而不是 a 和 b 的中点');
+  assert.ok(segs[1].t0 < b.drawT0! && segs[1].t0 > b.drawT0! - 1, '镜头在 b 落笔前一点带过去');
+  assert.ok(segs[1].to.zoom < segs[0].to.zoom, '带进 b 之后景别更宽');
+  assert.doesNotMatch(lint(c).map(i => i.msg).join(), /近景取景不好|被画面边切掉/);
+  // 推近 a 之后，在画面外画别的东西：被切掉
+  const bad = mk(`  - { at: "先看", intent: 推近, do: [{ camera: { focus: [a], pad: 60 } }, { draw: a }] }\n  - { at: "最后才", intent: 画面外, do: [{ draw: far }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: b }] }\n`);
+  assert.match(lint(bad).map(i => i.msg).join(), /被画面边切掉了.*"far"/);
+});
+
+test('握笔的手跟着笔尖；线的轻重跟着大小；小人能按自己的锚点坐到凳子上', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画一个大的。再画一个小的。坐下来。等一等，再等一等，再等一等。')));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\ncamera: still\n');
+  writeFileSync(join(d, 'scenes/01.yaml'), `from: "先画"\nintent: 大小两样\nframe: false\nelements:\n  big: { doodle: bank, size: 300, at: [250, 250] }\n  small: { doodle: bank, size: 90, at: [700, 250] }\n  heavy: { doodle: bank, size: 90, at: [700, 500], weight: bold }\n  st: { doodle: stool, size: 110, at: [300, 800] }\n  me: { figure: sit-right, size: 260, at: st.seat, anchor: hip }\n  n: { text: "1000", size: 100, at: [700, 800] }\nbeats:\n  - { at: "先画", intent: 大的, do: [{ draw: big }] }\n  - { at: "再画", intent: 小的, do: [{ draw: [small, heavy] }] }\n  - { at: "坐下来", intent: 坐, do: [{ draw: [st, me, n] }] }\n`);
+  const c = compile(d); rmSync(d, { recursive: true });
+  const el = (id: string) => c.tls.find(t => t.el.id === id)!, pen = (id: string) => Math.max(...el(id).el.strokes.filter(s => s.kind === 'line' && !s.under).map(s => (s as any).w));
+  assert.ok(pen('small') < pen('big') * 0.8, '小东西的线更细');
+  assert.ok(pen('heavy') > pen('small') * 1.5, 'weight: bold 加重');
+  assert.ok(el('n').el.strokes.some(s => (s as any).bold > 0), '大字自动加重');
+  const seat = el('st').el.anchors.seat, hip = el('me').el.anchors.hip;
+  assert.ok(Math.hypot(seat[0] - hip[0], seat[1] - hip[1]) < 1, '臀部落在凳面上');
+  const cam = camAt(c, 0), big = el('big'), mid = (big.sched![0] + big.sched![1]) / 2, h = handAt(c, mid, cam)!;
+  assert.ok(h && h.down, '画的时候手在纸上');
+  const bx = c.fmt.board.x + big.el.box.x, by = c.fmt.board.y + big.el.box.y;
+  assert.ok(h.x >= bx - 20 && h.x <= bx + big.el.box.w + 20 && h.y >= by - 20 && h.y <= by + big.el.box.h + 20, '笔尖在正在画的东西上');
+  assert.equal(handAt(c, c.duration - 0.3, cam), null, '停笔很久之后手退出画面');
+  const cv = createCanvas(c.fmt.W / 2, c.fmt.H / 2);
+  drawFrame(cv.getContext('2d'), c, mid, { createCanvas, Path2D }, { scale: 0.5, pen: 'hand' });
 });

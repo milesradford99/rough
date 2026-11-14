@@ -1,0 +1,10 @@
+desc: "凳子（侧身坐的小人用 anchor hip 坐到 seat 上）"
+box: [120, 110]
+anchors: { seat: [60, 8] }
+parts:
+  - rect: [10, 8, 100, 16]
+    fill: "orange"
+    fillAlpha: 0.5
+  - line: [24, 24, 16, 104]
+  - line: [96, 24, 104, 104]
+  - line: [22, 70, 98, 70]

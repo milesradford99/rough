@@ -19,6 +19,7 @@ import { THEME, FORMATS } from '../core/theme';
 
 const images = new Map<string, any>();
 const env: Env = { createCanvas, Path2D, image: f => images.get(f) };
+const penOpt = (c: Compiled): false | 'marker' | 'hand' => (c.meta.pen === 'hand' ? 'hand' : c.meta.pen ? 'marker' : false);
 /** 位图要先解码好：画面是时间的纯函数，画的时候不能等 */
 async function preload(c: Compiled) { for (const tl of c.tls) for (const s of tl.el.strokes) if (s.kind === 'image' && !images.has(s.file)) images.set(s.file, await loadImage(readFileSync(s.file))); }
 
@@ -144,7 +145,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     for (const n of ['narration.wav', 'narration.mp3', 'narration.m4a']) { const f = join(existsSync(join(voice, n)) ? voice : resolve(voice, '..'), n); if (existsSync(f)) { copyFileSync(f, join(dir, 'voice', n)); audio = 'voice/' + n; break; } }
     const fmt = String(flags.format ?? 'portrait');
     if (!FORMATS[fmt]) die('format 只能是 portrait 或 landscape');
-    if (!existsSync(join(dir, 'project.yaml'))) writeFileSync(join(dir, 'project.yaml'), `title: ${JSON.stringify(String(flags.title ?? basename(resolve(dir))))}\nformat: ${fmt}        # portrait 竖屏 1080×1920 / landscape 横屏 1920×1080\nfps: 30\nvoice: voice/${alName}\n${audio ? `audio: ${audio}` : '# audio: voice/narration.wav   # 配音文件放进 voice/ 后取消注释'}\nsubtitles: true\nsfx: true              # 落笔音效\npen: false             # 是否显示笔尖\n`);
+    if (!existsSync(join(dir, 'project.yaml'))) writeFileSync(join(dir, 'project.yaml'), `title: ${JSON.stringify(String(flags.title ?? basename(resolve(dir))))}\nformat: ${fmt}        # portrait 竖屏 1080×1920 / landscape 横屏 1920×1080\nfps: 30\nvoice: voice/${alName}\n${audio ? `audio: ${audio}` : '# audio: voice/narration.wav   # 配音文件放进 voice/ 后取消注释'}\nsubtitles: true\nsfx: true              # 落笔音效\npen: false             # 笔：false 不显示 / marker 一支马克笔 / hand 握着笔的手\n`);
     if (!existsSync(join(dir, 'cast.yaml'))) writeFileSync(join(dir, 'cast.yaml'), CAST_TEMPLATE);
     if (!existsSync(join(dir, 'outline.md'))) writeFileSync(join(dir, 'outline.md'), OUTLINE_TEMPLATE);
     console.log(`✓ 项目已创建：${dir}\n  时间表：voice/${alName}${audio ? `\n  配音：${audio}` : '\n  （没找到配音文件，渲染出来只有落笔音效；把 narration.wav 放进 voice/ 并在 project.yaml 里填 audio）'}\n下一步：hj brief ${dir}   通读口播和时间；先填 outline.md（论证、母图、角色表），再在 scenes/ 里写分镜`);
@@ -279,11 +280,11 @@ const commands: Record<string, () => Promise<void> | void> = {
     const out = join(dir, 'out', draft ? 'draft' : 'stills'); mkdirSync(out, { recursive: true });
     const { cv, ctx } = canvasFor(c, sc0);
     const stamp = draft ? textStrokes('草稿 · 未确认', { size: 54, color: '#d9433a' }) : null;
-    const frame = (t: number, o: { pen: boolean; guides?: boolean }) => {
+    const frame = (t: number, o: { pen: boolean | 'marker' | 'hand'; guides?: boolean }) => {
       drawFrame(ctx, c, t, env, { scale: sc0, subtitles: true, ...o });
       if (stamp) for (const [fx, fy] of [[0.5, 0.045], [0.5, 0.93]]) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 0.6; ctx.translate(cv.width * fx - (stamp.w * 0.7) / 2, cv.height * fy); ctx.scale(0.7, 0.7); drawStrokes(ctx, env, stamp.strokes); ctx.restore(); }
     };
-    const shot = async (t: number, name: string) => { frame(t, { pen: !!c.meta.pen, guides: !!flags.guides }); writeFileSync(join(out, name), await cv.encode('png')); };
+    const shot = async (t: number, name: string) => { frame(t, { pen: penOpt(c), guides: !!flags.guides }); writeFileSync(join(out, name), await cv.encode('png')); };
     if (flags.at != null) {
       const t = /^[\d.]+$/.test(String(flags.at)) ? +flags.at : resolveAnchor(c.al, String(flags.at)).time;
       await shot(t, `at-${t.toFixed(2)}.png`);
@@ -364,7 +365,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const done = new Promise<number>(r => p.on('close', code => r(code ?? 1)));
     const total = Math.round((to - from) * fps), started = Date.now();
     for (let i = 0; i < total; i++) {
-      drawFrame(ctx, c, from + i / fps, env, { scale, subtitles: true, pen: !!c.meta.pen });
+      drawFrame(ctx, c, from + i / fps, env, { scale, subtitles: true, pen: penOpt(c) });
       if (!p.stdin.write(cv.data())) await new Promise(r => p.stdin.once('drain', r));
       if (i % (fps * 10) === 0 && i) console.log(`  ${fmtT(from + i / fps)} / ${fmtT(to)}  （${((i / total) * 100).toFixed(0)}%，已用 ${((Date.now() - started) / 1000).toFixed(0)}s）`);
     }
