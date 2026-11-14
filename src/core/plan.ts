@@ -100,20 +100,26 @@ export function planRegions(b: PlanBoard, fmt: Format): { regions: Record<string
   return { regions, errors };
 }
 
-export interface SegTime { board: number; seg: number; t0: number; t1: number }
+export interface SegTime { board: number; seg: number; t0: number; t1: number; /** 卡点那几个字开口的时刻（第一段的 t0 是片头，这个才是字的位置） */ anchor: number }
 /** 每一段的起止时间。锚点找不到的那一段时间是 NaN */
 export function segmentTimes(plan: Plan, al: Alignment, duration: number): { times: SegTime[]; errors: Issue[] } {
   const times: SegTime[] = [], errors: Issue[] = [];
   let prev = 0;
   plan.boards.forEach((b, bi) => b.segments.forEach((s, si) => {
-    let t = NaN;
+    let t = NaN, anchor = NaN;
     try {
       const r = resolveAnchor(al, s.at, [prev, Infinity]);
+      anchor = r.time;
       t = bi === 0 && si === 0 ? Math.min(r.time, 0) : r.time; // 第一段从片头算起
       if (times.length && !(r.time > prev)) { errors.push({ level: 'error', where: `${W} / ${b.id} 第 ${si + 1} 段`, msg: `at "${s.at}" 没有排在上一段之后：分段要按口播的顺序写` }); t = NaN; }
       else prev = r.time;
-    } catch (e: any) { errors.push({ level: 'error', where: `${W} / ${b.id} 第 ${si + 1} 段`, msg: `at ${e.message}。从 brief.md 的“分句卡点”里抄一个只出现一次的片段` }); }
-    times.push({ board: bi, seg: si, t0: t, t1: NaN });
+    } catch (e: any) {
+      const needle = stripPunct(String(s.at).replace(/#\d+.*$/, '').replace(/@end.*$/, '')), any = !!needle && al.flat.includes(needle);
+      errors.push({ level: 'error', where: `${W} / ${b.id} 第 ${si + 1} 段`, msg: any
+        ? `at "${s.at}" 在上一段的起点（${fmtT(prev)}）之后找不到。分段要按口播的顺序写；重复出现的词从上一段之后数起（之后第一次出现不用加 #，第二次才写 #2）。也可能是上一段的 at 卡到了更靠后的地方`
+        : `at "${s.at}" 在口播稿里找不到，请逐字核对原文。从 brief.md 的“分句卡点”里抄一个片段` });
+    }
+    times.push({ board: bi, seg: si, t0: t, t1: NaN, anchor });
   }));
   for (let i = 0; i < times.length; i++) { let n = i + 1; while (n < times.length && Number.isNaN(times[n].t0)) n++; times[i].t1 = n < times.length ? times[n].t0 : duration; }
   return { times, errors };
@@ -247,8 +253,22 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
 }
 
 /** 由计划生成一块板的场景骨架：角色、关系、板书、每一段的节拍都列好，位置留给执行者 */
-export function scaffold(plan: Plan, b: PlanBoard, fmt: Format): string {
+/** 计划的卡点是“从上一段往后找”，场景的卡点是“在整块板的口播里找”。同一个词在这块板里出现过几次，就要写成 #n */
+function sceneAnchor(al: Alignment, at: string, boardStart: number, time: number): string {
+  if (/#\d+/.test(at) === false && !/@end|[+-]\d/.test(at)) {
+    const needle = stripPunct(at); let n = 0;
+    for (let i = al.flat.indexOf(needle); i >= 0; i = al.flat.indexOf(needle, i + 1)) { const t = al.units[al.flatUnit[i]].start; if (t >= boardStart - 1e-6 && t <= time + 1e-6) n++; }
+    return n > 1 ? `${at}#${n}` : at;
+  }
+  const m = at.match(/^(.*?)#(\d+)(.*)$/); if (!m) return at;
+  const needle = stripPunct(m[1]); let n = 0;
+  for (let i = al.flat.indexOf(needle); i >= 0; i = al.flat.indexOf(needle, i + 1)) { const t = al.units[al.flatUnit[i]].start; if (t >= boardStart - 1e-6 && t <= time + 1e-6) n++; }
+  return n > 1 ? `${m[1]}#${n}${m[3]}` : `${m[1]}${m[3]}`;
+}
+
+export function scaffold(plan: Plan, b: PlanBoard, fmt: Format, al: Alignment, duration: number): string {
   const B = boardBox(b, fmt), { regions } = planRegions(b, fmt), L: string[] = [];
+  const bi = plan.boards.indexOf(b), ts = segmentTimes(plan, al, duration).times.filter(t => t.board === bi), boardStart = bi === 0 ? 0 : ts[0]?.anchor ?? 0;
   const q = (s: string) => JSON.stringify(s);
   L.push(`# 板 ${b.id}：由 plan.yaml 生成的骨架（hj scaffold）。`, `# 全景：${b.picture}`, '#', '# 开口的位置（from）、全景（intent）、分区（regions）、板的大小（board）都由计划决定，不要在这里写。', `# 画板 ${B.w}×${B.h}。分区的坐标 [x, y, 宽, 高]：`);
   for (const [n, r] of Object.entries(regions)) L.push(`#   ${n.padEnd(8)} [${r.join(', ')}]  ${b.regions[n] ?? ''}`);
@@ -267,11 +287,11 @@ export function scaffold(plan: Plan, b: PlanBoard, fmt: Format): string {
   b.segments.forEach((s, si) => {
     const draw = [...s.show.filter(id => b.segments.slice(0, si).every(p => !p.show.includes(id))), ...s.link.filter(id => b.segments.slice(0, si).every(p => !p.link.includes(id))), ...texts.filter(t => t.seg === si).map(t => t.id)];
     L.push(`  # ── 第 ${si + 1} 段 · ${s.act ?? ''} · 分区 ${s.in} ──`);
+    for (const j of s.joins) L.push(`  # 要你画一条线，把分区 ${j} 和 ${s.in} 连起来（箭头、括号、连线：两头分别落在两个分区里）`);
     if (s.diagram) L.push(`  # 要你画的图：${s.diagram}${s.pattern ? `（可以用手法 ${s.pattern}：hj patterns ${s.pattern}）` : ''}`);
     else if (s.pattern) L.push(`  # 可以用手法 ${s.pattern}：hj patterns ${s.pattern}`);
-    L.push(`  - at: ${q(s.at)}`, `    intent: ${q(s.intent)}`, '    do:');
+    L.push(`  - at: ${q(Number.isFinite(ts[si]?.anchor) ? sceneAnchor(al, s.at, boardStart, ts[si].anchor) : s.at)}`, `    intent: ${q(s.intent)}`, '    do:');
     if (draw.length) L.push(`      - draw: [${draw.join(', ')}]`);
-    for (const j of s.joins) L.push(`  # 要你画一条线，把分区 ${j} 和 ${s.in} 连起来（箭头、括号、连线：两头分别落在两个分区里）`);
     for (const id of s.revisit) L.push(`      - draw: { mark: circle, target: ${id} }    # 回头改 ${plan.cast[id]?.name ?? id}：换成更贴切的动作（打叉、划掉、改数字、换表情、再连一条线）`);
     if (!draw.length && !s.revisit.length) L.push('      - wait: 0.1    # 这一段的图还没画：在 elements 里定义它，然后在这里 draw');
   });
@@ -342,7 +362,7 @@ export function conform(c: Compiled): Issue[] {
     b.segments.forEach((s, si) => {
       const tm = times.find(t => t.board === bi && t.seg === si)!; if (!Number.isFinite(tm.t0)) return;
       const where = `${sc.file} / 第 ${si + 1} 段（${s.at}）`, t0 = tm.t0, t1 = tm.t1;
-      if (!sc.beats.some(be => String(be.at).trim() === s.at.trim())) err(where, `计划里这一段从 "${s.at}" 开始，场景里没有卡在这几个字上的节拍。加一拍 at: "${s.at}"（一段里可以再加别的拍，但段的起点不能丢）`);
+      if (!sc.beats.some(be => Math.abs(be.t - tm.anchor) < 0.08)) { const want = sceneAnchor(c.al, s.at, bi === 0 ? 0 : sc.t0, tm.anchor); err(where, `计划里这一段从 "${s.at}"（${fmtT(tm.anchor)}）开始，场景里没有卡在这一刻的节拍。加一拍 at: "${want}"（一段里可以再加别的拍，但段的起点不能丢）`); }
       for (const id of s.show) {
         if (introduced.has(id)) continue; introduced.add(id);
         const ft = firstShown(id);

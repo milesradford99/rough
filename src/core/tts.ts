@@ -3,7 +3,9 @@
 // 协议：https://www.volcengine.com/docs/6561/1329505 ；以实际响应为准。
 import { gunzipSync } from 'node:zlib';
 import { randomUUID, createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, appendFileSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 
@@ -138,4 +140,99 @@ export async function synthesize(o: TtsOptions): Promise<TtsResult> {
   writeFileSync(join(o.outDir, 'alignment.json'), JSON.stringify(alignment, null, 2) + '\n');
   writeFileSync(join(o.outDir, 'metadata.json'), JSON.stringify({ provider: 'volcengine', speaker, resource, sample_rate: sampleRate, speech_rate: o.speechRate ?? 0, duration_seconds: duration, script_hash: scriptHash(text), logid, audio_sha256: createHash('sha256').update(wav).digest('hex') }, null, 2) + '\n');
   return { wav: join(o.outDir, 'narration.wav'), alignment: join(o.outDir, 'alignment.json'), duration, units: alignment.units.length, shaky: alignment.units.filter((u: any) => u.timing_warnings.length).length, logid };
+}
+
+// ── 免费引擎：edge-tts（微软 Edge 浏览器“大声朗读”的在线接口）──
+// 接口是逆向的，令牌算法会跟着 Edge 变，所以不自己实现，调用社区维护的 Python 包 edge-tts（scripts/edge_words.py）。
+// 只能调语速、音高、音量三个全局参数，不支持停顿和情绪标签。下面的默认值是实测出来的（2026-11，见技能里的 voice.md）。
+
+export interface EdgeVoice { name: string; rate: string; pitch: string; note: string }
+/** 每个音色的默认语速：让成片落在每秒 4.1–4.3 个字（画得过来的速度）。原速实测：云希 4.25、晓伊 4.23、晓晓 4.10、云健 4.07、Brian 3.59、Andrew 3.20 字/秒 */
+export const EDGE_VOICES: Record<string, EdgeVoice> = {
+  'zh-CN-YunxiNeural': { name: '云希', rate: '+0%', pitch: '-4Hz', note: '男，年轻、口语感最好。默认' },
+  'zh-CN-YunjianNeural': { name: '云健', rate: '+4%', pitch: '-4Hz', note: '男，厚实、起伏大。历史、财经、悬疑' },
+  'zh-CN-XiaoxiaoNeural': { name: '晓晓', rate: '+4%', pitch: '-2Hz', note: '女，清亮、吐字最稳。通用' },
+  'zh-CN-XiaoyiNeural': { name: '晓伊', rate: '+0%', pitch: '-2Hz', note: '女，低一点、温和。慢节奏内容' },
+  'en-US-BrianMultilingualNeural': { name: 'Brian（多语言，说中文）', rate: '+16%', pitch: '-3Hz', note: '男，松弛的播客腔，原速偏慢所以提速' },
+  'en-US-AndrewMultilingualNeural': { name: 'Andrew（多语言，说中文）', rate: '+28%', pitch: '-3Hz', note: '男，胸腔共鸣重，原速很慢（3.2 字/秒）' },
+};
+export const DEFAULT_EDGE_VOICE = 'zh-CN-YunxiNeural';
+
+const isCJK = (ch: string) => /[㐀-鿿]/.test(ch);
+/** edge-tts 的逐词时间 → 时间表的单位。纯汉字的词按字均分（一个词只有两三个字、零点几秒，均分的误差在几十毫秒内）；数字和英文保持整体并标成不可靠。标点从原文里补回来 */
+export function edgeUnits(text: string, words: { text: string; start: number; end: number }[], offset = 0): any[] {
+  const units: any[] = [];
+  let pos = 0;
+  for (const w of words) {
+    const tok = String(w.text).trim(); if (!tok) continue;
+    const k = text.indexOf(tok, pos);
+    // 上一个词和这个词之间的标点，挂到上一个字后面（字幕断句靠它）
+    if (k >= 0) { const between = text.slice(pos, k).replace(/\s/g, ''); if (between && units.length) units[units.length - 1].display_text += between; pos = k + tok.length; }
+    const chars = [...tok].filter(ch => !/[\s\p{P}]/u.test(ch));
+    if (!chars.length) continue;
+    if (chars.every(isCJK)) { const d = (w.end - w.start) / chars.length; chars.forEach((ch, i) => units.push({ text: ch, display_text: ch, start: offset + w.start + d * i, end: offset + w.start + d * (i + 1), confidence: 1, timing_warnings: [] })); }
+    else units.push({ text: chars.join(''), display_text: tok, start: offset + w.start, end: offset + w.end, confidence: 1, timing_warnings: ['number_or_acronym'] });
+  }
+  if (units.length) { const tail = text.slice(pos).replace(/\s/g, ''); if (tail) units[units.length - 1].display_text += tail; }
+  return units;
+}
+
+function edgePython(args: string[]): { ok: boolean; err: string } {
+  const script = fileURLToPath(new URL('../../scripts/edge_words.py', import.meta.url));
+  const tries: string[][] = process.env.HJ_PYTHON ? [[process.env.HJ_PYTHON]] : [['uv', 'run', '--quiet', '--with', 'edge-tts', 'python'], ['python3'], ['python']];
+  let last = '';
+  for (const t of tries) {
+    const r = spawnSync(t[0], [...t.slice(1), script, ...args], { encoding: 'utf8' });
+    if (r.error) continue; // 这个命令不存在
+    if (r.status === 0) return { ok: true, err: '' };
+    if (r.status === 3) { last = 'NO_EDGE_TTS'; continue; }
+    return { ok: false, err: (r.stderr || '').trim().split('\n').pop() ?? '' };
+  }
+  return { ok: false, err: last === 'NO_EDGE_TTS' ? 'NO_EDGE_TTS' : 'NO_PYTHON' };
+}
+
+export interface EdgeOptions { text: string; outDir: string; voice?: string; rate?: string; pitch?: string; /** 段落之间（空行）至少停多久 */ paragraphGap?: number }
+/** 免费合成。按空行分段各合成一次、接成一条音轨（段间补足停顿），时间表跟着平移，所以不需要、也不允许事后再剪 */
+export async function synthesizeEdge(o: EdgeOptions): Promise<TtsResult> {
+  const voice = o.voice ?? DEFAULT_EDGE_VOICE, preset = EDGE_VOICES[voice], rate = o.rate ?? preset?.rate ?? '+0%', pitch = o.pitch ?? preset?.pitch ?? '+0Hz', gap = o.paragraphGap ?? 1.0, SR = 48000;
+  const paras = o.text.trim().split(/\n\s*\n/).map(s => s.replace(/\s*\n\s*/g, '').trim()).filter(Boolean);
+  if (!paras.length) throw new Error('朗读稿是空的');
+  if (spawnSync('ffmpeg', ['-version']).status !== 0) throw new Error('需要 ffmpeg（把 MP3 转成 WAV、统一响度）。先安装 ffmpeg');
+  mkdirSync(o.outDir, { recursive: true });
+  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || '';
+  const pcm: Buffer[] = [], units: any[] = [];
+  let t = 0;
+  for (let i = 0; i < paras.length; i++) {
+    const base = join(o.outDir, `p${String(i + 1).padStart(2, '0')}`);
+    writeFileSync(base + '.txt', paras[i]);
+    let res = { ok: false, err: '' };
+    // 免费接口偶尔 403 或超时：重试不花钱，隔一会儿再试
+    for (let n = 0; n < 4 && !res.ok; n++) {
+      if (n) await new Promise(r => setTimeout(r, 1500 * n));
+      res = edgePython(['--text', base + '.txt', '--voice', voice, `--rate=${rate}`, `--pitch=${pitch}`, '--media', base + '.mp3', '--words', base + '.json', ...(proxy ? ['--proxy', proxy] : [])]);
+      if (res.err === 'NO_EDGE_TTS' || res.err === 'NO_PYTHON') break;
+    }
+    if (res.err === 'NO_PYTHON') throw new Error('找不到 Python。edge-tts 是一个 Python 包：安装 Python 3 后运行 pip install edge-tts（或安装 uv，hj 会自动用它临时装）');
+    if (res.err === 'NO_EDGE_TTS') throw new Error('没有安装 edge-tts。运行 pip install edge-tts（或安装 uv，hj 会自动用它临时装），再重试');
+    if (!res.ok) throw new Error(`edge-tts 第 ${i + 1} 段合成失败：${res.err}${/NoAudioReceived/.test(res.err) ? `。多半是音色 ${voice} 在免费接口上不可用（edge-tts --list-voices 查看）` : '。这是微软的免费接口，偶尔不稳，过一会儿再试'}`);
+    const cv = spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', base + '.mp3', '-ar', String(SR), '-ac', '1', '-f', 's16le', base + '.pcm']);
+    if (cv.status !== 0) throw new Error(`ffmpeg 转码失败：${String(cv.stderr).trim()}`);
+    const buf = readFileSync(base + '.pcm'), words = JSON.parse(readFileSync(base + '.json', 'utf8')).words as { text: string; start: number; end: number }[];
+    if (!words?.length) throw new Error(`edge-tts 第 ${i + 1} 段没有返回逐词时间`);
+    // 段间停顿：上一段的尾巴加这一段的开头不够长，就补一段静音
+    if (i > 0) { const prevEnd = units[units.length - 1].end, natural = t + words[0].start - prevEnd; if (natural < gap) { const pad = Math.round((gap - natural) * SR) * 2; pcm.push(Buffer.alloc(pad)); t += pad / 2 / SR; } }
+    units.push(...edgeUnits(paras[i], words, t));
+    pcm.push(buf); t += buf.length / 2 / SR;
+  }
+  const raw = join(o.outDir, 'raw.wav'), out = join(o.outDir, 'narration.wav');
+  writeFileSync(raw, wavFile(Buffer.concat(pcm), SR));
+  // 统一响度到 -16 LUFS。只动音量，不剪静音、不变速：时间表才对得上
+  const ln = spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', raw, '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11', '-ar', String(SR), '-ac', '1', '-c:a', 'pcm_s16le', out]);
+  if (ln.status !== 0) writeFileSync(out, readFileSync(raw));
+  const duration = Math.max(t, (readFileSync(out).length - 44) / 2 / SR);
+  units.forEach((u, i) => { u.sentence_index = 0; if (u.end > duration) u.end = duration; if (i && u.start < units[i - 1].start) u.start = units[i - 1].start; });
+  const alignment = { provider: 'edge-tts', speaker: voice, duration_seconds: duration, units };
+  writeFileSync(join(o.outDir, 'alignment.json'), JSON.stringify(alignment, null, 2) + '\n');
+  writeFileSync(join(o.outDir, 'metadata.json'), JSON.stringify({ provider: 'edge-tts', speaker: voice, rate, pitch, sample_rate: SR, duration_seconds: duration, script_hash: scriptHash(o.text), paragraphs: paras.length }, null, 2) + '\n');
+  return { wav: out, alignment: join(o.outDir, 'alignment.json'), duration, units: units.length, shaky: units.filter(u => u.timing_warnings.length).length, logid: null };
 }

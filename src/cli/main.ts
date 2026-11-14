@@ -17,7 +17,7 @@ import { textStrokes } from '../core/text';
 import { PATTERNS } from '../core/patterns';
 import { loadPlan, checkPlan, planStoryboard, scaffold, type Plan } from '../core/plan';
 import type { Issue } from '../core/compile';
-import { synthesize, scriptHash, scriptWarnings, DEFAULT_SPEAKER, KEY_ENV } from '../core/tts';
+import { synthesize, synthesizeEdge, scriptHash, scriptWarnings, DEFAULT_SPEAKER, DEFAULT_EDGE_VOICE, EDGE_VOICES, KEY_ENV } from '../core/tts';
 import { THEME, FORMATS } from '../core/theme';
 
 const images = new Map<string, any>();
@@ -281,33 +281,46 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   // 配音：火山引擎豆包语音合成。付费接口：用户确认过这一版朗读稿才调用，不自动重试
   async voice() {
-    const dir = args[0] ?? die('用法：hj voice <项目目录> [--speaker 音色id] [--rate -50..100] [--context "风格指令"] [--redo]');
+    if (flags.voices) { console.log('edge-tts 的音色（免费）。语速和音高不写时用表里的默认值：按这个语速，成片大约每秒 4.1–4.3 个字，画得过来\n'); for (const [id, v] of Object.entries(EDGE_VOICES)) console.log(`  ${id.padEnd(34)} ${v.name}　默认 ${v.rate} ${v.pitch}　${v.note}`); console.log(`\n火山引擎（付费）默认音色：${DEFAULT_SPEAKER}`); return; }
+    const dir = args[0] ?? die('用法：hj voice <项目目录> [--engine volc|edge] [--speaker 音色id] [--rate 语速] [--pitch 音高] [--redo]\n  volc：火山引擎豆包语音（付费，默认）。--rate 是 -50..100 的整数\n  edge：edge-tts（免费）。--rate 形如 +8%，--pitch 形如 -4Hz；hj voice --voices 列出音色');
     const sf = join(dir, 'script.txt'), pf = join(dir, 'project.yaml');
     if (!existsSync(pf)) die(`${dir} 还不是一个项目。先运行 hj init ${dir} --script <朗读稿.txt>`);
     if (!existsSync(sf)) die(`没有朗读稿 ${sf}。把要读出来的字（不是屏幕上显示的字）写进去，UTF-8`);
-    const text = readFileSync(sf, 'utf8').trim(), h = scriptHash(text), a = approvals(dir);
-    const speaker = typeof flags.speaker === 'string' ? flags.speaker : DEFAULT_SPEAKER, rate = flags.rate != null ? Number(flags.rate) : 0;
-    if (!Number.isInteger(rate) || rate < -50 || rate > 100) die('--rate 是 -50 到 100 的整数：0 原速，100 约两倍速');
+    const engine = String(flags.engine ?? 'volc');
+    if (!['volc', 'edge'].includes(engine)) die('--engine 只能是 volc（火山引擎，付费）或 edge（edge-tts，免费）');
+    const text = readFileSync(sf, 'utf8').trim(), h = scriptHash(text), a = approvals(dir), paid = engine === 'volc';
+    const speaker = typeof flags.speaker === 'string' ? flags.speaker : paid ? DEFAULT_SPEAKER : DEFAULT_EDGE_VOICE;
+    const rate = paid ? (flags.rate != null ? Number(flags.rate) : 0) : typeof flags.rate === 'string' ? flags.rate : EDGE_VOICES[speaker]?.rate ?? '+0%';
+    const pitch = paid ? '' : typeof flags.pitch === 'string' ? flags.pitch : EDGE_VOICES[speaker]?.pitch ?? '+0Hz';
+    if (paid && (!Number.isInteger(rate) || (rate as number) < -50 || (rate as number) > 100)) die('火山引擎的 --rate 是 -50 到 100 的整数：0 原速，100 约两倍速');
+    if (!paid && (!/^[+-]\d+%$/.test(String(rate)) || !/^[+-]\d+Hz$/.test(pitch))) die('edge 的 --rate 写成 +8% 这样（带正负号和百分号），--pitch 写成 -4Hz 这样');
+    if (!paid && Math.abs(parseInt(pitch)) > 15) die('音高调整超过 ±15Hz 会有明显的变声器失真');
     const chars = text.replace(/[\s\p{P}]/gu, '').length, warns = scriptWarnings(text);
-    const summary = `朗读稿（${sf}，${chars} 个字，按每秒 4 个字估约 ${Math.round(chars / 4)} 秒，稿子版本 ${h}）：\n\n${text.split('\n').map(l => '  ' + l).join('\n')}\n\n音色：${speaker}${rate ? `，语速 ${rate}` : ''}\n${warns.map(w => `! ${w}`).join('\n')}${warns.length ? '\n' : ''}`;
-    if (a.script?.planHash !== h) { console.log(summary); die(`${a.script ? '朗读稿在用户确认之后改过了，要重新确认。' : '这一版朗读稿还没有得到用户确认。'}配音是付费接口，每次调用都花钱。\n  把上面的朗读稿全文、音色${warns.length ? '和带 ! 的读法问题' : ''}给用户看；用户明确同意后运行 hj approve ${dir} script --by "<用户的确认原话>"，再运行 hj voice ${dir}。\n  给密钥、说“继续”、批准大纲，都不等于确认了这一版稿子。`); }
+    const summary = `朗读稿（${sf}，${chars} 个字，按每秒 4 个字估约 ${Math.round(chars / 4)} 秒，稿子版本 ${h}）：\n\n${text.split('\n').map(l => '  ' + l).join('\n')}\n\n引擎：${paid ? '火山引擎（付费）' : 'edge-tts（免费）'}　音色：${speaker}${paid ? (rate ? `，语速 ${rate}` : '') : `，语速 ${rate}，音高 ${pitch}`}\n${warns.map(w => `! ${w}`).join('\n')}${warns.length ? '\n' : ''}`;
+    // 付费引擎：用户确认过这一版稿子才调用。免费引擎不拦，但稿子的读法问题照样列出来
+    if (paid && a.script?.planHash !== h) { console.log(summary); die(`${a.script ? '朗读稿在用户确认之后改过了，要重新确认。' : '这一版朗读稿还没有得到用户确认。'}火山引擎是付费接口，每次调用都花钱。\n  把上面的朗读稿全文、音色${warns.length ? '和带 ! 的读法问题' : ''}给用户看；用户明确同意后运行 hj approve ${dir} script --by "<用户的确认原话>"，再运行 hj voice ${dir}。\n  给密钥、说“继续”、批准大纲，都不等于确认了这一版稿子。\n  想先免费听个大概：hj voice ${dir} --engine edge（edge-tts，不需要密钥和确认）`); }
     const key = (process.env[KEY_ENV] ?? '').trim();
-    if (!key) die(`没有配置火山引擎的密钥。请用户自己在终端里设置环境变量（不要让用户把密钥贴进对话，也不要把它写进任何文件或命令行参数）：\n  export ${KEY_ENV}=<API Key>\n密钥在火山引擎控制台的“豆包语音”里创建，需要开通语音合成大模型（seed-tts-2.0）。配好之后重新运行 hj voice ${dir}`);
+    if (paid && !key) die(`没有配置火山引擎的密钥。请用户自己在终端里设置环境变量（不要让用户把密钥贴进对话，也不要把它写进任何文件或命令行参数）：\n  export ${KEY_ENV}=<API Key>\n密钥在火山引擎控制台的“豆包语音”里创建，需要开通语音合成大模型（seed-tts-2.0）。配好之后重新运行 hj voice ${dir}\n  不想付费：hj voice ${dir} --engine edge（edge-tts，免费，不需要密钥）`);
     const metaF = join(dir, 'voice', 'metadata.json');
-    if (existsSync(metaF) && !flags.redo) { const m = JSON.parse(readFileSync(metaF, 'utf8')); if (m.script_hash === h && m.speaker === speaker && (m.speech_rate ?? 0) === rate) die(`这一版稿子已经用同样的音色和语速配过了（${join(dir, 'voice', 'narration.wav')}，${Number(m.duration_seconds).toFixed(1)} 秒）。再配一次要再花一次钱：确实要重配加 --redo`); }
+    if (paid && existsSync(metaF) && !flags.redo) { const m = JSON.parse(readFileSync(metaF, 'utf8')); if (m.provider === 'volcengine' && m.script_hash === h && m.speaker === speaker && (m.speech_rate ?? 0) === rate) die(`这一版稿子已经用同样的音色和语速配过了（${join(dir, 'voice', 'narration.wav')}，${Number(m.duration_seconds).toFixed(1)} 秒）。再配一次要再花一次钱：确实要重配加 --redo`); }
+    if (!paid && warns.length) console.log(warns.map(w => `! ${w}`).join('\n'));
     const runs = join(dir, 'voice', 'runs'); mkdirSync(runs, { recursive: true });
     const out = join(runs, String(readdirSync(runs).length + 1).padStart(3, '0'));
-    console.log(`开始配音（${chars} 个字，音色 ${speaker}）…`);
+    console.log(`开始配音（${paid ? '火山引擎' : 'edge-tts'}，${chars} 个字，音色 ${speaker}）…`);
     let r;
-    try { r = await synthesize({ text, key, outDir: out, speaker, speechRate: rate, ...(typeof flags.context === 'string' ? { context: flags.context } : {}), ...(typeof flags.resource === 'string' ? { resource: flags.resource } : {}), ...(process.env.HJ_TTS_ENDPOINT ? { endpoint: process.env.HJ_TTS_ENDPOINT } : {}) }); }
-    catch (e: any) { return die(`配音失败：${e.message}\n  没有自动重试。这次的记录在 ${out}/events.jsonl`); }
+    try {
+      r = paid
+        ? await synthesize({ text, key, outDir: out, speaker, speechRate: rate as number, ...(typeof flags.context === 'string' ? { context: flags.context } : {}), ...(typeof flags.resource === 'string' ? { resource: flags.resource } : {}), ...(process.env.HJ_TTS_ENDPOINT ? { endpoint: process.env.HJ_TTS_ENDPOINT } : {}) })
+        : await synthesizeEdge({ text, outDir: out, voice: speaker, rate: String(rate), pitch });
+    } catch (e: any) { return die(`配音失败：${e.message}${paid ? `\n  没有自动重试。这次的记录在 ${out}/events.jsonl` : ''}`); }
     for (const f of ['narration.wav', 'alignment.json', 'metadata.json']) copyFileSync(join(out, f), join(dir, 'voice', f));
     // 项目设置里指到这条配音
     let py = readFileSync(pf, 'utf8');
     if (!/^audio:/m.test(py)) py = /^# audio:.*$/m.test(py) ? py.replace(/^# audio:.*$/m, 'audio: voice/narration.wav') : py.trimEnd() + '\naudio: voice/narration.wav\n';
     py = /^voice:/m.test(py) ? py.replace(/^voice:.*$/m, 'voice: voice/alignment.json') : py.trimEnd() + '\nvoice: voice/alignment.json\n';
     writeFileSync(pf, py);
-    console.log(`✓ 配音完成：${join(dir, 'voice', 'narration.wav')}（${r.duration.toFixed(1)} 秒，${r.units} 个字词${r.shaky ? `，其中 ${r.shaky} 个时间不可靠，hj brief 里用 ~波浪线~ 标出，卡点别落在它们上面` : ''}）\n  先让用户听一遍。之后不要对音频做任何剪切、变速、去静音：时间表会失效。\n下一步：hj brief ${dir}`);
+    const cps = chars / r.duration;
+    console.log(`✓ 配音完成：${join(dir, 'voice', 'narration.wav')}（${r.duration.toFixed(1)} 秒，每秒 ${cps.toFixed(1)} 个字，${r.units} 个字词${r.shaky ? `，其中 ${r.shaky} 个时间不可靠，hj brief 里用 ~波浪线~ 标出，卡点别落在它们上面` : ''}）${cps > 4.7 ? '\n  ! 语速偏快（每秒 4.7 个字以上，画面会被迫快进）：把语速调低一点重配' : ''}\n  先让用户听一遍。之后不要对音频做任何剪切、变速、去静音：时间表会失效。\n下一步：hj brief ${dir}`);
   },
 
   // 由计划生成场景骨架：每块板一个文件，角色、关系、板书和每一段的节拍都列好
@@ -320,7 +333,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     pc.plan.boards.forEach((b, i) => {
       const had = existing.find(f => f.replace(/\.ya?ml$/, '').replace(/^\d+[-_]?/, '') === b.id), f = join(dir, 'scenes', had ?? `${String(i + 1).padStart(2, '0')}-${b.id}.yaml`);
       if (had && !flags.force) { console.log(`· 已有 ${f}，没有动它（要重新生成加 --force，会覆盖）`); return; }
-      writeFileSync(f, scaffold(pc.plan, b, pc.fmt));
+      writeFileSync(f, scaffold(pc.plan, b, pc.fmt, pc.al, pc.duration));
       console.log(`✓ ${f}`);
     });
     console.log(`骨架里每样东西都还没摆位置。下一步：hj layout ${dir} 看落点 → 改场景文件 → hj check ${dir} → hj stills ${dir} --draft 看图`);
@@ -695,6 +708,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj init <目录> --voice <配音材料>   建项目，导入已有的配音和时间表
   hj init <目录> --script <稿.txt>    建项目，只有稿子（之后用 hj voice 配音）
   hj voice <目录>                     配音（火山引擎，付费）：先列出朗读稿给用户确认，确认后才合成
+  hj voice <目录> --engine edge       配音（edge-tts，免费）；hj voice --voices 列出音色和默认参数
   hj brief <目录>                     口播逐句时间简报（写计划前先读）
 
   规划者：

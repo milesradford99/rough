@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { fakeAlignment } from '../src/core/alignment';
-import { packet, unpack, buildAlignment, scriptWarnings } from '../src/core/tts';
+import { packet, unpack, buildAlignment, scriptWarnings, edgeUnits, EDGE_VOICES, DEFAULT_EDGE_VOICE } from '../src/core/tts';
 
 const hj = (args: string[], env: Record<string, string> = {}) => spawnSync(process.execPath, ['bin/hj.mjs', ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
 const SCRIPT = '公司交一百块税。政府发给你。你又花回公司。转了一圈，一分没多赚。所以这笔钱，谁也没有多出来。';
@@ -96,7 +96,7 @@ test('规划者 → 用户确认 → 执行者：骨架能直接编译，偏离�
   assert.equal(c2.status, 1);
   assert.match(c2.stdout, /计划之外的东西/);
   assert.match(c2.stdout, /不在计划里/);
-  assert.match(c2.stdout, /没有卡在这几个字上的节拍/);
+  assert.match(c2.stdout, /没有卡在这一刻的节拍/);
   // 场景里不能自己划分区
   writeFileSync(f, 'regions: { a: [0, 0, 100, 100] }\n' + src);
   assert.match(hj(['check', dir]).stdout, /场景里不要写 regions/);
@@ -176,4 +176,18 @@ test('配音：稿子没确认不调用；确认后合成一次，产物直接�
     const r4 = await run(['voice', dir]);
     assert.equal(r4.status, 1); assert.match(r4.out, /改过了，要重新确认/); assert.equal(calls, 1);
   } finally { wss.close(); }
+});
+
+test('免费配音：逐词时间拆成逐字，标点从原文补回，数字和英文保持整体并标成不可靠', () => {
+  const text = '结果呢？到2026年，AI涨了。';
+  const words = [{ text: '结果', start: 0.1, end: 0.5 }, { text: '呢', start: 0.5, end: 0.8 }, { text: '到', start: 1.3, end: 1.5 }, { text: '2026', start: 1.5, end: 2.0 }, { text: '年', start: 2.0, end: 2.3 }, { text: 'AI', start: 2.7, end: 3.1 }, { text: '涨', start: 3.1, end: 3.3 }, { text: '了', start: 3.3, end: 3.5 }];
+  const u = edgeUnits(text, words, 10);
+  assert.deepEqual(u.map(x => x.text), ['结', '果', '呢', '到', '2026', '年', 'AI', '涨', '了']);
+  assert.equal(u[0].start, 10.1); assert.ok(Math.abs(u[1].start - 10.3) < 1e-9); // 两个字的词按字均分，并平移到整条音轨上
+  assert.equal(u[2].display_text, '呢？'); assert.equal(u[5].display_text, '年，'); assert.equal(u[8].display_text, '了。');
+  assert.deepEqual(u[4].timing_warnings, ['number_or_acronym']); assert.deepEqual(u[6].timing_warnings, ['number_or_acronym']);
+  assert.deepEqual(u[0].timing_warnings, []);
+  // 默认值：每个音色都有语速和音高，音高不超过会失真的范围
+  assert.ok(EDGE_VOICES[DEFAULT_EDGE_VOICE]);
+  for (const v of Object.values(EDGE_VOICES)) { assert.match(v.rate, /^[+-]\d+%$/); assert.ok(Math.abs(parseInt(v.pitch)) <= 15); }
 });
