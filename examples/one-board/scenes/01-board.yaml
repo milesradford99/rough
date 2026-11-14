@@ -53,7 +53,7 @@ elements:
   cap:   { note: 理论上限, target: total, side: bottom, size: note }
   ten:   { text: "×10", size: key, color: red, in: bottom, at: [840, 188] }
   make:  { text: "创造存款", size: label, color: blue, in: bottom, at: [140, 188] }
-  real:  { note: 留现金, target: back, side: bottom, size: note }
+  real:  { note: 留现金, target: back, side: left, size: note }
   real2: { note: 不借光, target: lend, side: top, size: note }
   first: { mark: underline, target: n1, color: blue }
 beats:
