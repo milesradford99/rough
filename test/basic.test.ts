@@ -628,3 +628,32 @@ test('标记旁边有东西时自动收紧；压在字上的叉不和字同色',
   assert.notEqual(el(far, 'x').strokes[0].color, el(far, 'c').strokes[0].color, '红字上的叉不是红的');
   rmSync(d, { recursive: true });
 });
+
+test('大板：零警告；镜头按分区走、连线用宽景、自己写的全景被保持；小地图画得出来', () => {
+  const c = compile('examples/big-board');
+  assert.deepEqual(lint(c).filter(i => i.level !== 'info'), []);
+  const sc = c.scenes[0], B = c.fmt.board;
+  assert.equal(sc.board.w, B.w * 3); assert.equal(sc.board.h, B.h * 3.5);
+  assert.ok(Math.abs(sc.home.zoom - 1 / 3.5) < 0.01, '全景按较大的方向缩');
+  const segs = c.cams.filter(k => k.t0 >= 0), regionMoves = segs.filter(k => k.region && Math.abs(k.to.zoom - 1) < 0.06);
+  assert.ok(regionMoves.length >= 8, `九个分区，镜头至少按分区走八次，实际 ${regionMoves.length}`);
+  assert.ok(Math.max(...segs.map(k => k.to.zoom)) <= 1.5, '大板上的近景不放得太大');
+  // 画“切”这条跨分区的线时是宽景，之后走近
+  const a40 = c.tls.find(t => t.el.id === 'a40')!, at = (t: number) => [...segs].filter(k => k.t0 <= t).pop()!;
+  assert.ok(at(a40.drawT0! + 0.01).to.zoom < 0.7, '跨分区的连线用宽景');
+  assert.ok(at(a40.drawT0! + 8).to.zoom > 0.9, '画完连线走近到分区');
+  // 自己写的全景：在全景上写那条横幅时镜头不推近
+  const bet = c.tls.find(t => t.el.id === 'bet')!;
+  assert.equal(at(bet.drawT1!).to, sc.home);
+  // 讲到一半没有回过全景（只有自己写的两次）
+  assert.equal(segs.filter(k => k.to === sc.home).length, 2);
+  // 人群在分区里，箭头指向整群
+  const d1 = c.tls.find(t => t.el.id === 'docs1')!.el.box;
+  assert.ok(d1.x > 1920 && d1.y > 1250, '人群的坐标相对分区');
+  const cv = createCanvas(c.fmt.W / 4, c.fmt.H / 4), x = cv.getContext('2d');
+  drawFrame(x, c, 60, { createCanvas, Path2D }, { scale: 0.25 });
+  // 小地图的红框：右上角应该有红色像素
+  const d = x.getImageData(Math.round(cv.width * 0.8), 0, Math.round(cv.width * 0.2), Math.round(cv.height * 0.12)).data;
+  let red = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 180 && d[i + 1] < 110 && d[i + 2] < 100) red++;
+  assert.ok(red > 10, '推近时角上有小地图');
+});

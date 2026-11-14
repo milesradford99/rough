@@ -59,7 +59,8 @@ export function lint(c: Compiled): Issue[] {
       // 3. 画得太赶
       if (tl.compress != null && tl.compress < 0.4) add('warn', where, `要用自然速度的 ${(1 / tl.compress).toFixed(1)} 倍才画得完（${(tl.drawT1! - tl.drawT0!).toFixed(2)} 秒），会像快进。简化它、给它更多时间（节拍加 lead 提前起笔），或拆到两拍`);
     }
-    if (textChars > 110) add('warn', sc.file, `这个场景板书共 ${textChars} 个字，偏多。批注要短：数字、名字、出处，一条不超过十个字`);
+    // 板大、讲得久，字的上限跟着放宽：按板的面积算
+    if (textChars > 110 * Math.max(1, (sc.board.w * sc.board.h) / (c.fmt.board.w * c.fmt.board.h))) add('warn', sc.file, `这个场景板书共 ${textChars} 个字，偏多。批注要短：数字、名字、出处，一条不超过十个字`);
     // 信息密度：一块板讲了这么久，上面应该已经是一张内容丰富的图
     const sig = new Map<string, number>();
     for (const t of shown) if (t.el.kind !== 'mark') { const k = t.el.kind + JSON.stringify(Object.fromEntries(Object.entries(t.el.src).filter(([key]) => !POS.has(key)))); sig.set(k, (sig.get(k) ?? 0) + 1); }
@@ -235,12 +236,12 @@ export function lint(c: Compiled): Issue[] {
         const end = Math.min(sc.t1, all[i + 1]?.t0 ?? sc.t1);
         if (end - k.t1 < 1.5) return;
         const w = FB.w / k.to.zoom, h = FB.h / k.to.zoom, cx = k.to.cx - sc.origin[0] - FB.x - scx / k.to.zoom, cy = k.to.cy - FB.y - scy / k.to.zoom;
-        const v: Box = { x: cx - w / 2, y: cy - h / 2, w, h }, tc = Math.min(k.t1 + 2.5, end);
+        const v: Box = { x: cx - w / 2, y: cy - h / 2, w, h }, tc = Math.min(k.t1 + (k.region ? 12 : 2.5), end); // 对准一个分区是“走到这块地盘”，里面的东西接下来才一样样画：看它十来秒后填得怎么样
         const vis = mine.filter(tl => bornOf(tl) <= tc && (tl.gone == null || tl.gone > tc)).map(boxAt).filter(b => inter(b, v) > 0);
         if (vis.length) {
           const x0 = Math.max(v.x, Math.min(...vis.map(b => b.x))), y0 = Math.max(v.y, Math.min(...vis.map(b => b.y))), x1 = Math.min(v.x + v.w, Math.max(...vis.map(b => b.x + b.w))), y1 = Math.min(v.y + v.h, Math.max(...vis.map(b => b.y + b.h)));
           const fill = ((x1 - x0) * (y1 - y0)) / (v.w * v.h), off = Math.max(Math.abs((x0 + x1) / 2 - cx) / v.w, Math.abs((y0 + y1) / 2 - cy) / v.h);
-          if (fill < 0.05 || (fill < 0.4 && off > 0.2)) empty.push(`${fmtT(k.t1)}（内容只占画面 ${Math.round(fill * 100)}%${off > 0.2 ? '，偏在一边' : ''}）`);
+          if (fill < 0.05 || (!k.region && fill < 0.4 && off > 0.2)) empty.push(`${fmtT(k.t1)}（内容只占画面 ${Math.round(fill * 100)}%${off > 0.2 ? '，偏在一边' : ''}）`);
         } else empty.push(`${fmtT(k.t1)}（画面里什么都没有）`);
         for (const tl of mine) {
           if (['arrow', 'line', 'mark'].includes(tl.el.kind) || bornOf(tl) < k.t1 - 0.3 || bornOf(tl) >= end) continue;

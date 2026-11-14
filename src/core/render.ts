@@ -264,6 +264,39 @@ export function penAt(tl: TL, t: number): Pt | null {
   return null;
 }
 
+// ── 小地图：大板上推近之后，角上一张缩小的整块板，红框是镜头现在看的地方 ──
+function drawMinimap(ctx: any, c: Compiled, t: number, cam: Cam) {
+  const sc = c.scenes.find(s => t >= s.t0 - 1e-6 && t < s.t1) ?? c.scenes[c.scenes.length - 1];
+  if (!sc) return;
+  const { W, H, board } = c.fmt, B = sc.board, big = Math.max(B.w / board.w, B.h / board.h);
+  const on = c.meta.minimap ?? big >= 2;
+  if (!on || big < 1.3) return;
+  // 镜头还在这块板的全景附近时不显示；推近的过程中淡入
+  const a = clamp01((cam.zoom / (sc.home.zoom || 1) - 1.15) / 0.5);
+  const vw = board.w / cam.zoom, vh = board.h / cam.zoom;
+  const vx = cam.cx - sc.origin[0] - board.x - (W / 2 - (board.x + board.w / 2)) / cam.zoom - vw / 2, vy = cam.cy - sc.origin[1] - board.y - (H / 2 - (board.y + board.h / 2)) / cam.zoom - vh / 2;
+  if (a <= 0 || vx > B.w || vx + vw < 0) return; // 镜头在别的板上
+  const portrait = H > W, mw = portrait ? 150 : 190, m = mw / B.w, mh = B.h * m;
+  const x0 = W - mw - (portrait ? 44 : 28), y0 = portrait ? Math.max(24, board.y - mh - 10) : board.y + 16;
+  ctx.save(); ctx.globalAlpha = a; ctx.globalCompositeOperation = 'source-over'; ctx.lineJoin = 'round';
+  ctx.fillStyle = 'rgba(253,251,245,0.92)'; ctx.strokeStyle = 'rgba(36,33,30,0.55)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.rect(x0 - 5, y0 - 5, mw + 10, mh + 10); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.rect(x0 - 5, y0 - 5, mw + 10, mh + 10); ctx.clip();
+  // 已经画出来的东西：一个个小灰块，板就这样一点点长满
+  ctx.fillStyle = 'rgba(36,33,30,0.38)';
+  for (const tl of c.tls) {
+    if (tl.scene !== sc.index || tl.el.kind === 'axis') continue;
+    const born = tl.drawT0 ?? tl.appear?.t;
+    if (born == null || t < born || (tl.gone != null && t >= tl.gone)) continue;
+    const b = tl.el.kind === 'note' ? tl.el.solid : tl.el.box;
+    if (tl.el.kind === 'arrow' || tl.el.kind === 'line' || tl.el.kind === 'mark') continue;
+    ctx.fillRect(x0 + b.x * m, y0 + b.y * m, Math.max(2, b.w * m), Math.max(2, b.h * m));
+  }
+  ctx.strokeStyle = THEME.colors.red; ctx.lineWidth = 3;
+  ctx.strokeRect(x0 + Math.max(0, vx) * m, y0 + Math.max(0, vy) * m, (Math.min(B.w, vx + vw) - Math.max(0, vx)) * m, (Math.min(B.h, vy + vh) - Math.max(0, vy)) * m);
+  ctx.restore();
+}
+
 // ── 握笔的手 ──
 interface PenSeg { t0: number; t1: number; tl: TL; i: number }
 const penSegs = new WeakMap<object, PenSeg[]>();
@@ -417,6 +450,7 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     if (hp) { ctx.setTransform(k, 0, 0, k, 0, 0); drawHand(ctx, hp, o.pen === 'hand', Math.sqrt(cam.zoom / (c.scenes[hp.scene]?.home.zoom || 1)) * (W < H ? 1 : 0.85)); }
   }
   ctx.setTransform(k, 0, 0, k, 0, 0);
+  if (!o.bare) drawMinimap(ctx, c, t, cam);
   if (o.guides) {
     ctx.strokeStyle = '#4dabf7'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]); ctx.strokeRect(board.x, board.y, board.w, board.h); ctx.setLineDash([]);
   }

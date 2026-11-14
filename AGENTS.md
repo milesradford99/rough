@@ -90,6 +90,7 @@ beats:                            # 什么时候、怎么动、镜头看哪儿
 坐标可以引用前面的东西（`at: [r1.left, 440]`），也可以落在数轴的数值上（`at: [t@2, 400]`）：后画的对着先画的摆，位置本身就在说话。**涉及长短、时间、比例的，一律用数轴和区间条，不要自己算像素。**
 
 内容多、一屏放不下时，把板放大而不是换板：场景里写 `board: 1.6`，全景是缩小的整块板，近景才是原大。
+一件复杂的事（八九环的因果链、好几方的系统、三五分钟）用大板：`board: [3, 3.5]`，一个分区一屏、排成一条蛇形的路，镜头按分区走，角上自动有小地图。照 [examples/big-board/](examples/big-board/) 写，规矩见 directing.md“大板”一节。
 很长的片子可以分章，一章一块板；确实要一页页陈列（素材展示）就在 `project.yaml` 里写 `layout: pages`。
 
 **框架替你兜底的事**（不需要你自己盯）：
@@ -116,6 +117,7 @@ beats:                            # 什么时候、怎么动、镜头看哪儿
 | 要给配音方提要求 / 自己生成配音 | [docs/voice-guide.md](docs/voice-guide.md) |
 | 看九种表现手法各长什么样 | [examples/patterns/](examples/patterns/) |
 | 看一块板讲完一条片子的完整例子（**照这个写**） | [examples/one-board/](examples/one-board/) |
+| 看一块大板讲完一件复杂的事的例子（九个分区、三分钟） | [examples/big-board/](examples/big-board/) |
 | 看分页写法的例子（只在分章、陈列时用） | [examples/compound/](examples/compound/) |
 
 找手法和素材：

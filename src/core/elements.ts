@@ -111,6 +111,8 @@ export interface BuildCtx {
   shade?: boolean;
   /** 每个元素在画面上存在的时间段 [出现, 消失]。有它才启用自动避让 */
   life?: Map<string, [number, number]>;
+  /** 成组的元素（crowd）：组名 → 成员。箭头、坐标可以把整群当一个东西引用 */
+  groups?: Map<string, string[]>;
   note?: (where: string, msg: string, level?: 'info' | 'warn') => void;
 }
 
@@ -208,13 +210,23 @@ function axisRef(ctx: BuildCtx, v: string, where: string): Pt | null {
   return axisPoint(ax, +m[2]);
 }
 
+/** 按 id 找元素；id 是一群（crowd）的名字时，给出一个代表整群外框的替身，箭头就能指向“这一群” */
+function findEl(ctx: BuildCtx, id: string): El | undefined {
+  const el = ctx.els.get(id);
+  if (el) return el;
+  const ms = (ctx.groups?.get(id) ?? []).map(m => ctx.els.get(m)).filter((m): m is El => !!m);
+  if (!ms.length) return undefined;
+  const b = unionBox(ms.map(m => m.box)), cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  return { ...ms[0], id, kind: 'group', strokes: [], box: b, solid: b, body: undefined, over: new Set(ms.flatMap(m => [m.id, ...m.over])),
+    anchors: { center: [cx, cy], top: [cx, b.y], bottom: [cx, b.y + b.h], left: [b.x, cy], right: [b.x + b.w, cy], topLeft: [b.x, b.y], topRight: [b.x + b.w, b.y], bottomLeft: [b.x, b.y + b.h], bottomRight: [b.x + b.w, b.y + b.h] } } as El;
+}
 function parseRef(ctx: BuildCtx, ref: any, where: string): { pt: Pt; el?: El; explicit: boolean } {
   if (Array.isArray(ref)) {
     // 每个坐标可以是数字、百分比，或 "元素.锚点"（取那个锚点的 x 或 y）：和别的东西共用一根轴，不用抄坐标
     const axis = (v: any, i: 0 | 1, total: number): number => {
       if (typeof v !== 'string' || /^-?[\d.]+%?$/.test(v)) return num(v, total, where);
       const ap = axisRef(ctx, v, where); if (ap) return ap[i]; // 数轴上的数值：t@2
-      const [id, a = 'center'] = v.split('.'), el = ctx.els.get(id);
+      const [id, a = 'center'] = v.split('.'), el = findEl(ctx, id);
       if (!el) throw new SrcError(where, `坐标里引用了不存在（或定义在它后面）的元素 "${id}"`);
       if (!el.anchors[a]) throw new SrcError(where, `元素 "${id}" 没有锚点 "${a}"，可用：${Object.keys(el.anchors).join(' ')}`);
       return el.anchors[a][i];
@@ -225,7 +237,7 @@ function parseRef(ctx: BuildCtx, ref: any, where: string): { pt: Pt; el?: El; ex
   const ap = axisRef(ctx, ref, where);
   if (ap) return { pt: ap, explicit: true };
   const [id, a] = ref.split('.');
-  const el = ctx.els.get(id);
+  const el = findEl(ctx, id);
   if (!el) throw new SrcError(where, `引用了不存在（或定义在它后面）的元素 "${id}"。被引用的元素要写在前面`);
   if (!a) return { pt: el.anchors.center, el, explicit: false };
   if (!el.anchors[a]) throw new SrcError(where, `元素 "${id}" 没有锚点 "${a}"，可用：${Object.keys(el.anchors).join(' ')}`);
