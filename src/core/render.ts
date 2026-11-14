@@ -146,6 +146,23 @@ function paperTexture(env: Env, W: number, H: number): any {
   return cv;
 }
 
+const veils = new Map<string, any>();
+function veil(env: Env, tex: any, W: number, H: number, board: { x: number; y: number; w: number; h: number }): any {
+  const key = `${W}x${H}:${board.y}:${board.h}`;
+  let cv = veils.get(key);
+  if (cv) return cv;
+  cv = env.createCanvas(W, H);
+  const x = cv.getContext('2d'), F = 70, top = board.y - 8, bot = board.y + board.h + 8;
+  x.drawImage(tex, 0, 0, W, H);
+  x.globalCompositeOperation = 'destination-in';
+  const g = x.createLinearGradient(0, 0, 0, H), st = (y: number) => Math.min(1, Math.max(0, y / H));
+  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(st(top - F), 'rgba(0,0,0,1)'); g.addColorStop(st(top), 'rgba(0,0,0,0)');
+  g.addColorStop(st(bot), 'rgba(0,0,0,0)'); g.addColorStop(st(bot + F), 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,1)');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  veils.set(key, cv);
+  return cv;
+}
+
 interface ElState { visible: boolean; dx: number; dy: number; scale: number; alpha: number; strokes: Stroke[]; drawing: boolean }
 const poseCache = new WeakMap<object, Map<string, Stroke[]>>();
 
@@ -280,6 +297,9 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     ctx.drawImage(layer, 0, 0);
     ctx.globalAlpha = 1;
   }
+  // 画板上下是平台界面和字幕的地方：近景时邻近的东西会漫进去，用纸面把它们柔和地收掉
+  ctx.setTransform(k, 0, 0, k, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(veil(env, tex, W, H, board), 0, 0, W, H);
   // 笔尖（可选，极小）
   if (o.pen && pen) {
     const sc = c.scenes[pen.scene];

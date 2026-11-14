@@ -135,6 +135,7 @@ export function compile(dir: string): Compiled {
     const enter = src.enter ?? (si === 0 ? 'cut' : 'pan');
     if (!['pan', 'wipe', 'cut'].includes(enter)) err(file, `enter 只能是 pan（镜头平移到新板面）/ wipe（擦掉重来）/ cut（直接切）`);
     const sayUnits = al.units.filter(u => u.start >= t0 - 1e-6 && u.start < t1 - 1e-6);
+    const pendingCams: { ev: CamSeg; pad: number; maxZoom: number; items: { id: string; region: boolean; box: Box }[] }[] = [];
     const scene: CScene = { id, file, index: si, t0, t1, origin, intent: String(src.intent ?? ''), enter, beats: [], els: [], say: sayUnits.map(u => u.display).join(''), home, board: sfmt.board, span: Math.round(fmt.W * bk) };
     scenes.push(scene);
     if (!scene.intent) err(file, '缺少 intent：用一两句人话说明这个场景要让观众看到什么（给用户确认分镜用）');
@@ -508,10 +509,10 @@ export function compile(dir: string): Compiled {
             const bad = fids.find(i => !local.has(i) && !regions.has(i));
             if (bad) err(aw, `camera.focus 里没有叫 "${bad}" 的元素或分区`);
             else {
-              const b = unionBox(fids.map(i => (regions.has(i) ? regions.get(i)! : shifted(local.get(i)!.el.box, pos.get(i))))), pad = c.pad ?? (fids.every(i => regions.has(i)) ? 20 : 90);
-              const zoom = Math.min(c.maxZoom ?? 2.4, fmt.board.w / (b.w + pad * 2), fmt.board.h / (b.h + pad * 2));
-              const wx = origin[0] + fmt.board.x + b.x + b.w / 2, wy = fmt.board.y + b.y + b.h / 2;
-              camEvents.push({ t0: a.t0, t1: a.t1, to: { cx: wx + (screenC[0] - boardC[0]) / zoom, cy: wy + (screenC[1] - boardC[1]) / zoom, zoom } });
+              // 先记下对准谁，等这块板排完（知道每样东西什么时候画）再定景：只框已经画出来和马上要画的，后画的到时候再带进来
+              const ev: CamSeg = { t0: a.t0, t1: a.t1, to: { cx: 0, cy: 0, zoom: 1 } };
+              camEvents.push(ev);
+              pendingCams.push({ ev, pad: c.pad ?? (fids.every(i => regions.has(i)) ? 20 : 90), maxZoom: c.maxZoom ?? 2.4, items: fids.map(i => ({ id: i, region: regions.has(i), box: regions.has(i) ? regions.get(i)! : shifted(local.get(i)!.el.box, pos.get(i)) })) });
               desc = `镜头推近 ${fids.join('、')}`;
             }
           } else err(aw, 'camera 写 home（回全景）或 {focus: [元素id…], pad: 90}（推近）');
@@ -557,6 +558,45 @@ export function compile(dir: string): Compiled {
         }
       }
     }
+    // 自己写的近景在这里定景。三件事：
+    // 1. 只框“镜头到位时已经画出来、或一秒多之内就要画”的东西；focus 里更晚才画的，等它快画时镜头再带过去——不对着半屏空白等
+    // 2. 这一拍正在画的东西（箭头连线除外）顺手框进来，前提是不会把近景拉得太远
+    // 3. 画面不越过板上内容的边：对准板边的东西时往里收
+    if (pendingCams.length) {
+      const FB = fmt.board;
+      let CB: Box | null = null;
+      const camFor = (b: Box, pad: number, maxZoom: number): Cam => {
+        const z = Math.min(maxZoom, FB.w / (b.w + pad * 2), FB.h / (b.h + pad * 2));
+        let cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        if (CB) { const hw = FB.w / z / 2, hh = FB.h / z / 2, m = 30; if (CB.w + 2 * m > 2 * hw) cx = Math.min(Math.max(cx, CB.x - m + hw), CB.x + CB.w + m - hw); if (CB.h + 2 * m > 2 * hh) cy = Math.min(Math.max(cy, CB.y - m + hh), CB.y + CB.h + m - hh); }
+        return { cx: origin[0] + FB.x + cx + (screenC[0] - boardC[0]) / z, cy: FB.y + cy + (screenC[1] - boardC[1]) / z, zoom: z };
+      };
+      const bornOf = (i: string) => { const tl = local.get(i); return tl ? tl.drawT0 ?? tl.appear?.t ?? -Infinity : -Infinity; };
+      const explicit = pendingCams.map(p => p.ev), homeEvs = camEvents.filter(k => k.to === home && k.t0 >= t0 - 1e-6);
+      for (const p of pendingCams) {
+        const until = Math.min(t1, ...[...explicit, ...homeEvs].filter(k => k.t0 > p.ev.t0 + 1e-6).map(k => k.t0));
+        const its = p.items.map(it => ({ ...it, born: it.region ? -Infinity : bornOf(it.id) }));
+        let now = its.filter(it => it.born <= p.ev.t1 + 1.2);
+        const later = its.filter(it => it.born > p.ev.t1 + 1.2 && it.born < until).sort((x, y) => x.born - y.born);
+        if (!now.length) now = later.length ? later.splice(0, 1) : its;
+        let boxes = now.map(it => it.box);
+        // 往里收只看“这时候板上已经有的东西”：板还空着时，对准谁谁就在画面正中
+        const sofar = (t: number) => { const bs = [...local.values()].filter(tl => tl.el.kind !== 'axis' && bornOf(tl.el.id) !== -Infinity && bornOf(tl.el.id) <= t && (tl.gone == null || tl.gone > t)).map(tl => tl.el.box); return bs.length ? unionBox(bs) : null; };
+        CB = sofar(p.ev.t1 + 1.2);
+        const z0 = camFor(unionBox(boxes), p.pad, p.maxZoom).zoom;
+        const fset = new Set(p.items.map(it => it.id));
+        const beat = [...local.values()].filter(tl => !fset.has(tl.el.id) && !['axis', 'arrow', 'line', 'mark'].includes(tl.el.kind) && bornOf(tl.el.id) >= p.ev.t0 - 0.1 && bornOf(tl.el.id) <= p.ev.t1 + 1.2).map(tl => (tl.el.kind === 'note' ? tl.el.solid : tl.el.box));
+        if (beat.length && camFor(unionBox([...boxes, ...beat]), p.pad, p.maxZoom).zoom >= z0 * 0.75) boxes = [...boxes, ...beat];
+        Object.assign(p.ev.to, camFor(unionBox(boxes), p.pad, p.maxZoom));
+        let lastT = p.ev.t1, lastCam = p.ev.to;
+        for (const it of later) {
+          boxes = [...boxes, it.box]; CB = sofar(it.born + 0.5);
+          const to = camFor(unionBox(boxes), p.pad, p.maxZoom), st = Math.max(lastT + 0.2, it.born - 0.5);
+          if (st + 0.9 > until || (Math.abs(to.zoom / lastCam.zoom - 1) < 0.04 && Math.hypot(to.cx - lastCam.cx, to.cy - lastCam.cy) * to.zoom < 30)) continue;
+          camEvents.push({ t0: st, t1: st + 0.9, to }); lastT = st + 0.9; lastCam = to;
+        }
+      }
+    }
     // 跟拍：引擎像摄像师一样跟着笔走。正在画的东西小就推近；要画的东西跑出画面就跟过去；切换太密就拉回全景；结尾回到全景。
     // 自己写的 camera 动作优先：写了的那一拍按写的来，之后接着跟
     const camMode = src.camera ?? meta.camera ?? (meta.layout === 'pages' ? 'still' : 'follow');
@@ -564,7 +604,8 @@ export function compile(dir: string): Compiled {
     if (camMode === 'follow' && t1 - t0 >= 12) {
       const mine = camEvents.filter(k => k.t0 >= t0 - 1e-6 && k.t0 < t1); // 这块板里自己写的镜头（进场的平移在 t0 之前，不算）
       const FB = fmt.board, FMAX = 1.9, PAD = 70, GAP = 3.5;
-      const CB = contentBox;
+      let CB: Box | null = contentBox;
+      const drawnBy = (t: number): Box | null => { const bs = [...local.values()].filter(tl => tl.el.kind !== 'axis' && (tl.drawT0 ?? tl.appear?.t ?? Infinity) <= t && (tl.gone == null || tl.gone > t)).map(tl => tl.el.box); return bs.length ? unionBox(bs) : null; };
       const camOf = (b: Box): Cam => {
         const z = Math.min(FMAX, FB.w / (b.w + PAD * 2), FB.h / (b.h + PAD * 2));
         // 近景别越过板上内容的边：对准板边上的东西时，画面往里收，不留半屏空白
@@ -584,6 +625,7 @@ export function compile(dir: string): Compiled {
         if (!tgt) continue;
         // 往后看一小段：接下来几秒要画的东西一起框进去，免得刚推近就得拉开
         const ahead = scene.beats.filter(x => x.t > b.t && x.t < b.t + GAP && !mine.some(k => k.t0 >= x.t - 1e-6 && k.t0 < x.tEnd)).map(boxOfBeat).filter((x): x is Box => !!x);
+        CB = drawnBy(b.t + GAP);
         const near = camOf(unionBox([tgt, ...ahead])), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
         if (cur === home) { if (worth && calm) go(b.t, near); continue; }        // 全景里：要画的东西小，就推近去画
         if (inside(tgt, viewOf(cur))) continue;                                  // 近景里：还在画面里，不动

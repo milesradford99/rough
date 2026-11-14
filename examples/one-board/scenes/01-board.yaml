@@ -64,7 +64,7 @@ elements:
 beats:
   - { at: "你有没有想过", intent: 近景：画出银行, do: [{ camera: { focus: [bank, q], pad: 110 }, dur: 0.1 }, { draw: bank }] }
   - { at: "是怎么越变越多", intent: 一个问号, do: [{ draw: q }] }
-  - { at: "假设你存进", intent: 你把钱存进银行；镜头往下带出第一条：100, do: [{ draw: [me, dep] }, { camera: { focus: [bank, me, n1], pad: 60 } }, { draw: n1 }] }
+  - { at: "假设你存进", intent: 你把钱存进银行；镜头往下带出第一条：100, do: [{ camera: { focus: [bank, me, n1], pad: 60 } }, { draw: [me, dep] }, { draw: n1 }] }
   - { at: "规定要留一成", intent: 擦掉问号，写下规则：留一成当准备金, do: [{ erase: q, dur: 0.3 }, { draw: [rule, rule2] }] }
   - { at: "也就是十块", intent: 近景：推到第一条的左端，头上涂出红色的一小段：留 10, do: [{ camera: { focus: [n1, r1], pad: 110 } }, { draw: [r1, r1t] }] }
   - { at: "剩下的九十块", intent: 拉开到整条：剩下的一长段是蓝色，借出 90, do: [{ camera: { focus: [r1, l1, rule], pad: 40 } }, { draw: [l1, l1t] }] }
