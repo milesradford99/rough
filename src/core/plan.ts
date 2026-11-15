@@ -45,8 +45,8 @@ export const LAYOUTS: Record<string, Layout> = {
   stack: { title: '几行共用一根轴', when: '几样东西比长短、比时间、比多少：对齐本身就是论证', link: '所有横条左对齐、共用一根轴；汇总从它们往下连',
     regions: { head: '谁、规则、前提', rows: '几行左对齐的横条或时间段', sum: '汇总、结论' },
     portrait: { rows: [24, 54, 22], areas: [['head'], ['rows'], ['sum']] }, landscape: { rows: [22, 78], cols: [68, 32], areas: [['head', 'head'], ['rows', 'sum']] } },
-  compare: { title: '两边对照', when: '两种情况、两个方案、以前和现在', link: '同一行的东西两边对齐；底部一条把两栏括起来',
-    regions: { head: '比的是什么', a: '一边', b: '另一边', sum: '差别、结论' },
+  compare: { title: '两组对照', when: '两种情况、两个方案、以前和现在', link: '两组里对应的东西对齐（竖屏两组上下排、对齐同一列；横屏左右排、对齐同一行）；最后一条把两组括起来',
+    regions: { head: '比的是什么', a: '一组', b: '另一组', sum: '差别、结论' },
     portrait: { rows: [20, 30, 30, 20], areas: [['head'], ['a'], ['b'], ['sum']] }, landscape: { rows: [16, 60, 24], cols: [1, 1], areas: [['head', 'head'], ['a', 'b'], ['sum', 'sum']] } },
   cycle: { title: '转一圈', when: '钱、货、信息在几方之间流转', link: '圈上的箭头首尾相接；结论写在圈的中间或下面',
     regions: { head: '起因、谁在场', loop: '转起来的圈', sum: '转完之后的结果' },
@@ -240,6 +240,12 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
     if (!/^[A-Za-z][\w-]*$/.test(b.id)) err(where, '板的 id 用英文字母开头的短名（如 main、credit），场景文件会叫 scenes/NN-<id>.yaml');
     if (seenBoard.has(b.id)) err(where, `板的 id "${b.id}" 重复了`);
     seenBoard.add(b.id);
+    // 说的是左右，分的是上下（或反过来）：picture 和 intent 是给用户和执行者看的，方位要和分区对得上
+    { const cols = Math.max(1, ...b.grid.areas.map(r => r.length)), rows = b.grid.areas.length, said = [b.picture, ...b.segments.map(s => s.intent)].join(' ');
+      const lr = /左栏|右栏|左右两栏|左半|右半/.exec(said), ud = /上半|下半|上下两栏/.exec(said);
+      if (lr && cols < 2) warn(where, `picture 或 intent 里写了“${lr[0]}”，但这块板的分区只有一列，是上下排的${b.layout ? `（版式 ${b.layout} 在${fmt.name === 'portrait' ? '竖屏' : '横屏'}下就是这样分的，hj layouts ${b.layout} 可以看）` : ''}。照实际的分区改写成“上面、下面”，或者自己写 grid 分成左右两列`);
+      if (ud && rows < 2) warn(where, `picture 或 intent 里写了“${ud[0]}”，但这块板的分区只有一行，是左右排的。照实际的分区改写成“左边、右边”，或者自己写 grid 分成上下两行`);
+    }
     if (wordLen(b.picture) < 10) err(where, 'picture 没有写清楚：这块板讲完是一张什么图（有哪几块、什么形状、怎么连）。这句话会原样给用户看');
     if (b.recall && !plan.boards.slice(0, bi).some(p => p.id === b.recall)) err(where, `recall 要写前面某块板的 id，没有找到 "${b.recall}"`);
     const { regions, errors: ge } = planRegions(b, fmt);
@@ -295,6 +301,16 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
       }
     });
     for (const rn of rnames) if (!usedRegions.has(rn)) warn(where, `分区 "${rn}" 没有任何一段画在里面：全景缺了一块。${b.layout ? `版式 ${b.layout} 自带这个分区；用不上就换一种版式（hj layouts），或者自己写 grid` : '去掉它，或者把该放这儿的段落写上'}`);
+    // 长线：一条关系的两头住在不挨着的分区里，这条线只能从中间的分区穿过去，压住那里的东西
+    for (const id of new Set(b.segments.flatMap(s => s.link))) {
+      const r = plan.relations[id], hf = r && home.get(r.from), ht = r && home.get(r.to), A = hf && regions[hf], C = ht && regions[ht];
+      if (!r || !A || !C || hf === ht) continue;
+      const gx = Math.max(A[0] - (C[0] + C[2]), C[0] - (A[0] + A[2])), gy = Math.max(A[1] - (C[1] + C[3]), C[1] - (A[1] + A[3]));
+      if (Math.max(gx, gy) <= 2) continue; // 挨着（共用一条边或一个角）
+      const mid = (v: number[]) => [v[0] + v[2] / 2, v[1] + v[3] / 2], [ax, ay] = mid(A), [cx, cy] = mid(C);
+      const between = rnames.filter(n => n !== hf && n !== ht && regions[n]).filter(n => { const R = regions[n]; for (let k = 1; k < 20; k++) { const x = ax + ((cx - ax) * k) / 20, y = ay + ((cy - ay) * k) / 20; if (x > R[0] && x < R[0] + R[2] && y > R[1] && y < R[1] + R[3]) return true; } return false; });
+      warn(where, `关系 ${id}（${plan.cast[r.from]?.name} → ${plan.cast[r.to]?.name}）的两头分别在分区 "${hf}" 和 "${ht}"，${between.length ? `中间隔着 ${between.map(n => `"${n}"`).join('、')}` : '两个分区不挨着'}：这条线要穿过半块板，压住中间的东西。让其中一个角色在挨着对方的分区出场（改它第一次 show 的那一段的 in）；或者去掉这条关系，讲到这里时回头改对方（revisit）`);
+    }
     // 主角：讲完之后第一眼该看到谁。它决定了执行者把谁画得最大、周围留白最多
     const allWords = new Set(b.segments.flatMap(s => s.words).map(norm));
     if (!b.hero) warn(where, `没有指定主角（hero）：这块板讲完后，观众第一眼该看到哪样东西？通常是结论的那个数或那个词。写 hero: "板书原文"（${[...new Set(b.segments.filter(s => s.act === '结论').flatMap(s => s.words))].slice(0, 3).map(w => `"${w}"`).join('、') || 'words 里的一条'}）或一个角色的 id。不指定，板上的东西就一样大，没有主次`);

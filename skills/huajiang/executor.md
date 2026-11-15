@@ -70,13 +70,13 @@ beats:
 
 | 要做的事 | 这样写 |
 |---|---|
-| 放进一个分区 | `in: 分区名`，之后 `at: [x, y]` 相对这个分区的左上角；也可以写百分比 `at: ["30%", "50%"]`。**没写 `in` 的东西（你自己加的数轴、区间条、线也一样），坐标是整块板的** |
+| 放进一个分区 | `in: 分区名`，之后 `at: [x, y]` 是这样东西**中心**落在哪儿，从这个分区的左上角量起（要拿边去对齐就加 `anchor: left` 等）；也可以写百分比 `at: ["30%", "50%"]`。**没写 `in` 的东西（你自己加的数轴、区间条、线也一样），坐标是整块板的** |
 | 挨着另一样东西 | `rightOf: a` / `leftOf` / `above` / `below`，`gap: 30` 调间距 |
 | 和前面的东西对齐 | `at: [a.left, 440], anchor: left`：x 取 a 的左边，共用一根轴 |
 | 长短、时间、比例 | 一根数轴 `{ axis: [0, 100], length: 500, at: [250, 250] }`（不 draw 它就只当比例尺）加区间条 `{ span: [0, 10], on: 数轴名, at: [0, 250] }`。**不要自己算像素** |
 | 一排一样的东西 | `{ crowd: 10, cols: 5, of: { cast: worker }, at: [x, y] }`；角色本身是一群时直接 `{ cast: class, size: small, in: 分区 }`，`size` 管每一个的大小，挤了就写 `cols`、`gap`；一排圆点、方块：`of: { shape: circle, w: 44, h: 44, fill: blue }` |
 | 给东西加一行小字 | `label: 小字`（写在正下方），或批注 `{ note: 小字, target: a, side: right }` |
-| 圈、叉、划线 | `{ mark: circle, target: a }`，可选 `circle box underline strike cross highlight check`。标记打在箭头上时，只在箭头中间画一个小的（叉和划线是把这条线掐断，圈是“看这条关系”） |
+| 圈、叉、划线 | `{ mark: circle, target: a }`，可选 `circle box underline strike cross highlight check`。标记打在箭头上时：叉和划线是把这条线掐断，画在线上、自动让开箭头的小字；圈、框、下划线是“看这条关系”，标的是箭头上那行小字（没有小字就圈线的中段） |
 | 人站在东西上 | `at: boat.deck, anchor: bottom`（手绘件自己声明的锚点） |
 | 手里拿东西 | `carry: { doodle: moneybag }` |
 | 拿不准位置 | 只写 `near: 某元素`（放在离它最近的空地），或什么位置都不写（引擎从上到下找空位）。不写比乱写好 |

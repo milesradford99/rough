@@ -168,6 +168,9 @@ export function lint(c: Compiled): Issue[] {
           const isText = o.el.kind === 'text' || o.el.kind === 'note';
           if (countIn(pts, o.el.solid, isText ? 4 : 10) >= (isText ? 2 : 5)) hit.push(o.el.id);
         }
+        // 打在箭头上的叉、划线压住了箭头自己的小字（线太短，沿线让不开）
+        const own = tids.map(i => byId.get(i)!).filter(tg => tg?.el.label && countIn(pts, { x: tg.el.box.x + tg.el.label.x, y: tg.el.box.y + tg.el.label.y, w: tg.el.label.w, h: tg.el.label.h }, 4) >= 2).map(tg => tg.el.id);
+        if (own.length) add('warn', where, `这个标记压住了 ${NAMES(own)} 自己的小字“${byId.get(own[0])!.el.text}”：这条线太短，标记沿线让不开。把线两头的东西拉开一点，或者把小字从 label 改成线旁边单独的一行字`);
         if (hit.length) add('warn', where, `这个${{ circle: '圈', box: '框', cross: '叉', strike: '划线', underline: '下划线' }[String(el.src.mark)] ?? '标记'}画下去会压到 ${NAMES(hit)}。引擎已经把标记收到最紧了还是压到：把它们从 ${NAMES(tids)} 旁边挪开一点、调小 pad，或换一种标记（underline 占地最小）`);
       }
       // 字被线穿过（分隔线、箭头、别的批注的牵线）

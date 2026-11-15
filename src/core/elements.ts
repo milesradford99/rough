@@ -25,6 +25,8 @@ export interface El {
   solid: Box;
   /** 不含标签的本体，相对 box 左上角（box 随元素平移，这个偏移不变）。标记打叉、划线时只盖本体，不盖住标签 */
   body?: Box;
+  /** 箭头、连线上那行小字的位置，相对 box 左上角。打在线上的标记要让开它 */
+  label?: Box;
   /** 数轴：数值范围。数值 v 的位置在 anchors.start 和 anchors.end 之间按比例插值 */
   axis?: [number, number];
   /** 被引擎自动挪动的距离 */
@@ -284,6 +286,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   const shade = (src.shade ?? ctx.shade) !== false;
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
   let placed = false; // arrow/line/mark 直接画在场景坐标里
+  let lineLabel: Box | null = null; // 箭头上小字的绝对位置，box 定下来之后换成相对的
 
   if (kind === 'text') {
     const t = textStrokes(String(src.text), { size: src.size ?? THEME.textSize, color: st.color, align: src.align, lineGap: src.lineGap });
@@ -436,6 +439,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       if (hits(lb(lx, ly), lblObs, 6)) { const ax = 2 * mid[0] - lx, ay = 2 * mid[1] - ly; if (!hits(lb(ax, ay), lblObs, 6)) { lx = ax; ly = ay; } }
       translateStrokes(t.strokes, lx - t.w / 2, ly - t.h / 2);
       el.strokes.push(...t.strokes); el.text = String(src.label); el.missing = t.missing;
+      lineLabel = lb(lx, ly);
     }
     placed = true;
   } else if (kind === 'note') {
@@ -479,15 +483,18 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     // 标记打在一条箭头或连线上：只在线的中点画一个小的，不盖住整条线的外框。叉、划线的意思是“把这条线掐断”（长斜线的外框很大，会压住两头的东西和标签）
     const cut = ['cross', 'strike'].includes(src.mark);
     if (targets.length === 1 && (cut || ['circle', 'box', 'highlight', 'underline'].includes(src.mark)) && ['arrow', 'line'].includes(targets[0].el!.kind) && targets[0].el!.path && targets[0].el!.path.length >= 4) {
-      const pth = targets[0].el!.path as number[]; let total = 0;
+      const T = targets[0].el!, pth = T.path as number[]; let total = 0;
       for (let i = 2; i < pth.length; i += 2) total += Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]);
-      let acc = 0, mx = pth[0], my = pth[1];
-      for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (acc + d >= total / 2) { const k = d ? (total / 2 - acc) / d : 0; mx = pth[i - 2] + (pth[i] - pth[i - 2]) * k; my = pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k; break; } acc += d; }
-      // 小字写在中点上：往线的三分之一处挪，让开它
-      if (cut && targets[0].el!.src?.label) { let a2 = 0; for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (a2 + d >= total * 0.28) { const k = d ? (total * 0.28 - a2) / d : 0; mx = pth[i - 2] + (pth[i] - pth[i - 2]) * k; my = pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k; break; } a2 += d; } }
-      // 圈、框、高亮、下划线打在一条线上：意思是“看这条关系”，圈住线的中段（小字就在那儿），不去圈整条线的外框
-      const r = cut ? Math.max(26, Math.min(40, total * 0.12)) : Math.max(34, Math.min(58, total * 0.16));
-      tb = { x: mx - r, y: my - r, w: r * 2, h: r * 2 };
+      const at = (f: number): Pt => { let acc = 0; for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (acc + d >= total * f) { const k = d ? (total * f - acc) / d : 0; return [pth[i - 2] + (pth[i] - pth[i - 2]) * k, pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k]; } acc += d; } return [pth[pth.length - 2], pth[pth.length - 1]]; };
+      const lab: Box | null = T.label ? { x: T.box.x + T.label.x, y: T.box.y + T.label.y, w: T.label.w, h: T.label.h } : null;
+      const around = (c: Pt, r: number): Box => ({ x: c[0] - r, y: c[1] - r, w: r * 2, h: r * 2 });
+      if (cut) {
+        // 叉、划线：把线掐断。画在线上离小字最近的空处——先试中点，压到小字就沿线往两头让
+        const r = Math.max(26, Math.min(40, total * 0.12)), clear = (b: Box) => !lab || !hits(b, [lab], 6);
+        const spots = [0.5, 0.34, 0.66, 0.24, 0.76].map(f => around(at(f), r));
+        tb = spots.find(clear) ?? spots.reduce((a, b) => { const d = (q: Box) => Math.hypot(q.x + r - lab!.x - lab!.w / 2, q.y + r - lab!.y - lab!.h / 2); return d(b) > d(a) ? b : a; });
+      } else if (lab) tb = lab; // 圈、框、高亮、下划线：意思是“看这条关系”。线上有小字就标那行小字，圈在字外面，不从字上压过去
+      else tb = around(at(0.5), Math.max(34, Math.min(58, total * 0.16))); // 没有小字：圈住线的中段，不去圈整条线的外框
     }
     const ms: Style = { ...st, color: color(src.color, THEME.colors.red), w: src.pen ?? THEME.pen * 1.15 };
     const m = src.mark;
@@ -543,6 +550,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   }
   el.box = boxOf(el.strokes);
   if (labelStrokes.length) el.body = { x: core.x - el.box.x, y: core.y - el.box.y, w: core.w, h: core.h };
+  if (lineLabel) el.label = { x: lineLabel.x - el.box.x, y: lineLabel.y - el.box.y, w: lineLabel.w, h: lineLabel.h };
 
   if (!placed) {
     const keys = POS_KEYS.filter(k => k in src);

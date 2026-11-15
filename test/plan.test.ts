@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
-import { fakeAlignment } from '../src/core/alignment';
+import { fakeAlignment, loadAlignment, resolveAnchor } from '../src/core/alignment';
 import { confirmCode, hasCode, type Stage } from '../src/core/review';
 import { cpSync, rmSync } from 'node:fs';
 import { compile } from '../src/core/compile';
@@ -202,6 +202,37 @@ test('板的大小跟着内容量走：东西少是一屏，东西多自动放�
   assert.equal(fb.size, 1.5); assert.ok(!fb.autoSize);
 });
 
+test('口播简报的卡点：每一小句都给一个能直接用的片段，短的、重复的小句往后多带几个字', () => {
+  const root = mkdtempSync(join(tmpdir(), 'hj-brief-')), voice = join(root, 'v'), dir = join(root, 'proj');
+  mkdirSync(voice, { recursive: true });
+  writeFileSync(join(voice, 'alignment.json'), JSON.stringify(fakeAlignment('涉及数字、人名、出处，都要再核一遍。先说结论，再讲原因。先说结论，最后才轮到决定。')));
+  assert.equal(hj(['init', dir, '--voice', voice]).status, 0);
+  assert.equal(hj(['brief', dir]).status, 0);
+  const md = readFileSync(join(dir, 'brief.md'), 'utf8'), al = loadAlignment(join(dir, 'voice/alignment.json'));
+  const rows = md.slice(md.indexOf('## 分句卡点')).split('\n').filter(l => /^\| \d/.test(l)).map(l => l.split('|').map(c => c.trim()));
+  assert.ok(rows.length >= 7, md);
+  assert.doesNotMatch(md, /用 #2/);
+  for (const r of rows) {
+    const anchor = /^`(.+)`$/.exec(r[3])?.[1];
+    assert.ok(anchor, `“${r[2]}” 没有给卡点`);
+    const hit = resolveAnchor(al, anchor!);
+    assert.ok(Math.abs(hit.time - +r[1]) < 0.011 && !hit.ambiguous, `“${r[2]}” 的卡点 ${anchor} 应该正好落在 ${r[1]} 秒且不重复，实际 ${hit.time.toFixed(2)}`);
+  }
+  assert.ok(rows.some(r => r[2].startsWith('人名') && r[3] === '`人名`'), '两个字的小句也有卡点');
+  assert.ok(rows.filter(r => r[2].startsWith('先说结论')).every(r => r[3].length > '`先说结论`'.length), '重复的小句往后多带几个字');
+});
+
+test('长线：一条关系的两头在不挨着的分区，计划检查会提醒；挨着的不提醒', () => {
+  assert.doesNotMatch(hj(['check', project()]).stdout, /两头分别在分区/);
+  // 三行叠着：公司在最上面，你在最下面，中间隔着政府那一行
+  const far = PLAN.replace(/    grid:\n      areas:\n        - \[up, up\]\n        - \[left, right\]\n    regions: \{[^\n]*\n/, '    grid:\n      areas:\n        - [up]\n        - [left]\n        - [right]\n    regions: { up: 公司, left: 政府, right: 你 }\n')
+    .replace('in: up, show: [co, gov], link: [tax]', 'in: up, show: [co], words: ["100"], intent: 公司 }\n      - { at: "交一百块税", act: 例子, in: left, show: [gov], link: [tax]')
+    .replace('in: left, show: [me], link: [give]', 'in: right, show: [me], link: [give]').replace('in: left, link: [spend]', 'in: right, link: [spend]').replace('in: right, revisit: [co]', 'in: left, revisit: [co]');
+  const r = hj(['check', project(far)]);
+  assert.match(r.stdout, /关系 spend（你 → 公司）的两头分别在分区 "right" 和 "up"，中间隔着 "left"/, r.stdout);
+  assert.doesNotMatch(r.stdout, /关系 (tax|give)（/, '挨着的分区之间的关系不提醒');
+});
+
 test('主角和版式：主角必须是板上真有的东西；版式展开成分区；没指定主角会提醒', () => {
   const noHero = hj(['check', project()]);
   assert.match(noHero.stdout, /没有指定主角（hero）/);
@@ -212,9 +243,13 @@ test('主角和版式：主角必须是板上真有的东西；版式展开成�
   const lay = PLAN.replace(/    grid:\n      areas:\n        - \[up, up\]\n        - \[left, right\]\n    regions: \{[^\n]*\n/, '    layout: cycle\n').replace(/in: up/g, 'in: head').replace(/in: left/g, 'in: loop').replace(/in: right/g, 'in: sum');
   const l1 = hj(['check', project(lay)]);
   assert.match(l1.stdout, /0 个错误/, l1.stdout);
+  // 版式在竖屏下是上下排的：计划里说“左栏、右栏”会被指出来
+  const cmp = PLAN.replace(/    grid:\n      areas:\n        - \[up, up\]\n        - \[left, right\]\n    regions: \{[^\n]*\n/, '    layout: compare\n').replace(/in: up/g, 'in: head').replace(/in: left/g, 'in: a').replace(/in: right/g, 'in: b');
+  assert.doesNotMatch(hj(['check', project(cmp)]).stdout, /分区只有一列/);
+  assert.match(hj(['check', project(cmp.replace('picture: 公司、政府、你站成一个三角', 'picture: 左栏是公司和政府，右栏是你'))]).stdout, /写了“左栏”，但这块板的分区只有一列，是上下排的（版式 compare 在竖屏下/);
   const l2 = hj(['check', project(lay.replace('layout: cycle', 'layout: spiral'))]);
   assert.equal(l2.status, 1); assert.match(l2.stdout, /没有叫 "spiral" 的版式/);
-  assert.match(hj(['layouts']).stdout, /compare[\s\S]*两边对照/);
+  assert.match(hj(['layouts']).stdout, /compare[\s\S]*两组对照/);
 });
 
 test('构图检查：档位写错、字号太多、漂着的字、差一点对齐、左右失衡；手写坐标会被吸附对齐', () => {

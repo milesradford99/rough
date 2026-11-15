@@ -302,10 +302,12 @@ const commands: Record<string, () => Promise<void> | void> = {
       L.push(`| ${i + 1} | ${s.start.toFixed(2)} | ${s.end.toFixed(2)} | ${(s.end - s.start).toFixed(1)}s | ${gap > 0.02 ? gap.toFixed(2) + 's' : ''} | ${txt.replace(/~~/g, '')} |`);
     });
     // 分句：按逗号、顿号再切一层，每一小句的开口时间就是现成的卡点。
-    // 在整条口播里出现不止一次的词组标出来：卡点写它要加 #2，或者换一个更长、只出现一次的片段
-    const plain = al.units.map(u => u.display).join('');
+    // 卡点按“去掉标点的口播”来找（和引擎解析 at 的办法一样），所以片段可以跨过逗号
+    const strip = (t: string) => t.replace(/[，。、；：？！,.;:?!“”"' ]/g, '');
+    const plain = strip(al.units.map(u => u.display).join(''));
+    const offs: number[] = []; { let n = 0; for (const u of al.units) { offs.push(n); n += strip(u.display).length; } }
     const count = (w: string) => { let n = 0, i = -1; while ((i = plain.indexOf(w, i + 1)) >= 0) n++; return n; };
-    L.push('', '## 分句卡点', '', '每一小句开口的时间。`卡点` 一栏是可以直接写进 `at:` 的片段（在整条口播里只出现一次）；标了“重复”的词组在口播里不止一次，写它要加 `#2`、`#3`。', '', '| 起 | 分句 | 卡点 | 重复的词组 |', '|--:|---|---|---|');
+    L.push('', '## 分句卡点', '', '每一小句开口的时间。`卡点` 一栏是可以直接写进 `at:` 的片段：从这一小句的开头起、在整条口播里只出现一次的最短的一段（小句太短或者重复时，会往后多带几个字）。“重复的词组”在口播里不止一次，别拿它单独当卡点。', '', '| 起 | 分句 | 卡点 | 重复的词组 |', '|--:|---|---|---|');
     for (const sn of al.sentences) {
       let k = sn.from;
       while (k < sn.to) {
@@ -313,11 +315,12 @@ const commands: Record<string, () => Promise<void> | void> = {
         e = Math.min(e + 1, sn.to);
         const txt = al.units.slice(k, e).map(u => u.display).join(''), core = txt.replace(/[，。、；：？！,.;:?!“”"' ]/g, '');
         if (core) {
+          // 从这一小句的开头往后取，取到在整条口播里只出现一次为止；小句本身重复就接着往后带
           let anchor = '';
-          for (let n = 3; n <= core.length && !anchor; n++) { const w = core.slice(0, n); if (count(w) === 1) anchor = w; }
+          for (let n = Math.min(2, core.length); n <= 16 && offs[k] + n <= plain.length && !anchor; n++) { const w = plain.slice(offs[k], offs[k] + n); if (count(w) === 1) anchor = w; }
           const reps: string[] = [];
           for (let n = 4; n >= 3; n--) for (let i = 0; i + n <= core.length; i++) { const w = core.slice(i, i + n); if (/^[\u4e00-\u9fff\d]+$/.test(w) && count(w) > 1 && !reps.some(r => r.includes(w) || w.includes(r))) reps.push(w); }
-          L.push(`| ${al.units[k].start.toFixed(2)} | ${txt} | ${anchor ? '`' + anchor + '`' : '（整句都重复，用 #2）'} | ${reps.slice(0, 4).map(r => `${r}×${count(r)}`).join('、')} |`);
+          L.push(`| ${al.units[k].start.toFixed(2)} | ${txt} | ${anchor ? '`' + anchor + '`' : `（到片尾都重复：写 \`${core}#n\`，n 是它在这块板的口播里第几次出现）`} | ${reps.slice(0, 4).map(r => `${r}×${count(r)}`).join('、')} |`);
         }
         k = e;
       }

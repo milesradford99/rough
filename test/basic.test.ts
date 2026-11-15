@@ -616,6 +616,25 @@ test('近景不从字和小人中间切过去：往旁边让开，正在讲的�
   for (const k of wide.cams.filter(k => k.t0 > -1 && k.to !== wide.scenes[0].home)) { const g = frac(wb, view(wide, k.to)); assert.ok(g < 0.05 || g > 0.96, `刚写的字被切了，露出 ${(g * 100).toFixed(0)}%`); }
 });
 
+test('打在箭头上的标记让开箭头自己的小字：叉沿线挪开，圈圈在小字外面；线太短让不开会警告', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画两样东西和一条线。再打一个叉。最后圈一下。')));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const build = (x2: number) => { writeFileSync(join(d, 'scenes/01.yaml'), `from: "先画"\nintent: 线上的标记\nframe: false\nelements:\n  a: { doodle: bank, size: 120, at: [150, 300] }\n  b: { doodle: factory, size: 120, at: [${x2}, 300] }\n  r: { arrow: [a, b], label: 借出 }\n  a2: { doodle: bank, size: 120, at: [150, 800] }\n  b2: { doodle: factory, size: 120, at: [800, 800] }\n  r2: { arrow: [a2, b2], label: 还钱 }\n  x: { mark: cross, target: r }\n  o: { mark: circle, target: r2 }\nbeats:\n  - { at: "先画", intent: 画, do: [{ draw: [a, b, r, a2, b2, r2] }] }\n  - { at: "再打", intent: 叉, do: [{ draw: x }] }\n  - { at: "最后圈", intent: 圈, do: [{ draw: o }] }\n`); return compile(d); };
+  const el = (c: any, id: string) => c.tls.find((t: any) => t.el.id === id)!.el;
+  const labelOf = (e: any) => ({ x: e.box.x + e.label.x, y: e.box.y + e.label.y, w: e.label.w, h: e.label.h });
+  const over = (p: any, q: any) => Math.max(0, Math.min(p.x + p.w, q.x + q.w) - Math.max(p.x, q.x)) * Math.max(0, Math.min(p.y + p.h, q.y + q.h) - Math.max(p.y, q.y));
+  const c = build(800), lr = labelOf(el(c, 'r')), l2 = labelOf(el(c, 'r2')), xb = el(c, 'x').box, ob = el(c, 'o').box;
+  assert.ok(el(c, 'r').label, '箭头记下了小字的位置');
+  assert.equal(over(xb, lr), 0, '叉不压箭头自己的小字');
+  assert.ok(xb.w < 140, '叉是画在线上的一个小叉，不是盖住整条线');
+  assert.ok(ob.x < l2.x && ob.y < l2.y && ob.x + ob.w > l2.x + l2.w && ob.y + ob.h > l2.y + l2.h, '圈把小字整个圈在里面');
+  assert.doesNotMatch(lint(c).map(i => i.msg).join(), /自己的小字/);
+  // 两头挨得很近：线短到叉怎么挪都压着小字
+  assert.match(lint(build(330)).map(i => i.msg).join(), /压住了 "r" 自己的小字“借出”/);
+  rmSync(d, { recursive: true });
+});
+
 test('握笔的手跟着笔尖；线的轻重跟着大小；小人能按自己的锚点坐到凳子上', () => {
   const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
   writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画一个大的。再画一个小的。坐下来。等一等，再等一等，再等一等。')));
