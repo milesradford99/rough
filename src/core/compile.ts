@@ -610,6 +610,39 @@ export function compile(dir: string): Compiled {
     // 1. 只框“镜头到位时已经画出来、或一秒多之内就要画”的东西；focus 里更晚才画的，等它快画时镜头再带过去——不对着半屏空白等
     // 2. 这一拍正在画的东西（箭头连线除外）顺手框进来，前提是不会把近景拉得太远
     // 3. 画面不越过板上内容的边：对准板边的东西时往里收
+    // 近景不从已经画好的东西中间切过去：画面边压到谁，就把谁整个框进来（箭头、线、标记除外：它们本来就通向别处）。
+    // 框进来之后放大倍数会变小；小到不值得推近时，由调用的地方决定回全景
+    const viewBox = (cm: Cam): Box => { const FB = fmt.board, w = FB.w / cm.zoom, h = FB.h / cm.zoom, cx = cm.cx - origin[0] - FB.x - (screenC[0] - boardC[0]) / cm.zoom, cy = cm.cy - FB.y - (screenC[1] - boardC[1]) / cm.zoom; return { x: cx - w / 2, y: cy - h / 2, w, h }; };
+    // 刚画的东西（正在讲的）必须完整：重 10。早先画的字和小人被切一刀也难看，但可以权衡：重 1。早先画的长横条、大图可以伸出画面：不算
+    const aliveAt = (t: number): (Box & { wt: number })[] => [...local.values()].flatMap(tl => {
+      const born = tl.drawT0 ?? tl.appear?.t ?? Infinity;
+      if (['axis', 'arrow', 'line', 'mark'].includes(tl.el.kind) || born > t || (tl.gone != null && tl.gone <= t)) return [];
+      const wt = born > t - 4 ? 10 : ['text', 'note', 'figure'].includes(tl.el.kind) ? 1 : 0;
+      if (!wt) return [];
+      const b = tl.el.kind === 'note' ? tl.el.solid : tl.el.box, mv = tl.moves.length ? tl.moves[tl.moves.length - 1].to as Pt : [0, 0];
+      return [{ x: b.x + mv[0], y: b.y + mv[1], w: b.w, h: b.h, wt }];
+    });
+    const whole = (b: Box, mk: (b: Box) => Cam, t: number): Cam => {
+      const alive = aliveAt(t), raw = mk(b), hz = home.zoom || 1, FB = fmt.board;
+      const cutBy = (v: Box) => alive.reduce((n, o) => { const a = o.w * o.h, i = Math.max(0, Math.min(o.x + o.w, v.x + v.w) - Math.max(o.x, v.x)) * Math.max(0, Math.min(o.y + o.h, v.y + v.h) - Math.max(o.y, v.y)); return n + (a > 0 && i / a > 0.04 && i / a < 0.97 ? o.wt : 0); }, 0);
+      const v0 = viewBox(raw);
+      if (!cutBy(v0)) return raw;
+      // 在原来的取景附近找一个不切东西的：稍微推近或拉开一点、往旁边让一点，对准的东西始终完整留在画面里
+      let best: Cam | null = null, bestCost = Infinity;
+      const c0x = v0.x + v0.w / 2, c0y = v0.y + v0.h / 2;
+      for (const f of [1, 1.12, 0.9, 1.25, 0.8, 1.4, 0.7, 0.6]) {
+        const z = raw.zoom * f, w = FB.w / z, h = FB.h / z;
+        if (z < hz * 1.2 || w < b.w + 24 || h < b.h + 24) continue;
+        for (const dx of [0, -0.08, 0.08, -0.16, 0.16, -0.24, 0.24]) for (const dy of [0, -0.08, 0.08, -0.16, 0.16, -0.24, 0.24]) {
+          const cx = c0x + dx * w, cy = c0y + dy * h, v = { x: cx - w / 2, y: cy - h / 2, w, h };
+          if (b.x < v.x + 12 || b.y < v.y + 12 || b.x + b.w > v.x + w - 12 || b.y + b.h > v.y + h - 12) continue;
+          const cost = cutBy(v) + 0.2 * Math.abs(Math.log(f)) + 0.3 * (Math.abs(dx) + Math.abs(dy));
+          if (cost < bestCost) { bestCost = cost; best = { cx: origin[0] + FB.x + cx + (screenC[0] - boardC[0]) / z, cy: FB.y + cy + (screenC[1] - boardC[1]) / z, zoom: z }; }
+        }
+      }
+      // 尽量少切；怎么挪都要切到正在讲的东西，这一拍就看全景
+      return best && bestCost < 10 ? best : home;
+    };
     if (pendingCams.length) {
       const FB = fmt.board;
       let CB: Box | null = null;
@@ -636,11 +669,11 @@ export function compile(dir: string): Compiled {
         const fset = new Set(p.items.map(it => it.id));
         const beat = [...local.values()].filter(tl => !fset.has(tl.el.id) && !['axis', 'arrow', 'line', 'mark'].includes(tl.el.kind) && bornOf(tl.el.id) >= p.ev.t0 - 0.1 && bornOf(tl.el.id) <= p.ev.t1 + 1.2).map(tl => (tl.el.kind === 'note' ? tl.el.solid : tl.el.box));
         if (beat.length && camFor(unionBox([...boxes, ...beat]), p.pad, p.maxZoom).zoom >= z0 * 0.75) boxes = [...boxes, ...beat];
-        Object.assign(p.ev.to, camFor(unionBox(boxes), p.pad, p.maxZoom));
+        { const first = unionBox(boxes), cam = whole(first, b => camFor(b, p.pad, p.maxZoom), p.ev.t1 + 1.2); p.ev.to = cam; }
         let lastT = p.ev.t1, lastCam = p.ev.to;
         for (const it of later) {
           boxes = [...boxes, it.box]; CB = sofar(it.born + 0.5);
-          const to = camFor(unionBox(boxes), p.pad, p.maxZoom), st = Math.max(lastT + 0.2, it.born - 0.5);
+          const to = whole(unionBox(boxes), b => camFor(b, p.pad, p.maxZoom), it.born + 0.5), st = Math.max(lastT + 0.2, it.born - 0.5);
           if (st + 0.9 > until || (Math.abs(to.zoom / lastCam.zoom - 1) < 0.04 && Math.hypot(to.cx - lastCam.cx, to.cy - lastCam.cy) * to.zoom < 30)) continue;
           camEvents.push({ t0: st, t1: st + 0.9, to }); lastT = st + 0.9; lastCam = to;
         }
@@ -681,7 +714,7 @@ export function compile(dir: string): Compiled {
         // 观众看到的是“走到了这一块”，在这一块里画的时候镜头不再跟着每一笔晃
         const want = unionBox([tgt, ...ahead]);
         const home0 = BIG ? [...regions.values()].filter(r => want.x >= r.x - 8 && want.y >= r.y - 8 && want.x + want.w <= r.x + r.w + 8 && want.y + want.h <= r.y + r.h + 8 && Math.min(FB.w / r.w, FB.h / r.h) >= 0.72).sort((p, q) => p.w * p.h - q.w * q.h)[0] : undefined;
-        const near = home0 ? camOf(home0, 0) : camOf(want), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
+        const near = whole(home0 ?? want, x => camOf(x, home0 && x === home0 ? 0 : PAD), b.t + GAP), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
         // 分镜自己定的景别（含自己写的全景）：要画的东西在画面里、而且在这个景别下看得清，就不动——那是为这个景别画的
         if (held && inside(tgt, viewOf(cur), 4) && Math.min(tgt.w, tgt.h) * cur.zoom >= 40) continue;
         if (cur === home) { if (worth && calm) go(b.t, near, !!home0); continue; }        // 全景里：要画的东西小，就推近去画

@@ -42,19 +42,19 @@ export const LAYOUTS: Record<string, Layout> = {
     portrait: { rows: [24, 28, 28, 20], areas: [['a'], ['b'], ['c'], ['sum']] }, landscape: { rows: [68, 32], cols: [1, 1, 1], areas: [['a', 'b', 'c'], ['sum', 'sum', 'sum']] } },
   stack: { title: '几行共用一根轴', when: '几样东西比长短、比时间、比多少：对齐本身就是论证', link: '所有横条左对齐、共用一根轴；汇总从它们往下连',
     regions: { head: '谁、规则、前提', rows: '几行左对齐的横条或时间段', sum: '汇总、结论' },
-    portrait: { rows: [18, 58, 24], areas: [['head'], ['rows'], ['sum']] }, landscape: { rows: [22, 78], cols: [68, 32], areas: [['head', 'head'], ['rows', 'sum']] } },
+    portrait: { rows: [24, 54, 22], areas: [['head'], ['rows'], ['sum']] }, landscape: { rows: [22, 78], cols: [68, 32], areas: [['head', 'head'], ['rows', 'sum']] } },
   compare: { title: '两边对照', when: '两种情况、两个方案、以前和现在', link: '同一行的东西两边对齐；底部一条把两栏括起来',
     regions: { head: '比的是什么', a: '一边', b: '另一边', sum: '差别、结论' },
-    portrait: { rows: [14, 33, 33, 20], areas: [['head'], ['a'], ['b'], ['sum']] }, landscape: { rows: [16, 60, 24], cols: [1, 1], areas: [['head', 'head'], ['a', 'b'], ['sum', 'sum']] } },
+    portrait: { rows: [20, 30, 30, 20], areas: [['head'], ['a'], ['b'], ['sum']] }, landscape: { rows: [16, 60, 24], cols: [1, 1], areas: [['head', 'head'], ['a', 'b'], ['sum', 'sum']] } },
   cycle: { title: '转一圈', when: '钱、货、信息在几方之间流转', link: '圈上的箭头首尾相接；结论写在圈的中间或下面',
     regions: { head: '起因、谁在场', loop: '转起来的圈', sum: '转完之后的结果' },
-    portrait: { rows: [16, 58, 26], areas: [['head'], ['loop'], ['sum']] }, landscape: { rows: [24, 76], cols: [64, 36], areas: [['loop', 'head'], ['loop', 'sum']] } },
+    portrait: { rows: [23, 54, 23], areas: [['head'], ['loop'], ['sum']] }, landscape: { rows: [24, 76], cols: [64, 36], areas: [['loop', 'head'], ['loop', 'sum']] } },
   hub: { title: '几股力量指向一件事', when: '几个原因、几方压力作用在同一样东西上', link: '四周的每一区都有一条箭头指向中间',
     regions: { core: '被作用的那件事（结论落在这里）', f1: '第一股力量', f2: '第二股力量', f3: '第三股力量', f4: '第四股力量' },
     portrait: { rows: [30, 40, 30], cols: [1, 1], areas: [['f1', 'f2'], ['core', 'core'], ['f3', 'f4']] }, landscape: { rows: [1, 1], cols: [28, 44, 28], areas: [['f1', 'core', 'f2'], ['f3', 'core', 'f4']] } },
   tree: { title: '拆开来看', when: '拆解、分类、一笔账怎么分', link: '从根往下分叉的线；底部把几块加回去',
     regions: { root: '被拆的那样东西', parts: '拆出来的几块，并排对齐', sum: '加回去、结论' },
-    portrait: { rows: [22, 50, 28], areas: [['root'], ['parts'], ['sum']] }, landscape: { rows: [24, 50, 26], areas: [['root'], ['parts'], ['sum']] } },
+    portrait: { rows: [25, 50, 25], areas: [['root'], ['parts'], ['sum']] }, landscape: { rows: [24, 50, 26], areas: [['root'], ['parts'], ['sum']] } },
 };
 
 export const ACTS = ['设问', '说法', '理由', '例子', '算账', '数据', '对比', '转折', '推翻', '结论', '补充'];

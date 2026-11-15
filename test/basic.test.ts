@@ -592,6 +592,30 @@ test('近景只框已经画出来的；后画的到时候再带进来；空近�
   assert.match(lint(bad).map(i => i.msg).join(), /被画面边切掉了.*"far"/);
 });
 
+test('近景不从字和小人中间切过去：往旁边让开，正在讲的东西不被切', () => {
+  const mk = (els: string, beats: string) => {
+    const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+    writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先看上面这一个东西是什么。再过一会儿。又过了好一会儿。最后才轮到下面那一个。然后回头看看整体是什么样。')));
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\ncamera: still\n');
+    writeFileSync(join(d, 'scenes/01.yaml'), `from: "先看"\nintent: 一样东西，旁边有字\nframe: false\nelements:\n${els}beats:\n${beats}`);
+    const c = compile(d); rmSync(d, { recursive: true }); return c;
+  };
+  const view = (c: any, cam: any) => { const FB = c.fmt.board, w = FB.w / cam.zoom, h = FB.h / cam.zoom, cx = cam.cx - FB.x - (c.fmt.W / 2 - (FB.x + FB.w / 2)) / cam.zoom, cy = cam.cy - FB.y - (c.fmt.H / 2 - (FB.y + FB.h / 2)) / cam.zoom; return { x: cx - w / 2, y: cy - h / 2, w, h }; };
+  const frac = (b: any, v: any) => Math.max(0, Math.min(b.x + b.w, v.x + v.w) - Math.max(b.x, v.x)) * Math.max(0, Math.min(b.y + b.h, v.y + v.h) - Math.max(b.y, v.y)) / (b.w * b.h);
+  // 早先写的一行字正好落在近景的右边沿上
+  const els = '  t: { text: "早先的字", size: 60, at: [640, 300] }\n  a: { doodle: bank, size: 200, at: [300, 300] }\n  far: { doodle: house, size: 160, at: [150, 1100] }\n';
+  const c = mk(els, `  - { at: "先看", intent: 写字, do: [{ draw: t }] }\n  - { at: "最后才", intent: 推近, do: [{ camera: { focus: [a], pad: 100 } }, { draw: a }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: far }] }\n`);
+  const seg = c.cams.find(k => k.t0 > 0 && k.to !== c.scenes[0].home)!, tb = c.tls.find(t => t.el.id === 't')!.el.box, ab = c.tls.find(t => t.el.id === 'a')!.el.box;
+  assert.ok(seg, '仍然是近景');
+  const f = frac(tb, view(c, seg.to));
+  assert.ok(f < 0.05 || f > 0.96, `字要么整个在画面里、要么整个在外面，现在露出 ${(f * 100).toFixed(0)}%`);
+  assert.ok(frac(ab, view(c, seg.to)) > 0.99, '对准的东西完整');
+  // 同一拍刚写的字横贯全板：近景要么整个避开它，要么回全景，不能切它
+  const wide = mk('  t: { text: "一二三四五六七八九十一二三四", size: 60, at: [480, 300] }\n  a: { doodle: bank, size: 120, at: [480, 420] }\n  far: { doodle: house, size: 160, at: [150, 1100] }\n', `  - { at: "先看", intent: 写字再推近, do: [{ draw: t }, { camera: { focus: [a], pad: 40 } }, { draw: a }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: far }] }\n`);
+  const wb = wide.tls.find(t => t.el.id === 't')!.el.box;
+  for (const k of wide.cams.filter(k => k.t0 > -1 && k.to !== wide.scenes[0].home)) { const g = frac(wb, view(wide, k.to)); assert.ok(g < 0.05 || g > 0.96, `刚写的字被切了，露出 ${(g * 100).toFixed(0)}%`); }
+});
+
 test('握笔的手跟着笔尖；线的轻重跟着大小；小人能按自己的锚点坐到凳子上', () => {
   const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
   writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画一个大的。再画一个小的。坐下来。等一等，再等一等，再等一等。')));
