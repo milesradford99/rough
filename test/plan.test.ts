@@ -11,6 +11,7 @@ import { confirmCode, hasCode, type Stage } from '../src/core/review';
 import { cpSync, rmSync } from 'node:fs';
 import { compile } from '../src/core/compile';
 import { lint } from '../src/core/lint';
+import { focusAlpha } from '../src/core/render';
 import { packet, unpack, buildAlignment, scriptWarnings, edgeUnits, EDGE_VOICES, DEFAULT_EDGE_VOICE } from '../src/core/tts';
 
 const hj = (args: string[], env: Record<string, string> = {}) => spawnSync(process.execPath, ['bin/hj.mjs', ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
@@ -172,6 +173,18 @@ test('角色的长相点名的素材必须真的有：不存在的手绘件、�
   const dir = project(PLAN.replace('doodle: factory', 'doodle: mine').replace('figure: stand', 'figure: stand, wear: [crown, tie]'));
   mkdirSync(join(dir, 'doodles'), { recursive: true }); cpSync('doodles/bank.yaml', join(dir, 'doodles/mine.yaml'));
   const ok = hj(['check', dir]); assert.doesNotMatch(ok.stdout, /没有叫|这个配饰|这个姿势/, ok.stdout);
+});
+
+test('讲到哪儿、别处淡下去：默认关；打开后不在讲的东西变淡，主角不淡，讲完整块板恢复', () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'hj-focus-')), 'p'); cpSync('examples/one-board', dir, { recursive: true });
+  const off = compile(dir), bank0 = off.tls.find(t => t.el.id === 'bank')!;
+  assert.equal(focusAlpha(off, bank0, 30), 1);
+  writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8') + '\nfocus: true\n');
+  const c = compile(dir), sc = c.scenes[0], mid = (sc.t0 + sc.t1) / 2, at = (t: number) => c.tls.filter(x => (x.drawT0 ?? x.appear?.t ?? 1e9) < t - 2 && !(x.gone != null && x.gone < t)).map(x => focusAlpha(c, x, t));
+  assert.ok(at(mid).some(v => v < 0.6), '讲到一半时，前面画的东西应该有淡下去的');
+  assert.ok(at(sc.t1 + 5).every(v => v === 1), '讲完后整块板恢复');
+  const hero = c.tls.find(t => t.el.src?.size === 'hero' || t.el.src?.__tier === 'hero')!;
+  assert.ok(hero, '示例里有主角'); for (let t = sc.t0; t < sc.t1; t += 1.7) assert.equal(focusAlpha(c, hero, t), 1);
 });
 
 test('主角和版式：主角必须是板上真有的东西；版式展开成分区；没指定主角会提醒', () => {

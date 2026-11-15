@@ -393,6 +393,49 @@ function drawHand(ctx: any, hp: HandPos, hand: boolean, size: number) {
   ctx.restore();
 }
 
+// ── 讲到哪儿、别处淡下去（project.yaml 里 focus: true 打开）──
+// 每一拍动到的东西（新画的、被标记的、连线的两头）是“正在讲的”，板上其余的东西淡下去；
+// 最后一拍画完，整块板回到原样：收尾的全景是完整的一张图。
+interface FocusSeg { t0: number; ids: Set<string> }
+const focusCache = new WeakMap<Compiled, Map<number, { segs: FocusSeg[]; release: number }>>();
+const FOCUS_DIM = 0.45, FOCUS_FADE = 0.45;
+/** 主角不淡：它是讲完后第一眼要看到的东西，画出来之后一直是最实的 */
+function isHero(c: Compiled, tl: TL): boolean {
+  const src = tl.el.src ?? {}, sc = c.scenes[tl.scene];
+  if (src.size === 'hero' || src.__tier === 'hero') return true;
+  const cast = c.castUse?.get(sc.file)?.els.get(tl.el.id);
+  return !!cast && !!c.plan?.boards.some(b => b.hero === cast);
+}
+function focusOf(c: Compiled): Map<number, { segs: FocusSeg[]; release: number }> {
+  let m = focusCache.get(c); if (m) return m;
+  m = new Map(); focusCache.set(c, m);
+  const byId = new Map<string, TL>(); for (const tl of c.tls) byId.set(`${tl.scene}/${tl.el.id}`, tl);
+  for (const sc of c.scenes) {
+    const segs: FocusSeg[] = []; let release = sc.t0;
+    for (const b of sc.beats) {
+      const ids = new Set<string>();
+      for (const a of b.actions) { if (a.verb === 'camera' || a.verb === 'wait') continue; for (const id of a.ids) ids.add(id); release = Math.max(release, a.t1); }
+      if (!ids.size) continue;
+      // 标记、批注、连线牵着的东西也算正在讲的
+      for (const id of [...ids]) { const src = byId.get(`${sc.index}/${id}`)?.el.src; if (!src || typeof src !== 'object') continue; for (const r of [src.target, src.arrow, src.line].flat()) if (typeof r === 'string') ids.add(r.split('.')[0]); }
+      segs.push({ t0: b.t, ids });
+    }
+    m.set(sc.index, { segs, release: release + 0.5 });
+  }
+  return m;
+}
+/** 这样东西在 t 时刻该淡到几成（1 = 不淡） */
+export function focusAlpha(c: Compiled, tl: TL, t: number): number {
+  if (!c.meta?.focus || isHero(c, tl)) return 1;
+  const f = focusOf(c).get(tl.scene); if (!f || !f.segs.length) return 1;
+  let i = -1; for (let k = 0; k < f.segs.length; k++) if (f.segs[k].t0 <= t) i = k; else break;
+  if (i < 0) return 1;
+  const born = tl.drawT0 ?? tl.appear?.t ?? -1, lvl = (k: number) => (k < 0 || f.segs[k].ids.has(tl.el.id) || born >= f.segs[k].t0 ? 1 : FOCUS_DIM);
+  let v = lvl(i - 1) + (lvl(i) - lvl(i - 1)) * ease(span(t, f.segs[i].t0, f.segs[i].t0 + FOCUS_FADE));
+  if (t > f.release) v += (1 - v) * ease(span(t, f.release, f.release + 0.7));
+  return v;
+}
+
 const subCache = new Map<string, { strokes: Stroke[]; w: number }>();
 let layer: any = null;
 
@@ -419,6 +462,7 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     if (sc.origin[0] > vx1 || sc.origin[0] + (sc.span ?? W) < vx0) continue;
     const st = stateAt(tl, t);
     if (!st.visible) continue;
+    if (c.meta?.focus && !st.drawing) st.alpha *= focusAlpha(c, tl, t);
     if (tl.erase != null) { const g = c.erases[tl.erase]; if (t >= g.t0) { if (!groups.has(tl.erase)) groups.set(tl.erase, []); groups.get(tl.erase)!.push({ tl, st }); continue; } }
     if (tl.scene !== curScene) { world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y); curScene = tl.scene; }
     drawEl(ctx, env, tl, t, st);

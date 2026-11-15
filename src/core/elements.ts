@@ -476,15 +476,17 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     // 叉、划线、框、高亮只盖本体，标签留在外面读得清；圈和下划线连标签一起
     const bodyOf = (e: El): Box => (e.body && ['cross', 'strike', 'box', 'highlight'].includes(src.mark) ? { x: e.box.x + e.body.x, y: e.box.y + e.body.y, w: e.body.w, h: e.body.h } : e.box);
     let tb = unionBox(targets.map((t: any) => bodyOf(t.el!)));
-    // 叉、划线打在一条箭头或连线上：意思是“把这条线掐断”，只在线的中点画一个小的，不盖住整条线的外框（长斜线的外框很大，会压住两头的东西和标签）
-    if (targets.length === 1 && ['cross', 'strike'].includes(src.mark) && ['arrow', 'line'].includes(targets[0].el!.kind) && targets[0].el!.path && targets[0].el!.path.length >= 4) {
+    // 标记打在一条箭头或连线上：只在线的中点画一个小的，不盖住整条线的外框。叉、划线的意思是“把这条线掐断”（长斜线的外框很大，会压住两头的东西和标签）
+    const cut = ['cross', 'strike'].includes(src.mark);
+    if (targets.length === 1 && (cut || ['circle', 'box', 'highlight', 'underline'].includes(src.mark)) && ['arrow', 'line'].includes(targets[0].el!.kind) && targets[0].el!.path && targets[0].el!.path.length >= 4) {
       const pth = targets[0].el!.path as number[]; let total = 0;
       for (let i = 2; i < pth.length; i += 2) total += Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]);
       let acc = 0, mx = pth[0], my = pth[1];
       for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (acc + d >= total / 2) { const k = d ? (total / 2 - acc) / d : 0; mx = pth[i - 2] + (pth[i] - pth[i - 2]) * k; my = pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k; break; } acc += d; }
       // 小字写在中点上：往线的三分之一处挪，让开它
-      if (targets[0].el!.src?.label) { let a2 = 0; for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (a2 + d >= total * 0.28) { const k = d ? (total * 0.28 - a2) / d : 0; mx = pth[i - 2] + (pth[i] - pth[i - 2]) * k; my = pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k; break; } a2 += d; } }
-      const r = Math.max(26, Math.min(40, total * 0.12));
+      if (cut && targets[0].el!.src?.label) { let a2 = 0; for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (a2 + d >= total * 0.28) { const k = d ? (total * 0.28 - a2) / d : 0; mx = pth[i - 2] + (pth[i] - pth[i - 2]) * k; my = pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k; break; } a2 += d; } }
+      // 圈、框、高亮、下划线打在一条线上：意思是“看这条关系”，圈住线的中段（小字就在那儿），不去圈整条线的外框
+      const r = cut ? Math.max(26, Math.min(40, total * 0.12)) : Math.max(34, Math.min(58, total * 0.16));
       tb = { x: mx - r, y: my - r, w: r * 2, h: r * 2 };
     }
     const ms: Style = { ...st, color: color(src.color, THEME.colors.red), w: src.pen ?? THEME.pen * 1.15 };
