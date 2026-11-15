@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { resolveAnchor, stripPunct, type Alignment } from './alignment';
-import type { Format } from './theme';
+import { FORMATS, type Format } from './theme';
 import type { Compiled, Issue, TL } from './compile';
 import { loadDoodle } from './elements';
 import { iconExists } from './icons';
@@ -24,6 +24,8 @@ export interface PlanSegment {
 }
 export interface PlanBoard {
   id: string; picture: string; size?: number | number[]; recall?: string;
+  /** size 是引擎按内容量算出来的（计划里没写，或写了 auto） */
+  autoSize?: boolean;
   /** 主角：这块板讲完后，观众第一眼该看到的那样东西（通常是结论）。写一条板书的原文，或一个角色的 id */
   hero?: string;
   /** 版式：现成的分区方案（hj layouts）。写了它就不用写 grid */
@@ -56,6 +58,20 @@ export const LAYOUTS: Record<string, Layout> = {
     regions: { root: '被拆的那样东西', parts: '拆出来的几块，并排对齐', sum: '加回去、结论' },
     portrait: { rows: [25, 50, 25], areas: [['root'], ['parts'], ['sum']] }, landscape: { rows: [24, 50, 26], areas: [['root'], ['parts'], ['sum']] } },
 };
+
+/** 板该放大多少：估这块板要放的东西各占多少地方，凑到“全景不挤”的密度。
+ *  全景是缩小的整块板，推近才是原大——东西多的板自动变大，全景里每样东西就小一点、空隙多一点。 */
+export function autoBoardSize(b: Pick<PlanBoard, 'segments' | 'hero'>, fmtName: string): number {
+  const fb = FORMATS[fmtName] ?? FORMATS.portrait;
+  const cast = new Set(b.segments.flatMap(s => s.show)).size, links = new Set(b.segments.flatMap(s => s.link)).size;
+  const words = [...new Set(b.segments.flatMap(s => s.words))];
+  const need = cast * 48000 + links * 26000 + b.segments.filter(s => s.diagram || s.pattern).length * 90000
+    + b.segments.reduce((n, s) => n + s.revisit.length * 12000 + s.joins.length * 15000, 0)
+    + words.reduce((n, w) => n + (w === b.hero ? wordLen(w) * 108 * 150 : wordLen(w) * 56 * 90), 0);
+  const k = Math.sqrt(need / (AUTO_FILL * fb.board.w * fb.board.h));
+  return Math.min(1.4, Math.max(1, Math.round(k * 20) / 20)); // 再大，全景里的小字就看不清了：更多的内容该分板
+}
+const AUTO_FILL = 0.46;
 
 export const ACTS = ['设问', '说法', '理由', '例子', '算账', '数据', '对比', '转折', '推翻', '结论', '补充'];
 /** 角色的长相只能是“画出来的东西”，不能是一行字或一个框 */
@@ -92,7 +108,7 @@ export function loadPlan(dir: string): Plan | null {
   const relations: Record<string, PlanRelation> = {};
   for (const [k, v] of Object.entries(raw.relations ?? {}) as [string, any][]) relations[k] = { from: String(v?.from ?? ''), to: String(v?.to ?? ''), ...(v?.label != null ? { label: String(v.label) } : {}) };
   const boards: PlanBoard[] = raw.boards.map((b: any, i: number) => ({
-    id: String(b?.id ?? `board${i + 1}`), picture: String(b?.picture ?? ''), ...(b?.size != null ? { size: b.size } : {}), ...(b?.recall != null ? { recall: String(b.recall) } : {}),
+    id: String(b?.id ?? `board${i + 1}`), picture: String(b?.picture ?? ''), ...(b?.size != null && b.size !== 'auto' ? { size: b.size } : {}), ...(b?.recall != null ? { recall: String(b.recall) } : {}),
     ...(b?.hero != null ? { hero: String(b.hero) } : {}), ...(b?.layout != null ? { layout: String(b.layout) } : {}),
     grid: gridOf(b),
     // 用了版式又没写 regions 的分区，用版式自带的说明
@@ -103,6 +119,9 @@ export function loadPlan(dir: string): Plan | null {
       ...(s?.diagram != null ? { diagram: String(s.diagram) } : {}), ...(s?.pattern != null ? { pattern: String(s.pattern) } : {}),
     })),
   }));
+  // 没写 size（或写 auto）的板：按内容量定大小。沿用别的板（recall）的，和那块板一样大
+  for (const b of boards) if (b.size == null && !b.recall) { b.size = autoBoardSize(b, fmtName); b.autoSize = true; }
+  for (const b of boards) if (b.size == null && b.recall) { const o = boards.find(x => x.id === b.recall); if (o?.size != null) { b.size = o.size; b.autoSize = true; } }
   const plan = { thesis: String(raw.thesis ?? ''), cast, relations, boards };
   const hash = createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16);
   // 记下原始字段，检查时报“不认识的字段”（不参与版本号）
@@ -376,7 +395,7 @@ export function planStoryboard(plan: Plan, meta: any, al: Alignment, fmt: Format
     L.push(`**全景：** ${b.picture}`, '');
     if (b.hero) L.push(`**主角（讲完后第一眼看到的）：** ${plan.cast[b.hero] ? plan.cast[b.hero].name : `“${b.hero}”`}`, '');
     if (b.layout && LAYOUTS[b.layout]) L.push(`**版式：** ${LAYOUTS[b.layout].title}（${LAYOUTS[b.layout].link}）`, '');
-    if (B.w > fmt.board.w + 1 || B.h > fmt.board.h + 1) L.push(`这块板比屏幕大（${(B.w / fmt.board.w).toFixed(1)} 屏宽、${(B.h / fmt.board.h).toFixed(1)} 屏高）：全景是缩小的整块板，镜头走近才是原大。`, '');
+    if (B.w > fmt.board.w + 1 || B.h > fmt.board.h + 1) L.push(`这块板比屏幕大（${+(B.w / fmt.board.w).toFixed(2)} 屏宽、${+(B.h / fmt.board.h).toFixed(2)} 屏高${b.autoSize ? '，引擎按这块板的内容量定的；想自己定就写 size' : ''}）：全景是缩小的整块板，镜头走近才是原大。`, '');
     if (b.recall) L.push(`板上一开始就有 ${b.recall} 那块板留下的画面，在它上面接着讲。`, '');
     L.push('板面怎么分：', '', '```');
     const dw = (n: string) => [...n].reduce((k, ch) => k + (/[\u2e80-\u9fff\uff00-\uffef]/.test(ch) ? 2 : 1), 0), wd = Math.max(...b.grid.areas.flat().map(dw), 4) + 2;

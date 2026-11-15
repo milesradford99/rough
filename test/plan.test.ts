@@ -12,6 +12,7 @@ import { cpSync, rmSync } from 'node:fs';
 import { compile } from '../src/core/compile';
 import { lint } from '../src/core/lint';
 import { focusAlpha } from '../src/core/render';
+import { autoBoardSize, loadPlan } from '../src/core/plan';
 import { packet, unpack, buildAlignment, scriptWarnings, edgeUnits, EDGE_VOICES, DEFAULT_EDGE_VOICE } from '../src/core/tts';
 
 const hj = (args: string[], env: Record<string, string> = {}) => spawnSync(process.execPath, ['bin/hj.mjs', ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
@@ -187,6 +188,18 @@ test('讲到哪儿、别处淡下去：默认开，focus: false 关掉；不在�
   assert.ok(at(sc.t1 + 5).every(v => v === 1), '讲完后整块板恢复');
   const hero = c.tls.find(t => t.el.src?.size === 'hero' || t.el.src?.__tier === 'hero')!;
   assert.ok(hero, '示例里有主角'); for (let t = sc.t0; t < sc.t1; t += 1.7) assert.equal(focusAlpha(c, hero, t), 1);
+});
+
+test('板的大小跟着内容量走：东西少是一屏，东西多自动放大，封顶 1.4；写了 size 照写的来', () => {
+  const seg = (o: any = {}) => ({ at: 'x', intent: '', show: [], link: [], revisit: [], words: [], joins: [], ...o });
+  assert.equal(autoBoardSize({ segments: [seg({ show: ['a', 'b'], link: ['r'], words: ['十倍'] })] }, 'portrait'), 1);
+  const busy = Array.from({ length: 8 }, (_, i) => seg({ show: [`c${i % 5}`], link: [`r${i}`], words: [`词语${i}`, `数字${i}`], ...(i % 3 === 0 ? { diagram: '一个图' } : {}) }));
+  const k = autoBoardSize({ segments: busy }, 'portrait');
+  assert.ok(k > 1.1 && k <= 1.4, `东西多的板应该放大，现在是 ${k}`);
+  assert.equal(autoBoardSize({ segments: [...busy, ...busy.map(s => ({ ...s, words: s.words.map((w: string) => w + '再') })), ...busy.map(s => ({ ...s, link: s.link.map((w: string) => w + 'x'), diagram: '图' }))] }, 'portrait'), 1.4);
+  const dir = project(); assert.ok(loadPlan(dir)!.boards.every(b => b.autoSize && typeof b.size === 'number'));
+  const fixed = project(PLAN.replace('  - id: loop\n', '  - id: loop\n    size: 1.5\n')), fb = loadPlan(fixed)!.boards[0];
+  assert.equal(fb.size, 1.5); assert.ok(!fb.autoSize);
 });
 
 test('主角和版式：主角必须是板上真有的东西；版式展开成分区；没指定主角会提醒', () => {
