@@ -175,11 +175,13 @@ test('角色的长相点名的素材必须真的有：不存在的手绘件、�
   const ok = hj(['check', dir]); assert.doesNotMatch(ok.stdout, /没有叫|这个配饰|这个姿势/, ok.stdout);
 });
 
-test('讲到哪儿、别处淡下去：默认关；打开后不在讲的东西变淡，主角不淡，讲完整块板恢复', () => {
+test('讲到哪儿、别处淡下去：默认开，focus: false 关掉；不在讲的东西变淡，主角不淡，讲完整块板恢复', () => {
   const dir = join(mkdtempSync(join(tmpdir(), 'hj-focus-')), 'p'); cpSync('examples/one-board', dir, { recursive: true });
+  const py = readFileSync(join(dir, 'project.yaml'), 'utf8').split('\n').filter(l => !/^focus:/.test(l)).join('\n');
+  writeFileSync(join(dir, 'project.yaml'), py + '\nfocus: false\n');
   const off = compile(dir), bank0 = off.tls.find(t => t.el.id === 'bank')!;
   assert.equal(focusAlpha(off, bank0, 30), 1);
-  writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8') + '\nfocus: true\n');
+  writeFileSync(join(dir, 'project.yaml'), py); // 不写就是开
   const c = compile(dir), sc = c.scenes[0], mid = (sc.t0 + sc.t1) / 2, at = (t: number) => c.tls.filter(x => (x.drawT0 ?? x.appear?.t ?? 1e9) < t - 2 && !(x.gone != null && x.gone < t)).map(x => focusAlpha(c, x, t));
   assert.ok(at(mid).some(v => v < 0.6), '讲到一半时，前面画的东西应该有淡下去的');
   assert.ok(at(sc.t1 + 5).every(v => v === 1), '讲完后整块板恢复');

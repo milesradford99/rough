@@ -393,7 +393,7 @@ function drawHand(ctx: any, hp: HandPos, hand: boolean, size: number) {
   ctx.restore();
 }
 
-// ── 讲到哪儿、别处淡下去（project.yaml 里 focus: true 打开）──
+// ── 讲到哪儿、别处淡下去（默认开；project.yaml 里 focus: false 关掉）──
 // 每一拍动到的东西（新画的、被标记的、连线的两头）是“正在讲的”，板上其余的东西淡下去；
 // 最后一拍画完，整块板回到原样：收尾的全景是完整的一张图。
 interface FocusSeg { t0: number; ids: Set<string> }
@@ -426,7 +426,7 @@ function focusOf(c: Compiled): Map<number, { segs: FocusSeg[]; release: number }
 }
 /** 这样东西在 t 时刻该淡到几成（1 = 不淡） */
 export function focusAlpha(c: Compiled, tl: TL, t: number): number {
-  if (!c.meta?.focus || isHero(c, tl)) return 1;
+  if (c.meta?.focus === false || isHero(c, tl)) return 1;
   const f = focusOf(c).get(tl.scene); if (!f || !f.segs.length) return 1;
   let i = -1; for (let k = 0; k < f.segs.length; k++) if (f.segs[k].t0 <= t) i = k; else break;
   if (i < 0) return 1;
@@ -462,7 +462,7 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     if (sc.origin[0] > vx1 || sc.origin[0] + (sc.span ?? W) < vx0) continue;
     const st = stateAt(tl, t);
     if (!st.visible) continue;
-    if (c.meta?.focus && !st.drawing) st.alpha *= focusAlpha(c, tl, t);
+    if (c.meta?.focus !== false && !st.drawing) st.alpha *= focusAlpha(c, tl, t);
     if (tl.erase != null) { const g = c.erases[tl.erase]; if (t >= g.t0) { if (!groups.has(tl.erase)) groups.set(tl.erase, []); groups.get(tl.erase)!.push({ tl, st }); continue; } }
     if (tl.scene !== curScene) { world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y); curScene = tl.scene; }
     drawEl(ctx, env, tl, t, st);
