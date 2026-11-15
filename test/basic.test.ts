@@ -562,7 +562,9 @@ test('跟拍：引擎推近正在画的东西、结尾回全景；自己写的�
   assert.ok(f.segs.length >= 3, '跟拍动了镜头');
   assert.ok(f.segs.some(k => k.to.zoom >= f.c.scenes[0].home.zoom * 1.35), '有真正的近景');
   assert.equal(f.segs[f.segs.length - 1].to, f.c.scenes[0].home, '最后回全景');
-  for (let i = 1; i < f.segs.length; i++) assert.ok(f.segs[i].t0 - f.segs[i - 1].t0 >= 3.4, '两次移动至少隔 3.5 秒');
+  // 跟拍定的间隔是 3.5 秒；要画的东西在画面外时镜头会提前最多 0.8 秒动身（落笔时已经到位），所以两次动身之间最少 2.7 秒
+  for (let i = 1; i < f.segs.length; i++) assert.ok(f.segs[i].t0 - f.segs[i - 1].t0 >= 2.6, '两次移动之间留够间隔');
+  { const b = f.c.tls.find(t => t.el.id === 'b')!, k = f.segs.find(x => x.t1 > b.drawT0! - 0.5 && x.t0 <= b.drawT0!)!; assert.ok(k.t1 <= b.drawT0! + 0.35, '要画的东西在画面外：镜头提前动身，落笔时基本到位'); }
   assert.doesNotMatch(lint(f.c).map(i => i.msg).join(), /镜头一次都没动/);
   assert.equal(run(scene('camera: still\n')).segs.length, 0);
   const e = run(scene('', '{ camera: { focus: [a], pad: 40 } }, '));
@@ -572,10 +574,10 @@ test('跟拍：引擎推近正在画的东西、结尾回全景；自己写的�
 });
 
 test('近景只框已经画出来的；后画的到时候再带进来；空近景和被切掉的东西会警告', () => {
-  const mk = (beats: string) => {
+  const mk = (beats: string, meta = '') => {
     const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
     writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先看上面这一个东西是什么。再过一会儿。又过了好一会儿。最后才轮到下面那一个。然后回头看看整体是什么样。')));
-    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\ncamera: still\n');
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\ncamera: still\n' + meta);
     writeFileSync(join(d, 'scenes/01.yaml'), `from: "先看"\nintent: 两样东西一上一下\nframe: false\nelements:\n  a: { doodle: bank, size: 160, at: [800, 150] }\n  b: { doodle: factory, size: 160, at: [800, 650] }\n  far: { doodle: house, size: 160, at: [150, 1100] }\nbeats:\n${beats}`);
     const c = compile(d); rmSync(d, { recursive: true }); return c;
   };
@@ -587,9 +589,13 @@ test('近景只框已经画出来的；后画的到时候再带进来；空近�
   assert.ok(segs[1].t0 < b.drawT0! && segs[1].t0 > b.drawT0! - 1, '镜头在 b 落笔前一点带过去');
   assert.ok(segs[1].to.zoom < segs[0].to.zoom, '带进 b 之后景别更宽');
   assert.doesNotMatch(lint(c).map(i => i.msg).join(), /近景取景不好|被画面边切掉/);
-  // 推近 a 之后，在画面外画别的东西：被切掉
-  const bad = mk(`  - { at: "先看", intent: 推近, do: [{ camera: { focus: [a], pad: 60 } }, { draw: a }] }\n  - { at: "最后才", intent: 画面外, do: [{ draw: far }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: b }] }\n`);
-  assert.match(lint(bad).map(i => i.msg).join(), /被画面边切掉了.*"far"/);
+  // 推近 a 之后，在画面外画别的东西：引擎先把镜头拉开到装得下它（看全），不再被切掉
+  const badBeats = `  - { at: "先看", intent: 推近, do: [{ camera: { focus: [a], pad: 60 } }, { draw: a }] }\n  - { at: "最后才", intent: 画面外, do: [{ draw: far }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: b }] }\n`;
+  const fixed = mk(badBeats), far = fixed.tls.find(t => t.el.id === 'far')!;
+  assert.doesNotMatch(lint(fixed).map(i => i.msg).join(), /被画面边切掉了/);
+  assert.ok(fixed.cams.some(k => k.t1 <= far.drawT0! + 0.01 && k.t0 > far.drawT0! - 1.5), '落笔之前镜头已经拉开');
+  // 关掉看全：照旧报出来
+  assert.match(lint(mk(badBeats, 'seeWhole: false\n')).map(i => i.msg).join(), /被画面边切掉了.*"far"/);
 });
 
 test('近景不从字和小人中间切过去：往旁边让开，正在讲的东西不被切', () => {

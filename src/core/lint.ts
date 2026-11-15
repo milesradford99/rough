@@ -4,6 +4,7 @@ import { stripPunct } from './alignment';
 import type { Box, Pt } from './strokes';
 import type { El } from './elements';
 import { conform } from './plan';
+import { camAt } from './render';
 
 /** 沿元素的线条每隔约 10px 取一个点（只取线，不取字形和填充） */
 function linePoints(el: El, pathOnly = false): Pt[] {
@@ -286,6 +287,17 @@ export function lint(c: Compiled): Issue[] {
         }
       });
       if (empty.length) add('warn', sc.file, `有 ${empty.length} 个近景取景不好：${empty.slice(0, 4).join('、')}。近景要对准“这一刻已经画出来和正在画的东西”：focus 里别放很久以后才画的元素，pad 别留太大；或者先对准眼前这一样，等下一样要画了再用一个 camera 动作带过去`);
+      // 看全：连线、标记画的时候伸出画面，观众只看到半截（引擎默认会自动拉开镜头；关掉 seeWhole 或镜头来不及时这里会报）
+      {
+        const half: string[] = [];
+        for (const tl of mine) {
+          if (!['arrow', 'line', 'mark'].includes(tl.el.kind) || tl.drawT0 == null || tl.recalled) continue;
+          const t = tl.drawT1 ?? tl.drawT0, cm = camAt(c, t), w = FB.w / cm.zoom, h = FB.h / cm.zoom, cx = cm.cx - sc.origin[0] - FB.x - scx / cm.zoom, cy = cm.cy - FB.y - scy / cm.zoom;
+          const b = tl.el.box, a = Math.max(b.w, 8) * Math.max(b.h, 8), bb = { x: b.x, y: b.y, w: Math.max(b.w, 8), h: Math.max(b.h, 8) };
+          if (inter(bb, { x: cx - w / 2, y: cy - h / 2, w, h }) / a < 0.9) half.push(`${fmtT(tl.drawT0)} "${tl.el.id}"`);
+        }
+        if (half.length) add('warn', sc.file, `有 ${half.length} 条连线或标记画的时候伸出了画面，观众只看到半截：${half.slice(0, 5).join('、')}。画它的那一拍先 { camera: home }，或者把它的两头都放进 camera 的 focus`);
+      }
       if (cut.length) add('warn', sc.file, `近景里正在画的东西被画面边切掉了：${cut.slice(0, 5).join('、')}。把它加进这一拍 camera 的 focus，或者画它之前先 { camera: home } 拉回全景`);
     }
     // 推近却几乎没放大：竖屏里横贯全宽的东西推不近，近景要对准局部的几样东西

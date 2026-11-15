@@ -1,32 +1,69 @@
 // hj：画讲命令行。流程是 init → brief → 写分镜 → check → plan →（用户确认）→ stills →（用户确认）→ render
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createCanvas, Path2D, loadImage } from '@napi-rs/canvas';
 import YAML from 'yaml';
 import { compile, type Compiled, type CScene } from '../core/compile';
 import { lint, printIssues, planMarkdown } from '../core/lint';
-import { drawFrame, drawStrokes, drawStroke, type Env } from '../core/render';
+import { drawFrame, drawStrokes, drawStroke, clipIndex, mediaTime, type Env } from '../core/render';
 import { writeSfx } from '../core/sfx';
 import { loadAlignment, fakeAlignment, resolveAnchor } from '../core/alignment';
 import { searchIcons } from '../core/icons';
 import { POSES, FACES, ACCESSORIES } from '../core/figure';
-import { doodleDirs, buildElement, type El, type BuildCtx } from '../core/elements';
+import { doodleDirs } from '../core/elements';
 import { createHash } from 'node:crypto';
 import { confirmCode, hasCode, reviewHtml, esc, STAGE_NAME, type Stage, type ReviewPage, type ReviewBlock } from '../core/review';
-import { textStrokes, textWidth } from '../core/text';
+import { textStrokes } from '../core/text';
+import { layoutSketch, drawSketch, sketchEnv, badge } from './sketch';
+import { layoutAppendix, loadAppendix, wrapText, type AppendixLayout } from '../core/appendix';
 import { PATTERNS } from '../core/patterns';
-import { loadPlan, checkPlan, planStoryboard, scaffold, planRegions, boardBox, segmentTimes, LAYOUTS, type Plan, type PlanBoard } from '../core/plan';
+import { loadPlan, checkPlan, planStoryboard, scaffold, segmentTimes, LAYOUTS, type Plan } from '../core/plan';
 import type { Issue } from '../core/compile';
 import { synthesize, synthesizeEdge, scriptHash, scriptWarnings, DEFAULT_SPEAKER, DEFAULT_EDGE_VOICE, EDGE_VOICES, KEY_ENV } from '../core/tts';
 import { THEME, FORMATS } from '../core/theme';
 
-const images = new Map<string, any>();
-const env: Env = { createCanvas, Path2D, image: f => images.get(f) };
 const penOpt = (c: Compiled): false | 'marker' | 'hand' => (c.meta.pen === 'hand' ? 'hand' : c.meta.pen ? 'marker' : false);
-/** 位图要先解码好：画面是时间的纯函数，画的时候不能等 */
-async function preload(c: Compiled) { for (const tl of c.tls) for (const s of tl.el.strokes) if (s.kind === 'image' && !images.has(s.file)) images.set(s.file, await loadImage(readFileSync(s.file))); }
+const images = new Map<string, any>();
+// 视频片段的帧：画每一帧之前先把这一刻要用的读进来（prepare），只留最近用过的几十张
+const clipFrames = new Map<string, any>();
+const clipFrame = (dir: string, i: number): any => clipFrames.get(`${dir}/${i}`) ?? null;
+const clipsOf = new WeakMap<Compiled, { tl: Compiled['tls'][number]; clip: { dir: string; fps: number; n: number; loop: boolean } }[]>();
+/** 画 t 这一刻之前调用：把这一刻每段视频要放的那一帧解码好。没有视频的项目什么都不做 */
+async function prepare(c: Compiled, t: number) {
+  let list = clipsOf.get(c);
+  if (!list) { list = c.tls.flatMap(tl => tl.el.strokes.flatMap(s => (s.kind === 'image' && s.clip ? [{ tl, clip: s.clip }] : []))); clipsOf.set(c, list); }
+  for (const { tl, clip } of list) {
+    let i = clipIndex(clip, mediaTime(tl, t));
+    const key = `${clip.dir}/${i}`;
+    if (clipFrames.has(key)) continue;
+    let f = join(clip.dir, `f${String(i + 1).padStart(5, '0')}.jpg`);
+    while (i > 0 && !existsSync(f)) f = join(clip.dir, `f${String(--i + 1).padStart(5, '0')}.jpg`); // 抽出来的帧比算的少一两张时用最后一张
+    if (!existsSync(f)) continue;
+    clipFrames.set(key, await loadImage(readFileSync(f)));
+    if (clipFrames.size > 64) clipFrames.delete(clipFrames.keys().next().value!);
+  }
+}
+const env: Env = { createCanvas, Path2D, image: (f, fr) => (fr ? clipFrame(fr.dir, fr.i) : images.get(f)) };
+/** 读进图片；视频片段先用 ffmpeg 抽成一帧一张图（缓存在 out/.media，源文件或取法变了才重抽） */
+async function preload(c: Compiled) {
+  for (const tl of c.tls) for (const s of tl.el.strokes) {
+    if (s.kind !== 'image') continue;
+    if (s.clip) {
+      const cl = s.clip, cr = s.crop ?? { x: 0, y: 0, w: 1, h: 1 }, st = statSync(cl.src);
+      const key = createHash('sha256').update(JSON.stringify([cl.src, st.size, st.mtimeMs, cl.from, cl.n, cl.fps, cl.w, cr])).digest('hex').slice(0, 12);
+      cl.dir = join(c.dir, 'out', '.media', key);
+      if (!existsSync(join(cl.dir, 'done'))) {
+        mkdirSync(cl.dir, { recursive: true });
+        const vf = `fps=${cl.fps},crop=iw*${cr.w.toFixed(4)}:ih*${cr.h.toFixed(4)}:iw*${cr.x.toFixed(4)}:ih*${cr.y.toFixed(4)},scale=${cl.w}:-2`; // 先裁后缩：cl.w 是裁好之后的宽
+        const r = spawnSync('ffmpeg', ['-loglevel', 'error', '-y', '-ss', String(cl.from), '-i', cl.src, '-frames:v', String(cl.n), '-vf', vf, '-q:v', '4', join(cl.dir, 'f%05d.jpg')], { encoding: 'utf8' });
+        if (r.status !== 0 || !existsSync(join(cl.dir, 'f00001.jpg'))) die(`抽不出视频 ${cl.src} 的画面：${(r.stderr || '没有找到 ffmpeg').trim().split('\n').pop()}`);
+        writeFileSync(join(cl.dir, 'done'), '');
+      }
+    } else if (!images.has(s.file)) images.set(s.file, await loadImage(readFileSync(s.file)));
+  }
+}
 
 /** 把配音、落笔音效、背景音乐混成一路。返回 ffmpeg 的 filter_complex 和要 map 的音轨 */
 export function audioGraph(o: { voiceIn: number; sfxIn: number; musicIn: number; dur: number; volume: number; duck: boolean }): { filter: string; map: string } {
@@ -78,7 +115,8 @@ function planCtx(dir: string): { meta: any; fmt: (typeof FORMATS)[string]; al: R
   const meta = YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {}, fmt = FORMATS[meta.format ?? 'portrait'] ?? die('project.yaml: format 只能是 portrait 或 landscape');
   if (!existsSync(join(dir, meta.voice ?? 'voice/alignment.json'))) die(`找不到时间表 ${join(dir, meta.voice ?? 'voice/alignment.json')}：还没有配音。hj status ${dir} 看下一步`);
   const al = loadAlignment(join(dir, meta.voice ?? 'voice/alignment.json')), duration = al.duration + (meta.tail ?? 0.6);
-  return { meta, fmt, al, duration, plan, issues: checkPlan(plan, al, fmt, duration, dir) };
+  // 附录写错了，在规划阶段就拦住（有场景之后由编译器报）
+  return { meta, fmt, al, duration, plan, issues: [...checkPlan(plan, al, fmt, duration, dir), ...loadAppendix(dir).issues] };
 }
 const hasScenes = (dir: string) => existsSync(join(dir, 'scenes')) && readdirSync(join(dir, 'scenes')).some(f => /\.ya?ml$/.test(f));
 /** 全景定稿认的是“板上有哪些东西、各在哪个分区、各是哪一档大小”。微调位置不会让它失效 */
@@ -137,8 +175,9 @@ async function writeReview(dir: string, page: ReviewPage, sheet: Buffer) {
   console.log(`\n■ 交给用户审（${STAGE_NAME[page.stage]}）：\n  长图   ${resolve(out, page.stage + '.png')}\n  审片页 ${resolve(out, page.stage + '.html')}（图都嵌在里面，一个文件）\n  必须让用户看到图：把长图（或审片页）作为文件 / 图片发出来。只贴路径、只用文字描述，都不算给用户看过。\n  同时用两三句话说清楚这一步要用户决定什么，问题不超过三个，每个给出你的建议。\n  图上印着四位确认码。用户看图后回复“确认 <码>”，你再运行：hj approve ${dir} ${page.stage} --by "<用户原话>"\n  不要自己把码读出来替用户填；用户只说“可以”没带码，就请他看图上的码。`);
 }
 /** 一块板讲完时的全景：镜头固定在全景，画到最后一刻 */
-function fullView(c: Compiled, sc: CScene, ctx: any, scale: number, bare = false) {
+async function fullView(c: Compiled, sc: CScene, ctx: any, scale: number, bare = false) {
   const t = Math.min(c.scenes[sc.index + 1] ? sc.t1 - 0.72 : c.duration - 0.01, c.duration - 0.01);
+  await prepare(c, t);
   drawFrame(ctx, { ...c, cams: [{ t0: -1, t1: -1, to: sc.home, cut: true }] } as Compiled, t, env, { scale, subtitles: false, bare });
 }
 /** 眯眼图：缩得很小再放大，字都糊掉，只剩轻重。最显眼的那一团应该就是主角 */
@@ -154,52 +193,26 @@ function heaviest(c: Compiled, sc: CScene, n = 3): string[] {
   const w = (t: typeof alive[number]) => { const b = t.el.body ?? t.el.box, col = String(t.el.src.color ?? ''); return b.w * b.h * (t.el.kind === 'text' ? 1.5 : 1) * (col === 'gray' ? 0.5 : col === 'red' || col === 'blue' ? 1.25 : 1); };
   return alive.sort((a, b) => w(b) - w(a)).slice(0, n).map(t => (t.el.kind === 'text' ? `“${String(t.el.text).replace(/\n/g, ' ')}”` : t.el.id));
 }
-/** 计划的结构草图：分区、角色的真实长相、关系的箭头、主角。还没有任何场景文件时就能画 */
-function planSketch(plan: Plan, b: PlanBoard, fmt: (typeof FORMATS)[string], dir: string): any {
-  const B = boardBox(b, fmt), { regions } = planRegions(b, fmt), k = Math.min(1, 900 / B.w), M = 26;
-  const cv = createCanvas(Math.round(B.w * k) + M * 2, Math.round(B.h * k) + M * 2), x = cv.getContext('2d');
+/** 视频的第一帧（草图、审片页里代表这段视频） */
+async function posterOf(dir: string, file: string): Promise<any> {
+  const out = join(dir, 'out', '.media'); mkdirSync(out, { recursive: true });
+  const st = statSync(file), f = join(out, `poster-${createHash('sha256').update(file + st.size + st.mtimeMs).digest('hex').slice(0, 12)}.jpg`);
+  if (!existsSync(f)) spawnSync('ffmpeg', ['-loglevel', 'error', '-y', '-i', file, '-frames:v', '1', '-vf', 'scale=640:-2', f]);
+  return existsSync(f) ? loadImage(readFileSync(f)) : null;
+}
+/** 手写字排成一段（折行），画到画布上，返回占了多高。maxLines 之后的用省略号收掉 */
+function paragraph(x: any, text: string, px: number, py: number, size: number, col: string, maxW: number, maxLines = 99): number {
+  let lines = wrapText(text, size, maxW);
+  if (lines.length > maxLines) { lines = lines.slice(0, maxLines); lines[maxLines - 1] = [...lines[maxLines - 1]].slice(0, -1).join('') + '…'; }
+  lines.forEach((l, i) => { const t = textStrokes(l, { size, color: col, align: 'left' }); x.save(); x.translate(px, py + i * size * 1.32); drawStrokes(x, env, t.strokes); x.restore(); });
+  return lines.length * size * 1.32;
+}
+/** 附录排好版的样子：整条画成一张长图（审片用） */
+function appendixStrip(c: { fmt: (typeof FORMATS)[string] }, layout: AppendixLayout, k: number): any {
+  const cv = createCanvas(Math.round(layout.width * k), Math.round((layout.height + 80) * k)), x = cv.getContext('2d');
   x.fillStyle = THEME.paper; x.fillRect(0, 0, cv.width, cv.height);
-  x.translate(M, M); x.scale(k, k); x.lineCap = 'round'; x.lineJoin = 'round';
-  const label = (txt: string, px: number, py: number, size: number, col: string) => { const t = textStrokes(txt, { size, color: col }); x.save(); x.translate(px, py); drawStrokes(x, env, t.strokes); x.restore(); };
-  for (const [n, r] of Object.entries(regions)) {
-    x.strokeStyle = '#c9a227'; x.lineWidth = 2; x.setLineDash([10, 9]); x.strokeRect(r[0] + 5, r[1] + 5, r[2] - 10, r[3] - 10); x.setLineDash([]);
-    label(n, r[0] + 18, r[1] + 14, 30, '#a07d00');
-    const d = b.regions[n] ?? ''; if (d) label([...d].slice(0, Math.max(6, Math.floor((r[2] - 80 - n.length * 22) / 30))).join(''), r[0] + 30 + n.length * 20, r[1] + 16, 26, THEME.colors.gray);
-  }
-  const els = new Map<string, El>(), life = new Map<string, [number, number]>();
-  const ctx: BuildCtx = { scene: 'sketch', fmt: { ...fmt, board: { x: 0, y: 0, w: B.w, h: B.h } }, els, projectDir: dir, life, shade: false };
-  const home = new Map<string, string>(), per = new Map<string, string[]>();
-  for (const s of b.segments) for (const id of s.show) if (plan.cast[id] && !home.has(id) && s.in && regions[s.in]) { home.set(id, s.in); per.set(s.in, [...(per.get(s.in) ?? []), id]); }
-  // 主角是一句板书时，它写在哪个分区
-  const heroSeg = b.hero && !plan.cast[b.hero] ? b.segments.find(s => s.words.some(w => w.replace(/\s/g, '') === b.hero!.replace(/\s/g, ''))) : undefined, heroIn = heroSeg?.in && regions[heroSeg.in] ? heroSeg.in : undefined;
-  /** 一个分区里留给“要画的图”的占位框 [x, y, w, h]；这一区没有图就没有 */
-  const diagramBox = (rn: string): number[] | null => {
-    const r = regions[rn], n = b.segments.filter(s => s.in === rn && s.diagram).length; if (!r || !n) return null;
-    const body = r[3] - 62, h = Math.round(per.get(rn)?.length || rn === heroIn ? Math.min(body * 0.42, 24 + n * 36) : body - 16);
-    return [r[0] + 24, r[1] + r[3] - 18 - h, r[2] - 48, h];
-  };
-  const add = (id: string, src: any) => { try { life.set(id, [0, 1]); els.set(id, buildElement(ctx, id, src)); } catch { life.delete(id); } };
-  for (const [rn, ids] of per) {
-    // 这一区还有要画的图时，角色让到上半边，下半边留给图的占位框
-    const r = regions[rn], dg = diagramBox(rn), rh = dg ? dg[1] - r[1] : r[3], size = Math.round(Math.max(dg ? 70 : 90, Math.min(170, rh * 0.4, (r[2] / (ids.length + 0.6)) * 0.62)));
-    ids.forEach((id, i) => { const lk = plan.cast[id].look, base = lk && typeof lk === 'object' && 'crowd' in lk ? lk.of : lk; add(id, { ...base, size: b.hero === id ? Math.round(size * 1.3) : size, label: plan.cast[id].name + (lk?.crowd ? ` ×${lk.crowd}` : ''), labelSize: 34, at: [r[0] + (r[2] * (i + 1)) / (ids.length + 1), r[1] + 62 + (rh - 62) * 0.44] }); });
-  }
-  // 这一区要画的“图”（横条、图表…）计划里只有一句话，草图画不出它的样子：
-  // 画一个虚线的占位框，把每张图的那句话按出场顺序写进去，让人看到“这里有图、是什么图、占多大地方”
-  for (const n of Object.keys(regions)) {
-    const box = diagramBox(n); if (!box) continue;
-    const ds = b.segments.filter(s => s.in === n && s.diagram), size = 26, lh = 36, fit = Math.max(1, Math.floor((box[3] - 22) / lh)), maxW = box[2] - 40;
-    x.strokeStyle = THEME.colors.gray; x.lineWidth = 2.5; x.setLineDash([4, 9]); x.strokeRect(box[0], box[1], box[2], box[3]); x.setLineDash([]);
-    const clip = (t: string) => { if (textWidth(t, size) <= maxW) return t; let o = ''; for (const ch of t) { if (textWidth(o + ch + '…', size) > maxW) break; o += ch; } return o + '…'; };
-    const lines = ds.map((s, i) => clip(`图${ds.length > 1 ? i + 1 : ''}：${s.diagram}${s.pattern ? `（${s.pattern}）` : ''}`));
-    const shown = lines.length > fit ? [...lines.slice(0, fit - 1), `…这一区一共 ${lines.length} 张图，见分段表`] : lines;
-    shown.forEach((t, i) => label(t, box[0] + 20, box[1] + 12 + i * lh, size, THEME.colors.gray));
-  }
-  if (heroIn) { const r = regions[heroIn], dg = diagramBox(heroIn); add('__hero', { text: b.hero, size: 92, color: 'blue', at: [r[0] + r[2] * 0.5, dg ? (r[1] + 62 + dg[1]) / 2 : r[1] + r[3] * 0.72] }); }
-  const done = new Set<string>();
-  for (const s of b.segments) for (const id of s.link) { const rl = plan.relations[id]; if (!rl || done.has(id) || !els.has(rl.from) || !els.has(rl.to)) continue; done.add(id); add('rel_' + id, { arrow: [rl.from, rl.to], ...(rl.label ? { label: rl.label, labelSize: 36 } : {}), pen: 5 }); }
-  for (const e of els.values()) drawStrokes(x, env, e.strokes);
-  if (els.has('__hero')) { const hb = els.get('__hero')!.box; label('主角', hb.x + hb.w + 14, hb.y + 6, 28, THEME.colors.red); }
+  x.scale(k, k); x.translate(0, 40); x.lineCap = 'round'; x.lineJoin = 'round';
+  for (const under of [true, false]) for (const row of layout.rows) for (const s of row.strokes) if (!!(s as any).under === under) drawStroke(x, env, s, 1, 1);
   return cv;
 }
 /** 一个场景板上的三层信息各有几样（一模一样的重复元素算一样） */
@@ -224,7 +237,7 @@ const PLAN_TEMPLATE = `# 计划：规划者的产物。写完后 hj check → hj
 #
 # thesis: 用一句话说出全片的结论
 #
-# cast:                      # 角色：这件事里的人、机构、钱、货。每个定一个固定的长相（只能是画出来的东西）
+# cast:                      # 角色：这件事里的人、机构、钱、货。每个定一个固定的长相（画出来的东西；真实的人和物可以用 media/ 里的照片或视频）
 #   bank: { name: 银行, look: { doodle: bank } }
 #   me:   { name: 你,   look: { figure: stand } }
 #
@@ -365,21 +378,55 @@ const commands: Record<string, () => Promise<void> | void> = {
       const w = pc.issues.filter(i => i.level === 'warn').length;
       console.log(`✓ 分镜计划已生成：${join(dir, 'storyboard.md')}（计划版本 ${pc.plan.hash}）`);
       if (w) console.log(`  注意：还有 ${w} 个警告，已经原样写进了分镜计划的末尾。交给用户之前最好处理掉，或向用户说明。`);
-      // 审片页：结构草图 + 分段表。计划这一步也要让用户看到图
+      // 审片页：结构草图 + 逐段的连环画。计划这一步也要让用户看到图，而且光看这一页就能判断
       return (async () => {
         const { plan } = pc, code = confirmCode('plan', plan.hash), { times } = segmentTimes(plan, pc.al, pc.duration), nm = (id: string) => plan.cast[id]?.name ?? id;
-        const sketches = plan.boards.map(b => planSketch(plan, b, pc.fmt, dir)), blocks: ReviewBlock[] = [];
-        blocks.push({ heading: '这条片子讲的是什么', html: `<p><b>论点：</b>${esc(plan.thesis)}</p><p><b>角色：</b>${Object.values(plan.cast).map(c => esc(c.name)).join('、')}</p><p><b>关系（这件事的骨架）：</b>${Object.values(plan.relations).map(r => `${esc(nm(r.from))} →${r.label ? ` ${esc(r.label)} →` : ''} ${esc(nm(r.to))}`).join('；') || '（没有）'}</p>` });
+        const blocks: ReviewBlock[] = [], parts: any[] = [];
+        const nSeg = plan.boards.reduce((n, b) => n + b.segments.length, 0);
+        blocks.push({ heading: '这条片子讲的是什么', html: `<p><b>论点：</b>${esc(plan.thesis)}</p><p><b>角色（${Object.keys(plan.cast).length} 个）：</b>${Object.values(plan.cast).map(c => esc(c.name)).join('、')}</p><p><b>关系（这件事的骨架）：</b>${Object.values(plan.relations).map(r => `${esc(nm(r.from))} →${r.label ? ` ${esc(r.label)} →` : ''} ${esc(nm(r.to))}`).join('；') || '（没有）'}</p><p><b>篇幅：</b>${fmtT(pc.duration)}，${plan.boards.length} 块板，${nSeg} 段${plan.appendix ? `，片尾有滚动附录（${plan.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）` : ''}</p>` });
         for (const [bi, b] of plan.boards.entries()) {
-          const ts = times.filter(t => t.board === bi);
-          const rows = b.segments.map((s, si) => { const t = ts[si], say = Number.isFinite(t?.t0) ? pc.al.units.filter(u => u.start >= t.t0 - 1e-6 && u.start < t.t1 - 1e-6).map(u => u.display).join('') : ''; const what = [s.show.length ? `出场：${s.show.map(nm).join('、')}` : '', s.link.length ? `连线：${s.link.map(id => { const r = plan.relations[id]; return r ? `${nm(r.from)}→${nm(r.to)}` : id; }).join('、')}` : '', s.diagram ? `图：${s.diagram}` : '', s.revisit.length ? `回头改：${s.revisit.map(nm).join('、')}` : '', s.joins.length ? `连到分区：${s.joins.join('、')}` : ''].filter(Boolean).join('；'); return `<tr><td>${si + 1}</td><td>${Number.isFinite(t?.t0) ? fmtT(Math.max(0, t.t0)) : '?'}</td><td>${esc(say)}</td><td>${esc(s.in ?? '')}</td><td>${esc(s.intent)}${what ? `<br><span style="color:var(--dim)">${esc(what)}</span>` : ''}</td><td>${esc(s.words.join('、'))}</td></tr>`; }).join('');
-          blocks.push({ heading: `${plan.boards.length > 1 ? `第 ${bi + 1} 块板：` : '这块板：'}${b.id}`, note: `讲完是一张什么图：${b.picture}${b.hero ? `　主角（第一眼看到的）：${plan.cast[b.hero]?.name ?? b.hero}` : ''}${b.layout && LAYOUTS[b.layout] ? `　版式：${LAYOUTS[b.layout].title}` : ''}`, images: [{ src: await jpeg(sketches[bi], 88), caption: '结构草图', sub: '只表示谁在哪一区、谁连着谁、主角是谁。横条、图表这些“图”还没画，虚线框里写的是它们各自要画什么；位置和大小也不是最后的样子。', wide: true }], html: `<div class="scroll"><table><tr><th>#</th><th>时间</th><th>口播</th><th>分区</th><th>画面上发生什么</th><th>板书</th></tr>${rows}</table></div>` });
+          const L = layoutSketch(plan, b, pc.fmt, dir), senv = await sketchEnv(env, L, f => posterOf(dir, f));
+          const full = drawSketch(plan, b, L, senv, { width: 900 });
+          parts.push(full);
+          const ts = times.filter(t => t.board === bi), TW = 250;
+          // 逐段：每一段一张小图（讲到这儿板上是什么样，这一段新加的亮着）加一张卡片
+          const cards: string[] = [], thumbs: any[] = [], texts: { head: string; say: string; intent: string; what: string[] }[] = [];
+          b.segments.forEach((s, si) => {
+            const t = ts[si], say = Number.isFinite(t?.t0) ? pc.al.units.filter(u => u.start >= t.t0 - 1e-6 && u.start < t.t1 - 1e-6).map(u => u.display).join('') : '';
+            const what = [s.show.length ? `出场：${s.show.map(nm).join('、')}` : '', s.link.length ? `连线：${s.link.map(id => { const r = plan.relations[id]; return r ? `${nm(r.from)} → ${nm(r.to)}${r.label ? `（${r.label}）` : ''}` : id; }).join('、')}` : '', s.words.length ? `板书：${s.words.join('、')}` : '', s.diagram ? `要画的图：${s.diagram}` : '', s.revisit.length ? `回头去动：${s.revisit.map(id => { const r = plan.relations[id]; return r ? `${nm(r.from)} → ${nm(r.to)}` : nm(id); }).join('、')}` : '', s.joins.length ? `连到分区：${s.joins.join('、')}` : ''].filter(Boolean);
+            const dur = Number.isFinite(t?.t0) ? Math.max(0, t.t1 - Math.max(0, t.t0)) : 0;
+            const head = `${badge(si)} ${Number.isFinite(t?.t0) ? fmtT(Math.max(0, t.t0)) : '?'}${dur ? `（${dur.toFixed(0)} 秒）` : ''}`;
+            thumbs.push(drawSketch(plan, b, L, senv, { upto: si, width: TW * 2 }));
+            texts.push({ head: `${head} · ${s.act ?? ''}${s.in ? ` · 在 ${s.in}` : ''}`, say, intent: s.intent, what });
+          });
+          for (const [si, s] of b.segments.entries()) cards.push(`<div class="seg"><img loading="lazy" src="${await jpeg(thumbs[si], 80)}" alt=""><div><div class="seg-h"><b>${esc(texts[si].head.split(' · ')[0])}</b>${s.act ? `<span class="tag">${esc(s.act)}</span>` : ''}${s.in ? `<span class="tag in">${esc(s.in)}</span>` : ''}</div><p class="say">${esc(texts[si].say)}</p><p class="intent">${esc(s.intent)}</p>${texts[si].what.length ? `<ul class="what">${texts[si].what.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}</div></div>`);
+          // 长图里也有同样的卡片：只收到长图的人也能逐段看
+          {
+            const W0 = 900, tw = TW, th = Math.round((thumbs[0]?.height ?? 0) * (tw / (thumbs[0]?.width ?? 1))), tx = tw + 36, maxW = W0 - tx - 24;
+            const measure = createCanvas(4, 4).getContext('2d');
+            const draw = (x: any, t: (typeof texts)[number], y0: number): number => { let y = y0; y += paragraph(x, t.head, tx, y, 30, THEME.ink, maxW, 1) + 6; if (t.say) y += paragraph(x, `“${t.say}”`, tx, y, 23, THEME.colors.gray, maxW, 3) + 8; y += paragraph(x, t.intent, tx, y, 27, THEME.ink, maxW, 4) + 8; for (const w of t.what) y += paragraph(x, w, tx, y, 23, THEME.colors.blue, maxW, 2) + 2; return y - y0; };
+            const hs = texts.map(t => Math.max(th, draw(measure, t, 0)) + 34);
+            const cv = createCanvas(W0, hs.reduce((n, h) => n + h, 0) + 70), x = cv.getContext('2d');
+            x.fillStyle = THEME.paper; x.fillRect(0, 0, cv.width, cv.height); x.lineCap = 'round'; x.lineJoin = 'round';
+            paragraph(x, `逐段看：${b.segments.length} 段，每段的小图是“讲到这儿板上有什么”，亮着的是这一段新加的`, 18, 16, 26, THEME.colors.gray, W0 - 36, 1);
+            let y = 70;
+            texts.forEach((t, i) => { x.drawImage(thumbs[i], 18, y, tw, th); x.strokeStyle = '#d8d2c2'; x.lineWidth = 1; x.strokeRect(18.5, y + 0.5, tw, th); draw(x, t, y + 2); y += hs[i]; x.beginPath(); x.moveTo(18, y - 17); x.lineTo(W0 - 18, y - 17); x.stroke(); });
+            parts.push(cv);
+          }
+          const regionsLine = Object.entries(b.regions).map(([k, v]) => `<li><b>${esc(k)}</b>　${esc(v)}</li>`).join('');
+          blocks.push({ heading: `${plan.boards.length > 1 ? `第 ${bi + 1} 块板：` : '这块板讲完的样子：'}${b.id}`, note: `讲完是一张什么图：${b.picture}`, html: `<p><b>主角（第一眼看到的）：</b>${b.hero ? esc(plan.cast[b.hero]?.name ?? b.hero) : '（没有指定）'}${b.layout && LAYOUTS[b.layout] ? `　<b>版式：</b>${esc(LAYOUTS[b.layout].title)}` : ''}</p><ul class="regions">${regionsLine}</ul>`, images: [{ src: await jpeg(full, 88), caption: '结构草图：每个分区里有谁、写哪些字、画哪些图', sub: '带圈的数字是第几段加上去的，和下面逐段的卡片对应。虚线框是还没画的图（横条、图表），框里是它要画什么。草图只表示归属、连线和先后；每样东西最后摆在哪儿、多大，到下一步“全景定稿”再看。', wide: true }] });
+          blocks.push({ heading: `逐段看（${b.segments.length} 段）`, note: '小图是“讲到这一段时板上有什么”：红框是这一段所在的分区，亮着的是这一段新加的，淡的是前面已经有的，红圈是回头去动的，红色粗虚线是从别的分区连过来。', html: `<div class="segs">${cards.join('')}</div>` });
+        }
+        if (plan.appendix) {
+          const lay = layoutAppendix(plan.appendix, pc.fmt), strip = appendixStrip(pc, lay, 0.6);
+          parts.push(strip);
+          blocks.push({ heading: `片尾的滚动附录（${plan.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）`, note: '口播讲完之后，镜头顺着同一张纸往下滚过这一份。下面是它排好版的样子（成片里是一屏一屏滚过去的）。', images: [{ src: await jpeg(strip, 84), wide: true }] });
         }
         const hero = plan.boards.map(b => (b.hero ? plan.cast[b.hero]?.name ?? `“${b.hero}”` : '')).filter(Boolean).join('、');
         await writeReview(dir, { title: String(pc.meta.title ?? '未命名'), stage: 'plan', code, hash: plan.hash, step: 2, steps: STEPS,
-          lead: '动笔之前，先确认这条片子讲的是一个什么系统。这一步定的是结构：有哪些东西、怎么连、分成哪几块、谁是主角。改这些现在最便宜。',
-          questions: [{ q: `结论是不是这一句：“${plan.thesis}”？`, fallback: '就按这一句' }, { q: '角色和它们之间的连线，是不是这件事的骨架？有没有缺的、多的、连错的？', fallback: '按草图上的来' }, { q: hero ? `讲完之后观众第一眼该看到的是 ${hero}，对吗？` : '每块板怎么分区、每一段画在哪儿，有没有不合理的？', fallback: hero ? '就让它最显眼' : '按表里的来' }],
-          blocks, warnings: pc.issues.filter(i => i.level === 'warn').map(i => `${i.where}：${i.msg}`) }, await stackSheet(`分镜计划 · ${String(pc.meta.title ?? '')}`, code, sketches));
+          lead: '动笔之前，先确认这条片子讲的是一个什么系统。这一步定的是结构：有哪些东西、怎么连、分成哪几块、按什么顺序讲、谁是主角。改这些现在最便宜。这一页还没有成片的画面：构图和画风在下一步“全景定稿”确认。',
+          questions: [{ q: `结论是不是这一句：“${plan.thesis}”？`, fallback: '就按这一句' }, { q: '角色、连线和分区，是不是这件事的骨架？有没有缺的、多的、连错的？（看结构草图）', fallback: '按草图上的来' }, { q: `逐段看下来，每一段画的东西和这一段口播对得上吗？${hero ? `讲完之后第一眼该看到的是 ${hero}，对吗？` : ''}（看逐段的卡片）`, fallback: '按卡片上的来' }],
+          blocks, warnings: pc.issues.filter(i => i.level === 'warn').map(i => `${i.where}：${i.msg}`) }, await stackSheet(`分镜计划 · ${String(pc.meta.title ?? '')}`, code, parts));
         console.log(`  分段表在 ${join(dir, 'storyboard.md')}，审片页里也有。用户同意之前，不出正式的图、不渲染。`);
       })();
     }
@@ -436,7 +483,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     gate(c, 'plan');
     const hash = lookHash(c), code = confirmCode('look', hash), blocks: ReviewBlock[] = [], parts: any[] = [];
     for (const sc of c.scenes) {
-      const { cv, ctx } = canvasFor(c, 0.6); fullView(c, sc, ctx, 0.6);
+      const { cv, ctx } = canvasFor(c, 0.6); await fullView(c, sc, ctx, 0.6);
       const sq = squintOf(cv), b = plan.boards.find(p => p.id === sc.id), top = heaviest(c, sc), hero = b?.hero ? plan.cast[b.hero]?.name ?? `“${b.hero}”` : '';
       const texts = c.tls.filter(t => t.scene === sc.index && (t.drawT0 != null || t.appear) && ['text', 'note'].includes(t.el.kind) && !(t.gone != null && t.gone < sc.t1 - 0.3));
       const sizes = [...new Set(texts.map(t => +(t.el.src.size ?? (t.el.kind === 'note' ? 46 : 72))))].sort((p, q) => q - p), reds = texts.filter(t => t.el.src.color === 'red').length;
@@ -598,11 +645,12 @@ const commands: Record<string, () => Promise<void> | void> = {
     const out = join(dir, 'out', draft ? 'draft' : 'stills'); mkdirSync(out, { recursive: true });
     const { cv, ctx } = canvasFor(c, sc0);
     const stamp = draft ? textStrokes('草稿 · 未确认', { size: 54, color: '#d9433a' }) : null;
-    const frame = (t: number, o: { pen: boolean | 'marker' | 'hand'; guides?: boolean }) => {
+    const frame = async (t: number, o: { pen: boolean | 'marker' | 'hand'; guides?: boolean }) => {
+      await prepare(c, t);
       drawFrame(ctx, c, t, env, { scale: sc0, subtitles: true, ...o });
       if (stamp) for (const [fx, fy] of [[0.5, 0.045], [0.5, 0.93]]) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 0.6; ctx.translate(cv.width * fx - (stamp.w * 0.7) / 2, cv.height * fy); ctx.scale(0.7, 0.7); drawStrokes(ctx, env, stamp.strokes); ctx.restore(); }
     };
-    const shot = async (t: number, name: string) => { frame(t, { pen: penOpt(c), guides: !!flags.guides }); writeFileSync(join(out, name), await cv.encode('png')); };
+    const shot = async (t: number, name: string) => { await frame(t, { pen: penOpt(c), guides: !!flags.guides }); writeFileSync(join(out, name), await cv.encode('png')); };
     if (flags.at != null) {
       const t = /^[\d.]+$/.test(String(flags.at)) ? +flags.at : resolveAnchor(c.al, String(flags.at)).time;
       await shot(t, `at-${t.toFixed(2)}.png`);
@@ -633,7 +681,7 @@ const commands: Record<string, () => Promise<void> | void> = {
       sx.fillStyle = '#e9ecef'; sx.fillRect(0, 0, sheet.width, sheet.height);
       for (let i = 0; i < tiles.length; i++) {
         const x = pad + (i % cols) * (tw + pad), y = pad + Math.floor(i / cols) * (th + cap + pad);
-        frame(tiles[i].t, { pen: false });
+        await frame(tiles[i].t, { pen: false });
         sx.drawImage(cv, x, y + cap, tw, th);
         sx.strokeStyle = '#adb5bd'; sx.lineWidth = 1; sx.strokeRect(x + 0.5, y + cap + 0.5, tw, th);
         const lab = textStrokes(tiles[i].label, { size: 28, color: '#212529' });
@@ -644,15 +692,29 @@ const commands: Record<string, () => Promise<void> | void> = {
       const sf = `sheet-${String(sc.index + 1).padStart(2, '0')}-${sc.id}.png`;
       writeFileSync(join(out, sf), await sheet.encode('png')); sheets.push(sf); sheetCvs.push(sheet);
       if (draft) { // 眯眼图：自己先看主次
-        const fv = canvasFor(c, 0.5); fullView(c, sc, fv.ctx, 0.5);
+        const fv = canvasFor(c, 0.5); await fullView(c, sc, fv.ctx, 0.5);
         writeFileSync(join(out, `squint-${String(sc.index + 1).padStart(2, '0')}-${sc.id}.png`), await squintOf(fv.cv).encode('png'));
         const b = c.plan?.boards.find(p => p.id === sc.id);
         console.log(`  ${sc.id}：一眼最重的三样是 ${heaviest(c, sc).join('、')}${b?.hero ? `；计划的主角是 ${c.plan!.cast[b.hero]?.name ?? `“${b.hero}”`}` : ''}。眯眼图 squint-${String(sc.index + 1).padStart(2, '0')}-${sc.id}.png：字都糊掉后最显眼的那一团，应该就是主角`);
       } else if (!only && flags.at == null) {
         const small = createCanvas(Math.round(cv.width * 0.4), Math.round(cv.height * 0.4)), smx = small.getContext('2d'), imgs = [];
-        for (let i = 0; i < tiles.length; i++) { frame(tiles[i].t, { pen: false }); smx.drawImage(cv, 0, 0, small.width, small.height); const be = sc.beats[i]; imgs.push({ src: await jpeg(small, 78), caption: `${tiles[i].label}　${be.intent}`, sub: be.say ? `口播：${be.say}` : '' }); }
+        for (let i = 0; i < tiles.length; i++) { await frame(tiles[i].t, { pen: false }); smx.drawImage(cv, 0, 0, small.width, small.height); const be = sc.beats[i]; imgs.push({ src: await jpeg(small, 78), caption: `${tiles[i].label}　${be.intent}`, sub: be.say ? `口播：${be.say}` : '' }); }
         rblocks.push({ heading: `${c.scenes.length > 1 ? `第 ${sc.index + 1} 块板：` : ''}${sc.id}（${tiles.length} 拍）`, note: '每张图是这一拍画完之后的样子。图下面是编号、这一拍画什么、这时候口播在说什么。', images: imgs, grid: true });
       }
+    }
+    // 片尾的滚动附录：沿着滚动取几屏，排成一行
+    if (c.appendix && !only) {
+      const ap = c.appendix, n = Math.max(3, Math.min(6, Math.round((ap.t1 - ap.t0) / 6))), k = c.fmt.name === 'portrait' ? 0.3 : 0.34, tw = Math.round(c.fmt.W * k), th = Math.round(c.fmt.H * k), pad = 16;
+      const sheet = createCanvas(n * (tw + pad) + pad, th + pad * 2), sx = sheet.getContext('2d'), imgs = [];
+      sx.fillStyle = '#e9ecef'; sx.fillRect(0, 0, sheet.width, sheet.height);
+      const small = createCanvas(Math.round(cv.width * 0.4), Math.round(cv.height * 0.4)), smx = small.getContext('2d');
+      for (let i = 0; i < n; i++) {
+        const t = ap.t0 + 1.6 + ((ap.t1 - 0.3 - ap.t0 - 1.6) * i) / (n - 1);
+        await frame(t, { pen: false }); sx.drawImage(cv, pad + i * (tw + pad), pad, tw, th);
+        smx.drawImage(cv, 0, 0, small.width, small.height); imgs.push({ src: await jpeg(small, 78), caption: `附录 ${fmtT(t)}` });
+      }
+      writeFileSync(join(out, 'sheet-appendix.png'), await sheet.encode('png')); sheets.push('sheet-appendix.png'); sheetCvs.push(sheet);
+      rblocks.push({ heading: `片尾的滚动附录（${fmtT(ap.t0)} 起，滚 ${(ap.t1 - ap.t0).toFixed(0)} 秒）`, note: '口播讲完之后，镜头顺着同一张纸往下滚。下面是滚动途中的几屏。', images: imgs, grid: true });
     }
     if (draft) { console.log(`✓ 草稿关键帧已输出到 ${out}（半分辨率，带“草稿 · 未确认”水印）\n  每个场景一张联系表：${sheets.join('  ')}\n这是给你自己看的：逐张检查重叠、出界、难看、看不懂、和口播对不上，改到满意再交给用户。\n草稿不是交付物：不要把它当作关键帧请用户确认。交给用户的是审片页：${c.plan ? 'hj look（全景定稿）和 ' : ''}hj stills（关键帧，不带 --draft）。`); return; }
     console.log(`✓ 关键帧已输出到 ${out}\n  每个场景一张联系表：${sheets.join('  ')}\n  每一拍的全尺寸图：<场景序号>-<场景>-<拍>.png`);
@@ -669,7 +731,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const c = load(dir); await preload(c);
     gate(c, 'plan'); if (c.plan) gate(c, 'look'); gate(c, 'keyframes');
     const only = sceneArg(c);
-    const from = only ? Math.max(0, only.t0 - 0.6) : +(flags.from ?? 0), to = only ? only.t1 : +(flags.to ?? c.duration);
+    const from = only ? Math.max(0, only.t0 - 0.6) : +(flags.from ?? 0), to = only ? only.t1 : +(flags.to ?? c.total);
     const draft = !!flags.draft, scale = draft ? 0.5 : 1, fps = draft ? Math.min(15, c.fps) : c.fps;
     const outDir = join(dir, 'out'); mkdirSync(outDir, { recursive: true });
     const name = String(flags.out ?? join(outDir, `${only ? only.id : flags.from || flags.to ? `${from.toFixed(0)}-${to.toFixed(0)}` : 'video'}${draft ? '.draft' : ''}.mp4`));
@@ -698,6 +760,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const done = new Promise<number>(r => p.on('close', code => r(code ?? 1)));
     const total = Math.round((to - from) * fps), started = Date.now();
     for (let i = 0; i < total; i++) {
+      await prepare(c, from + i / fps);
       drawFrame(ctx, c, from + i / fps, env, { scale, subtitles: true, pen: penOpt(c) });
       if (!p.stdin.write(cv.data())) await new Promise(r => p.stdin.once('drain', r));
       if (i % (fps * 10) === 0 && i) console.log(`  ${fmtT(from + i / fps)} / ${fmtT(to)}  （${((i / total) * 100).toFixed(0)}%，已用 ${((Date.now() - started) / 1000).toFixed(0)}s）`);
@@ -723,6 +786,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     if (cfg.at != null) { if (typeof cfg.at === 'number') t = cfg.at; else { try { t = resolveAnchor(c.al, String(cfg.at)).time + 3; } catch { die(`cover.at 写的 "${cfg.at}" 在口播里找不到`); } } }
     // 先画出那一刻的画面（不带字幕），裁出画板
     const src = createCanvas(W, H), sx = src.getContext('2d');
+    await prepare(c, Math.min(Math.max(0, t), c.duration - 0.01));
     drawFrame(sx, c, Math.min(Math.max(0, t), c.duration - 0.01), env, { scale: 1, subtitles: false, bare: true });
     const cv = createCanvas(Math.round(W * k), Math.round(H * k)), x = cv.getContext('2d');
     x.setTransform(k, 0, 0, k, 0, 0);

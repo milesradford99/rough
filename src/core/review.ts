@@ -50,10 +50,17 @@ h1{font-size:26px;margin:6px 0 2px}h2{font-size:19px;margin:36px 0 8px;padding-t
 .ask ol{margin:6px 0 0;padding-left:22px}.ask li{margin:8px 0}.ask small{display:block;color:var(--dim)}
 .code{display:inline-block;font:700 30px/1 ui-monospace,Menlo,monospace;letter-spacing:4px;color:var(--red);background:var(--yellow);padding:8px 14px;border-radius:8px;vertical-align:middle}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
-figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}figure.wide{max-width:560px;margin:0 auto 14px}
+figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}figure.wide{max-width:760px;margin:0 auto 14px}
 img{display:block;width:100%;height:auto}figcaption{padding:8px 10px;font-size:13.5px}figcaption b{display:block}figcaption span{display:block;color:var(--dim)}
 table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}th{color:var(--dim);font-weight:500;white-space:nowrap}
 .scroll{overflow-x:auto}.note{color:var(--dim);font-size:14px;margin:4px 0 12px}.warn li{margin:6px 0}
+.segs{display:flex;flex-direction:column;gap:14px}
+.seg{display:grid;grid-template-columns:minmax(120px,210px) minmax(0,1fr);gap:14px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.seg img{border:1px solid var(--line);border-radius:6px}.seg p{margin:4px 0}.seg-h{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:17px}
+.tag{font-size:12.5px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--dim)}.tag.in{color:var(--red);border-color:var(--red)}
+.say{color:var(--dim);font-size:14px;border-left:3px solid var(--line);padding-left:8px}.intent{font-size:16px}
+.what{margin:6px 0 0;padding-left:18px;font-size:14px;color:var(--blue)}.what li{margin:2px 0}.regions{padding-left:20px;font-size:14.5px}
+@media (max-width:520px){.seg{grid-template-columns:118px minmax(0,1fr);gap:10px;padding:10px}}
 .pair{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:14px;align-items:start}@media (max-width:640px){.pair{grid-template-columns:1fr}}
 </style></head><body><main>
 <ol class="steps">${p.steps.map((s, i) => `<li class="${i + 1 === p.step ? 'now' : i + 1 < p.step ? 'done' : ''}">${esc(s)}</li>`).join('')}</ol>

@@ -11,6 +11,7 @@ import { FORMATS, type Format } from './theme';
 import type { Compiled, Issue, TL } from './compile';
 import { loadDoodle } from './elements';
 import { iconExists } from './icons';
+import { loadAppendix, type Appendix } from './appendix';
 import { POSES, ACCESSORIES } from './figure';
 
 export interface PlanCast { name: string; look: any }
@@ -34,7 +35,7 @@ export interface PlanBoard {
   regions: Record<string, string>;
   segments: PlanSegment[];
 }
-export interface Plan { thesis: string; cast: Record<string, PlanCast>; relations: Record<string, PlanRelation>; boards: PlanBoard[]; hash: string }
+export interface Plan { thesis: string; cast: Record<string, PlanCast>; relations: Record<string, PlanRelation>; boards: PlanBoard[]; hash: string; /** 片尾的滚动附录（appendix.yaml），算在计划里：用户确认计划时一并确认 */ appendix?: Appendix }
 
 /** 版式：把“这件事的形状”做成现成的分区。竖屏和横屏各一套比例，分区名固定 */
 export interface Layout { title: string; when: string; link: string; regions: Record<string, string>; portrait: PlanBoard['grid']; landscape: PlanBoard['grid'] }
@@ -75,7 +76,7 @@ const AUTO_FILL = 0.46;
 
 export const ACTS = ['设问', '说法', '理由', '例子', '算账', '数据', '对比', '转折', '推翻', '结论', '补充'];
 /** 角色的长相只能是“画出来的东西”，不能是一行字或一个框 */
-const LOOKS = ['figure', 'doodle', 'icon', 'image', 'parts'];
+const LOOKS = ['figure', 'doodle', 'icon', 'image', 'video', 'parts'];
 const W = 'plan.yaml';
 const arr = (v: any): string[] => (v == null ? [] : Array.isArray(v) ? v.map(String) : [String(v)]);
 const fmtT = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
@@ -122,7 +123,8 @@ export function loadPlan(dir: string): Plan | null {
   // 没写 size（或写 auto）的板：按内容量定大小。沿用别的板（recall）的，和那块板一样大
   for (const b of boards) if (b.size == null && !b.recall) { b.size = autoBoardSize(b, fmtName); b.autoSize = true; }
   for (const b of boards) if (b.size == null && b.recall) { const o = boards.find(x => x.id === b.recall); if (o?.size != null) { b.size = o.size; b.autoSize = true; } }
-  const plan = { thesis: String(raw.thesis ?? ''), cast, relations, boards };
+  const ap = loadAppendix(dir);
+  const plan = { thesis: String(raw.thesis ?? ''), cast, relations, boards, ...(ap.appendix ? { appendix: ap.appendix } : {}) };
   const hash = createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16);
   // 记下原始字段，检查时报“不认识的字段”（不参与版本号）
   return Object.assign({ ...plan, hash }, { __raw: raw });
@@ -204,6 +206,7 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
     const one = c.look && typeof c.look === 'object' ? ('crowd' in c.look ? c.look.of : c.look) : null;
     if (one && typeof one === 'object') {
       if (one.doodle != null && !loadDoodle(String(one.doodle), projectDir)) err(where, `没有叫 "${one.doodle}" 的手绘件。运行 hj assets doodles 看有哪些，换一个现成的；都不合适就换成图标（hj assets icons <英文关键词>）或小人`);
+      for (const k of ['image', 'video']) if (one[k] != null && projectDir && !existsSync(join(projectDir, String(one[k])))) err(where, `找不到${k === 'video' ? '视频' : '图片'} ${one[k]}（路径相对项目目录）。真实的照片、截图、视频片段由用户提供，放进项目的 media/ 目录；没有就换成手绘件或小人，不要写一个不存在的文件`);
       if (one.icon != null && !iconExists(String(one.icon))) err(where, `没有叫 "${one.icon}" 的图标。运行 hj assets icons <英文关键词> 搜（只认英文，如 sun、court）`);
       if (one.figure != null && !POSES[String(one.figure)]) err(where, `小人没有 "${one.figure}" 这个姿势。可用：${Object.keys(POSES).join(' ')}`);
       for (const w of arr(one.wear)) if (!(ACCESSORIES as readonly string[]).includes(w)) err(where, `小人没有 "${w}" 这个配饰。可用：${ACCESSORIES.join(' ')}`);
@@ -394,7 +397,7 @@ export function scaffold(plan: Plan, b: PlanBoard, fmt: Format, al: Alignment, d
 export function planStoryboard(plan: Plan, meta: any, al: Alignment, fmt: Format, duration: number, issues: Issue[]): string {
   const L: string[] = [], { times } = segmentTimes(plan, al, duration);
   const nm = (id: string) => plan.cast[id]?.name ?? id;
-  const lookOf = (l: any): string => (!l || typeof l !== 'object' ? '' : 'crowd' in l ? `一群（${l.crowd} 个）${lookOf(l.of)}` : l.doodle ? `手绘件 ${l.doodle}` : l.figure ? `小人${l.wear ? `，戴 ${arr(l.wear).join('、')}` : ''}` : l.icon ? `图标 ${l.icon}` : l.image ? `图片 ${l.image}` : '自己画的图形');
+  const lookOf = (l: any): string => (!l || typeof l !== 'object' ? '' : 'crowd' in l ? `一群（${l.crowd} 个）${lookOf(l.of)}` : l.doodle ? `手绘件 ${l.doodle}` : l.figure ? `小人${l.wear ? `，戴 ${arr(l.wear).join('、')}` : ''}` : l.icon ? `图标 ${l.icon}` : l.image ? `图片 ${l.image}` : l.video ? `视频 ${l.video}` : '自己画的图形');
   L.push(`# 分镜计划：${meta.title ?? '未命名'}`, '');
   L.push(`画幅 ${fmt.name === 'portrait' ? '竖屏 9:16' : '横屏 16:9'} · 时长 ${fmtT(duration)} · ${plan.boards.length} 块板 · 计划版本 \`${plan.hash}\``, '');
   L.push('> 这是动笔之前的计划，还没有画面，只有一张结构草图（`out/review/plan.png`，和这份表一起看）。请按这个顺序看：**论点**对不对；**角色和关系**是不是这件事的骨架；每块板的**全景**和**分区**；最后逐段看“画面”一栏是不是在**演示**口播讲的事，而不是把话再写一遍。确认之后才会开始画。', '');
@@ -497,7 +500,7 @@ export function conform(c: Compiled): Issue[] {
     // 计划之外的东西
     for (const t of tls) {
       if (!use.declared.has(t.el.id) || t.recalled) continue;
-      if (['figure', 'doodle', 'icon', 'image'].includes(t.el.kind) && !use.els.has(t.el.id)) err(`${sc.file} / 元素 ${t.el.id}`, `这是计划之外的东西：它不是从角色表来的。执行者不添角色。它是计划里的某个角色就写成 { cast: 角色名, … }；确实需要一样新东西，请规划者把它加进 plan.yaml 的 cast`);
+      if (['figure', 'doodle', 'icon', 'image', 'video'].includes(t.el.kind) && !use.els.has(t.el.id)) err(`${sc.file} / 元素 ${t.el.id}`, `这是计划之外的东西：它不是从角色表来的。执行者不添角色。它是计划里的某个角色就写成 { cast: 角色名, … }；确实需要一样新东西，请规划者把它加进 plan.yaml 的 cast`);
     }
     const extras: string[] = [];
     for (const t of tls) {
@@ -515,7 +518,7 @@ export function conform(c: Compiled): Issue[] {
       const szOf = (t: TL) => +(t.el.src?.size ?? 72);
       if (plan.cast[b.hero]) {
         const mine = elsOf(b.hero).filter(t => alive.includes(t)), big = (t: TL) => Math.max(t.el.body?.w ?? t.el.box.w, t.el.body?.h ?? t.el.box.h);
-        const rival = alive.filter(t => ['figure', 'doodle', 'icon', 'image', 'parts'].includes(t.el.kind) && !mine.includes(t)).sort((x, y) => big(y) - big(x))[0];
+        const rival = alive.filter(t => ['figure', 'doodle', 'icon', 'image', 'video', 'parts'].includes(t.el.kind) && !mine.includes(t)).sort((x, y) => big(y) - big(x))[0];
         if (!mine.length) warn(sc.file, `主角 ${plan.cast[b.hero].name}（${b.hero}）到这块板讲完时已经不在板上了。主角要留到最后`);
         else if (rival && big(rival) > Math.max(...mine.map(big)) * 0.95) warn(`${sc.file} / 元素 ${mine[0].el.id}`, `计划的主角是 ${plan.cast[b.hero].name}，但 "${rival.el.id}" 画得和它一样大或更大。主角写 size: big，其余的东西写 mid 或 small`);
       } else {

@@ -43,8 +43,10 @@ src/core/
   strokes.ts / text.ts / icons.ts / importers.ts   笔画、手写字、图标、素材导入
   render.ts       drawFrame(ctx, 时间线, t)：画面是时间的纯函数
   sfx.ts          落笔音效
+  appendix.ts     片尾附录：读 appendix.yaml、排版、滚动的速度曲线
   review.ts       审片页（HTML）和确认码
-src/cli/main.ts   hj 命令；确认闸门；审片页的图（结构草图、全景、眯眼图）
+src/cli/main.ts   hj 命令；确认闸门；审片页的图（全景、眯眼图、逐段卡片）；视频元素的抽帧缓存（out/.media）
+src/cli/sketch.ts 计划审片页的结构草图：只凭计划画出分区、角色、关系，和“讲到第 N 段时板上有什么”的小图
 scripts/edge_words.py   取 edge-tts 的逐词时间
 skills/huajiang/  技能：SKILL.md（入口）、planner.md、executor.md、voice.md、revising.md、reference.md、scripts/hj.sh
 examples/         one-board 是“计划 + 执行”的完整例子；patterns、compound、big-board 是不带计划的老写法，留作引擎的回归样例

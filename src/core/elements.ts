@@ -2,8 +2,9 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { R, type Stroke, type Style, type Pt, type Box, boxOf, unionBox, translateStrokes, cloneStrokes, hash, polyLen, imageSize } from './strokes';
+import { R, type ImageStroke, type Stroke, type Style, type Pt, type Box, boxOf, unionBox, translateStrokes, cloneStrokes, hash, polyLen, imageSize } from './strokes';
 import { textStrokes } from './text';
 import { iconStrokes, iconExists, scalePath } from './icons';
 import { figureStrokes, POSES, FACES, ACCESSORIES, type Pose, type FigureSpec } from './figure';
@@ -38,12 +39,12 @@ export interface El {
 /** 大小的档位：写名字不写数字，同一类东西全片一样大。字四档，东西三档 */
 export const TEXT_TIERS: Record<string, number> = { hero: 108, key: 64, label: 46, note: 40 };
 export const THING_TIERS: Record<string, number> = { big: 210, mid: 160, small: 120 };
-export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
+export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'video', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
 const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier'];
 const FIELDS: Record<string, string[]> = {
-  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame'], doodle: ['vars'], parts: ['box', 'anchors'],
+  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame', 'style'], video: ['frame', 'style', 'from', 'to', 'loop'], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
   axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'],
@@ -51,6 +52,19 @@ const FIELDS: Record<string, string[]> = {
 
 const DOODLE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '../../doodles');
 export function doodleDirs(projectDir?: string): string[] { return [projectDir ? join(projectDir, 'doodles') : '', DOODLE_DIR].filter(d => d && existsSync(d)); }
+/** 一段视频的宽、高、时长（用 ffprobe 读；读不出返回 null） */
+const probed = new Map<string, { w: number; h: number; dur: number } | null>();
+export function probeVideo(file: string): { w: number; h: number; dur: number } | null {
+  if (probed.has(file)) return probed.get(file)!;
+  let out: { w: number; h: number; dur: number } | null = null;
+  try {
+    const r = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,duration:format=duration', '-of', 'json', file], { encoding: 'utf8' });
+    const j = JSON.parse(r.stdout || '{}'), s0 = j.streams?.[0], dur = +(s0?.duration ?? j.format?.duration ?? 0);
+    if (s0?.width && s0?.height && dur > 0) out = { w: +s0.width, h: +s0.height, dur };
+  } catch { /* 没有 ffprobe */ }
+  probed.set(file, out);
+  return out;
+}
 export function loadDoodle(name: string, projectDir?: string): any | null {
   if (!/^[\w-]+$/.test(String(name))) return null; // 名字只能是字母数字和连字符，不当路径用
   for (const d of doodleDirs(projectDir)) { const f = join(d, name + '.yaml'); if (existsSync(f)) return YAML.parse(readFileSync(f, 'utf8')); }
@@ -272,7 +286,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   if (!kind) throw new SrcError(where, `看不出这是什么元素。需要包含其中一个键：${KINDS.join(' ')}`);
   for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
   if (typeof src.size === 'string') {
-    const tiers = kind === 'text' || kind === 'note' ? TEXT_TIERS : ['figure', 'doodle', 'parts', 'icon', 'image', 'shape'].includes(kind) ? THING_TIERS : null;
+    const tiers = kind === 'text' || kind === 'note' ? TEXT_TIERS : ['figure', 'doodle', 'parts', 'icon', 'image', 'video', 'shape'].includes(kind) ? THING_TIERS : null;
     if (!tiers || !(src.size in tiers)) throw new SrcError(where, tiers ? `size 没有 "${src.size}" 这一档。${tiers === TEXT_TIERS ? '字' : '东西'}的档位：${Object.entries(tiers).map(([k, v]) => `${k}（${v}）`).join(' ')}；也可以直接写数字` : `${kind} 的 size 要写数字`);
     src = { ...src, size: tiers[src.size], __tier: src.size };
   }
@@ -333,15 +347,41 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
         el.anchors[an] = [(pt as number[])[0] * k, (pt as number[])[1] * k];
       }
     }
-  } else if (kind === 'image') {
-    // 位图：截图、照片、logo。像贴在板上的一张照片，外面手绘一圈框
-    const file = resolve(ctx.projectDir ?? '.', String(src.image));
-    if (!existsSync(file)) throw new SrcError(where, `找不到图片 ${src.image}（路径相对项目目录，如 images/chart.png）`);
-    const dim = imageSize(readFileSync(file));
-    if (!dim || !dim.w || !dim.h) throw new SrcError(where, `读不出 ${src.image} 的尺寸。支持 PNG、JPEG、WebP、GIF`);
-    const w = src.w ?? src.size ?? 360, h = src.h ?? (w * dim.h) / dim.w;
-    el.strokes = [{ kind: 'image', file, tx: 0, ty: 0, color: '', len: (w + h) * 0.5, box: { x: 0, y: 0, w, h }, under: true }];
-    if (src.frame !== false) el.strokes.push(...R.rect(0, 0, w, h, { ...st, fill: undefined, shade: false }));
+  } else if (kind === 'image' || kind === 'video') {
+    // 真实的影像：照片、截图、logo、一段视频。像贴在板上的一张照片，外面手绘一圈框；视频画完之后在框里播
+    const name = String(src[kind]), file = resolve(ctx.projectDir ?? '.', name);
+    if (!existsSync(file)) throw new SrcError(where, `找不到${kind === 'video' ? '视频' : '图片'} ${name}（路径相对项目目录，如 media/${kind === 'video' ? 'clip.mp4' : 'photo.jpg'}）`);
+    const STYLES = ['plain', 'photo', 'avatar'], style = src.style ?? 'plain';
+    if (!STYLES.includes(style)) throw new SrcError(where, `style 只能是 plain（贴图，默认）/ photo（带白边和胶带的照片）/ avatar（圆形头像）`);
+    let dim: { w: number; h: number } | null, clip: ImageStroke['clip'];
+    if (kind === 'video') {
+      const info = probeVideo(file);
+      if (!info) throw new SrcError(where, `读不出 ${name}：需要装有 ffmpeg / ffprobe，文件要是带画面的视频（mp4、mov、webm、gif）`);
+      const from = +(src.from ?? 0), to = Math.min(+(src.to ?? info.dur), info.dur);
+      if (!(to > from)) throw new SrcError(where, `from / to 是从片段里取哪几秒（这段视频长 ${info.dur.toFixed(1)} 秒），to 要大于 from`);
+      if (to - from > 20) throw new SrcError(where, `一段视频最多播 20 秒（现在是 ${(to - from).toFixed(1)} 秒）：用 from / to 取其中最要紧的几秒，如 { from: 3, to: 9 }`);
+      dim = info;
+      const fps = 25;
+      clip = { dir: '', src: file, fps, n: Math.max(1, Math.round((to - from) * fps)), from, loop: src.loop !== false, w: 0 };
+    } else {
+      dim = imageSize(readFileSync(file));
+      if (!dim || !dim.w || !dim.h) throw new SrcError(where, `读不出 ${name} 的尺寸。支持 PNG、JPEG、WebP、GIF`);
+    }
+    const round = style === 'avatar';
+    const w = src.w ?? src.size ?? 360, h = src.h ?? (round ? w : (w * dim.h) / dim.w);
+    // 白边：照片样式四周留一圈，下边宽一点（拍立得）
+    const m = style === 'photo' ? Math.max(8, w * 0.045) : 0, pic: Box = { x: m, y: m, w: w - 2 * m, h: h - m * 3.2 };
+    if (style !== 'photo') Object.assign(pic, { x: 0, y: 0, w, h });
+    // 按比例裁满，不拉伸
+    const ar = pic.w / pic.h, sr = dim.w / dim.h, crop = sr > ar ? { x: (1 - ar / sr) / 2, y: 0, w: ar / sr, h: 1 } : { x: 0, y: (1 - sr / ar) * 0.3, w: 1, h: sr / ar };
+    if (clip) clip.w = Math.min(1080, Math.ceil(pic.w) * 2); // 抽帧时先裁后缩，存成显示尺寸的两倍
+    el.strokes = [{ kind: 'image', file, tx: 0, ty: 0, color: '', len: (w + h) * 0.5, box: { x: 0, y: 0, w, h }, under: true, pic, crop, ...(round ? { round } : {}), ...(clip ? { clip } : {}) }];
+    if (style === 'photo') {
+      // 一截胶带，斜着贴在上边
+      const tw = Math.min(120, w * 0.34), th = tw * 0.3, cx = w / 2, sk = th * 0.25;
+      el.strokes.push({ kind: 'fill', pts: [cx - tw / 2, -th * 0.55 + sk, cx + tw / 2, -th * 0.55 - sk, cx + tw / 2, th * 0.45 - sk, cx - tw / 2, th * 0.45 + sk], color: '#f1d98a', alpha: 0.78, len: tw, under: true });
+      if (src.frame !== false) el.strokes.push(...R.rect(0, 0, w, h, { ...st, color: '#8a8378', w: Math.max(2, st.w * 0.55), fill: undefined, shade: false }));
+    } else if (src.frame !== false) el.strokes.push(...(round ? R.ellipse(w / 2, h / 2, w, h, { ...st, fill: undefined, shade: false }) : R.rect(0, 0, w, h, { ...st, fill: undefined, shade: false })));
   } else if (kind === 'shape') {
     const w = src.w ?? src.size ?? 240, h = src.h ?? src.size ?? 160, sst = { ...st, shade };
     if (src.shape === 'rect') el.strokes = R.rect(0, 0, w, h, sst);
@@ -582,7 +622,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     tx += src.dx ?? 0; ty += src.dy ?? 0;
     // 差一点对齐的，引擎帮着对齐：手写的坐标离同类东西的边只差十几个像素时吸过去。字对左边和中线，东西对底边和中线
     if (ctx.life && src.snap !== false && src.__rigid !== true && Array.isArray(src.at) && src.at.every((v: any) => typeof v === 'number')) {
-      const me = ctx.life.get(id), isText = kind === 'text', THINGS = ['figure', 'doodle', 'icon', 'parts', 'image'], nb = { x: b.x + tx, y: b.y + ty, w: b.w, h: b.h };
+      const me = ctx.life.get(id), isText = kind === 'text', THINGS = ['figure', 'doodle', 'icon', 'parts', 'image', 'video'], nb = { x: b.x + tx, y: b.y + ty, w: b.w, h: b.h };
       let sx = 0, sy = 0, bx = 19, by = 19;
       if (me && (isText || THINGS.includes(kind))) for (const o of ctx.els.values()) {
         if (isText ? o.kind !== 'text' : !THINGS.includes(o.kind)) continue;
