@@ -4,7 +4,7 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { loadAlignment, resolveAnchor, buildSubtitles, type Alignment, type SubLine } from './alignment';
-import { buildElement, SrcError, KINDS, type El, type BuildCtx } from './elements';
+import { buildElement, SrcError, KINDS, THING_TIERS, type El, type BuildCtx } from './elements';
 import { POSES, FACES, type Pose } from './figure';
 import { FORMATS, THEME, type Format } from './theme';
 import { type Pt, type Box, unionBox } from './strokes';
@@ -105,7 +105,10 @@ export function loadProject(dir: string): { meta: any; scenes: { file: string; s
     if (Array.isArray(v)) return v.map(x => useCast(x, seen));
     if (!v || typeof v !== 'object') return v;
     const o: any = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, useCast(x, seen)]));
-    if (typeof o.cast === 'string') { const base = cast[o.cast]; if (!base) { bad.push(o.cast); return o; } seen?.add(o.cast); const { cast: _c, ...rest } = o; void _c; return { ...base, ...rest }; }
+    if (typeof o.cast === 'string') { const base = cast[o.cast]; if (!base) { bad.push(o.cast); return o; } seen?.add(o.cast); const { cast: _c, ...rest } = o; void _c;
+      // 角色是一群时，写在外面的 size 是每一个的大小：骨架给每个角色都写 size，一群也要能用
+      if (base && typeof base === 'object' && 'crowd' in base && rest.size != null) { const { size, ...r2 } = rest; return { ...base, ...r2, of: { ...base.of, size } }; }
+      return { ...base, ...rest }; }
     return o;
   };
   for (const sc of scenes) {
@@ -300,7 +303,10 @@ export function compile(dir: string): Compiled {
       const esrc = esrc0 && typeof esrc0 === 'object' && 'crowd' in esrc0 ? inRegion(eid, esrc0) : esrc0; // 人群也可以写 in: 分区
       if (esrc && typeof esrc === 'object' && 'crowd' in esrc) {
         // 一群一样的东西：整体定位、整体对齐，成员叫 <id>1…<id>N
-        const w = `${file} / 元素 ${eid}`, n = +esrc.crowd, of = esrc.of;
+        // 档位写在一群上，说的是“这一群”有多大：每一个取这一档的一半，免得十几个人把分区撑满
+        const w = `${file} / 元素 ${eid}`, n = +esrc.crowd, of0 = esrc.of, tier = of0 && typeof of0 === 'object' && typeof of0.size === 'string' ? THING_TIERS[of0.size] : undefined;
+        if (of0 && typeof of0 === 'object' && typeof of0.size === 'string' && tier == null) { err(w, `size 没有 "${of0.size}" 这一档。可用：${Object.keys(THING_TIERS).join(' ')}，或直接写数字（每一个的大小）`); continue; }
+        const of = tier != null ? { ...of0, size: Math.round(tier / 2) } : of0;
         for (const k of Object.keys(esrc)) if (!['crowd', 'of', 'cols', 'at', 'gap', 'anchor'].includes(k)) err(w, `crowd 不认识字段 "${k}"。可用：crowd（个数）of（每一个长什么样）cols（每排几个）at（整群的中心）gap`);
         if (!(n >= 2 && n <= 60) || !of || typeof of !== 'object' || !Array.isArray(esrc.at)) { err(w, 'crowd 要写成 { crowd: 10, cols: 5, of: { figure: stand, size: 140 }, at: [x, y] }：个数 2–60，of 是每一个的元素定义，at 是整群中心的坐标'); continue; }
         const pcv = (v: any, total: number) => (typeof v === 'string' && v.endsWith('%') ? (parseFloat(v) / 100) * total : +v);
@@ -705,7 +711,7 @@ export function compile(dir: string): Compiled {
   tls.sort((a, b) => a.order - b.order);
   // 有计划时，第一道确认认的是计划本身：执行者怎么画不会让它失效
   const planHash = plan ? plan.hash : sceneHash, keyHash = plan ? createHash('sha256').update(plan.hash + sceneHash).digest('hex').slice(0, 16) : sceneHash;
-  if (plan) issues.push(...checkPlan(plan, al, fmt, duration));
+  if (plan) issues.push(...checkPlan(plan, al, fmt, duration, dir));
   return { dir, meta, fmt, fps, al, duration, scenes, tls, erases, cams: camEvents, subs, issues, planHash, keyHash, ...(plan ? { plan } : {}), castUse };
 }
 

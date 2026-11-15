@@ -163,6 +163,17 @@ test('四道确认：计划 → 全景定稿 → 关键帧，每道都有审片�
   assert.ok(existsSync(join(dir, 'out/draft/squint-01-board.png')));
 });
 
+test('角色的长相点名的素材必须真的有：不存在的手绘件、图标、姿势、配饰在计划这一步就拦住', () => {
+  const r = hj(['check', project(PLAN.replace('doodle: factory', 'doodle: nosuchthing').replace('doodle: gov', 'icon: no-such-icon').replace('figure: stand', 'figure: moonwalk, wear: [cape]'))]);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /cast\.co\n\s+没有叫 "nosuchthing" 的手绘件/); assert.match(r.stdout, /没有叫 "no-such-icon" 的图标/);
+  assert.match(r.stdout, /没有 "moonwalk" 这个姿势/); assert.match(r.stdout, /没有 "cape" 这个配饰/);
+  // 项目自己 doodles/ 里画的也算有；现成的配饰不误伤
+  const dir = project(PLAN.replace('doodle: factory', 'doodle: mine').replace('figure: stand', 'figure: stand, wear: [crown, tie]'));
+  mkdirSync(join(dir, 'doodles'), { recursive: true }); cpSync('doodles/bank.yaml', join(dir, 'doodles/mine.yaml'));
+  const ok = hj(['check', dir]); assert.doesNotMatch(ok.stdout, /没有叫|这个配饰|这个姿势/, ok.stdout);
+});
+
 test('主角和版式：主角必须是板上真有的东西；版式展开成分区；没指定主角会提醒', () => {
   const noHero = hj(['check', project()]);
   assert.match(noHero.stdout, /没有指定主角（hero）/);

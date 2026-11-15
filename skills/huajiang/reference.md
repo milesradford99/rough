@@ -239,7 +239,7 @@ lp:  { doodle: laptop, size: 90, at: dk.surface, anchor: bottom }
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 46；默认灰色。用来补数字、名字、出处 |
 | 数轴 | `{ axis: [0, 4], length: 800, at: [80, 600], unit: 年 }` | 一根带刻度的线，也是一把比例尺。`at` 是起点（第一个数值的位置）；`dir: up` 竖着从下往上；`step` 刻度间隔或 `ticks: [0, 1, 3]` 直接列出；`labels: false` 不写数字。**不画它（不在任何 draw 里），它就只当比例尺**，不会报“定义了没画”。画出来时，横轴的刻度数字写在线的下方约 60px 以内（竖轴写在左侧），这一带别再放别的东西 |
 | 区间条 | `{ span: [0, 3], on: t, color: blue, inside: 3年 }` | 沿数轴从一个数值画到另一个数值，长度和对齐由数轴算。`at: [0, 400]` 给出它在哪一行：横轴看 y（条的中线），竖轴看 x，另一个数随便写，不写就贴在数轴上方；`h` 粗细（默认 50）；`inside` 写在条里面的字。锚点 `from` / `to` 是两端 |
-| 箭头 | `{ arrow: [a, b], curve: 0.2, label: 交税 }` | 起终点可以是元素 id（自动停在边缘外）、`"id.锚点"` 或 `[x, y]`。`curve` 弯曲程度（正负决定朝向）、`both: true` 双向、`head` 箭头大小、`pad` 离元素的距离、`label` 写在箭头中段的小字（`labelSize` 默认 46） |
+| 箭头 | `{ arrow: [a, b], curve: 0.2, label: 交税 }` | 起终点可以是元素 id（自动停在边缘外）、`"id.锚点"` 或 `[x, y]`。`curve` 弯曲程度（正数往箭头前进方向的右手边鼓：从左往右的箭头向下弯，从上往下的向左弯；负数相反）、`both: true` 双向、`head` 箭头大小、`pad` 离元素的距离、`label` 写在箭头中段的小字（`labelSize` 默认 46） |
 | 连线 | `{ line: [a, b] }` | 同箭头，没有箭头尖 |
 | 标记 | `{ mark: circle, target: x }` | `circle box underline strike cross highlight check burst`。`target` 可以是数组；`pad` 调松紧；默认红色 |
 | 图表 | `{ chart: bar, data: [3800, 1200], labels: [法定, 实发], values: true }` | `bar` / `line`。`highlight: 1` 或 `highlight: {1: red}` 标红某项；`unit` 数值后缀；`w`、`h` |

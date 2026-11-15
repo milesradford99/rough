@@ -15,7 +15,7 @@ import { POSES, FACES, ACCESSORIES } from '../core/figure';
 import { doodleDirs, buildElement, type El, type BuildCtx } from '../core/elements';
 import { createHash } from 'node:crypto';
 import { confirmCode, hasCode, reviewHtml, esc, STAGE_NAME, type Stage, type ReviewPage, type ReviewBlock } from '../core/review';
-import { textStrokes } from '../core/text';
+import { textStrokes, textWidth } from '../core/text';
 import { PATTERNS } from '../core/patterns';
 import { loadPlan, checkPlan, planStoryboard, scaffold, planRegions, boardBox, segmentTimes, LAYOUTS, type Plan, type PlanBoard } from '../core/plan';
 import type { Issue } from '../core/compile';
@@ -78,7 +78,7 @@ function planCtx(dir: string): { meta: any; fmt: (typeof FORMATS)[string]; al: R
   const meta = YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {}, fmt = FORMATS[meta.format ?? 'portrait'] ?? die('project.yaml: format 只能是 portrait 或 landscape');
   if (!existsSync(join(dir, meta.voice ?? 'voice/alignment.json'))) die(`找不到时间表 ${join(dir, meta.voice ?? 'voice/alignment.json')}：还没有配音。hj status ${dir} 看下一步`);
   const al = loadAlignment(join(dir, meta.voice ?? 'voice/alignment.json')), duration = al.duration + (meta.tail ?? 0.6);
-  return { meta, fmt, al, duration, plan, issues: checkPlan(plan, al, fmt, duration) };
+  return { meta, fmt, al, duration, plan, issues: checkPlan(plan, al, fmt, duration, dir) };
 }
 const hasScenes = (dir: string) => existsSync(join(dir, 'scenes')) && readdirSync(join(dir, 'scenes')).some(f => /\.ya?ml$/.test(f));
 /** 全景定稿认的是“板上有哪些东西、各在哪个分区、各是哪一档大小”。微调位置不会让它失效 */
@@ -170,14 +170,32 @@ function planSketch(plan: Plan, b: PlanBoard, fmt: (typeof FORMATS)[string], dir
   const ctx: BuildCtx = { scene: 'sketch', fmt: { ...fmt, board: { x: 0, y: 0, w: B.w, h: B.h } }, els, projectDir: dir, life, shade: false };
   const home = new Map<string, string>(), per = new Map<string, string[]>();
   for (const s of b.segments) for (const id of s.show) if (plan.cast[id] && !home.has(id) && s.in && regions[s.in]) { home.set(id, s.in); per.set(s.in, [...(per.get(s.in) ?? []), id]); }
+  // 主角是一句板书时，它写在哪个分区
+  const heroSeg = b.hero && !plan.cast[b.hero] ? b.segments.find(s => s.words.some(w => w.replace(/\s/g, '') === b.hero!.replace(/\s/g, ''))) : undefined, heroIn = heroSeg?.in && regions[heroSeg.in] ? heroSeg.in : undefined;
+  /** 一个分区里留给“要画的图”的占位框 [x, y, w, h]；这一区没有图就没有 */
+  const diagramBox = (rn: string): number[] | null => {
+    const r = regions[rn], n = b.segments.filter(s => s.in === rn && s.diagram).length; if (!r || !n) return null;
+    const body = r[3] - 62, h = Math.round(per.get(rn)?.length || rn === heroIn ? Math.min(body * 0.42, 24 + n * 36) : body - 16);
+    return [r[0] + 24, r[1] + r[3] - 18 - h, r[2] - 48, h];
+  };
   const add = (id: string, src: any) => { try { life.set(id, [0, 1]); els.set(id, buildElement(ctx, id, src)); } catch { life.delete(id); } };
   for (const [rn, ids] of per) {
-    const r = regions[rn], size = Math.round(Math.max(90, Math.min(170, r[3] * 0.4, (r[2] / (ids.length + 0.6)) * 0.62)));
-    ids.forEach((id, i) => { const lk = plan.cast[id].look, base = lk && typeof lk === 'object' && 'crowd' in lk ? lk.of : lk; add(id, { ...base, size: b.hero === id ? Math.round(size * 1.3) : size, label: plan.cast[id].name + (lk?.crowd ? ` ×${lk.crowd}` : ''), labelSize: 34, at: [r[0] + (r[2] * (i + 1)) / (ids.length + 1), r[1] + 62 + (r[3] - 62) * 0.44] }); });
+    // 这一区还有要画的图时，角色让到上半边，下半边留给图的占位框
+    const r = regions[rn], dg = diagramBox(rn), rh = dg ? dg[1] - r[1] : r[3], size = Math.round(Math.max(dg ? 70 : 90, Math.min(170, rh * 0.4, (r[2] / (ids.length + 0.6)) * 0.62)));
+    ids.forEach((id, i) => { const lk = plan.cast[id].look, base = lk && typeof lk === 'object' && 'crowd' in lk ? lk.of : lk; add(id, { ...base, size: b.hero === id ? Math.round(size * 1.3) : size, label: plan.cast[id].name + (lk?.crowd ? ` ×${lk.crowd}` : ''), labelSize: 34, at: [r[0] + (r[2] * (i + 1)) / (ids.length + 1), r[1] + 62 + (rh - 62) * 0.44] }); });
   }
-  // 这一区要画的“图”（横条、图表…）草图里画不出来：写一行说明，免得看起来是空的
-  for (const [n, r] of Object.entries(regions)) { const ds = b.segments.filter(s => s.in === n && s.diagram).length; if (ds) label(`这里还有 ${ds} 处要画的图，见分段表`, r[0] + 30, r[1] + r[3] - 54, 26, THEME.colors.gray); }
-  if (b.hero && !plan.cast[b.hero]) { const seg = b.segments.find(s => s.words.some(w => w.replace(/\s/g, '') === b.hero!.replace(/\s/g, ''))), r = seg?.in ? regions[seg.in] : undefined; if (r) add('__hero', { text: b.hero, size: 92, color: 'blue', at: [r[0] + r[2] * 0.5, r[1] + r[3] * 0.72] }); }
+  // 这一区要画的“图”（横条、图表…）计划里只有一句话，草图画不出它的样子：
+  // 画一个虚线的占位框，把每张图的那句话按出场顺序写进去，让人看到“这里有图、是什么图、占多大地方”
+  for (const n of Object.keys(regions)) {
+    const box = diagramBox(n); if (!box) continue;
+    const ds = b.segments.filter(s => s.in === n && s.diagram), size = 26, lh = 36, fit = Math.max(1, Math.floor((box[3] - 22) / lh)), maxW = box[2] - 40;
+    x.strokeStyle = THEME.colors.gray; x.lineWidth = 2.5; x.setLineDash([4, 9]); x.strokeRect(box[0], box[1], box[2], box[3]); x.setLineDash([]);
+    const clip = (t: string) => { if (textWidth(t, size) <= maxW) return t; let o = ''; for (const ch of t) { if (textWidth(o + ch + '…', size) > maxW) break; o += ch; } return o + '…'; };
+    const lines = ds.map((s, i) => clip(`图${ds.length > 1 ? i + 1 : ''}：${s.diagram}${s.pattern ? `（${s.pattern}）` : ''}`));
+    const shown = lines.length > fit ? [...lines.slice(0, fit - 1), `…这一区一共 ${lines.length} 张图，见分段表`] : lines;
+    shown.forEach((t, i) => label(t, box[0] + 20, box[1] + 12 + i * lh, size, THEME.colors.gray));
+  }
+  if (heroIn) { const r = regions[heroIn], dg = diagramBox(heroIn); add('__hero', { text: b.hero, size: 92, color: 'blue', at: [r[0] + r[2] * 0.5, dg ? (r[1] + 62 + dg[1]) / 2 : r[1] + r[3] * 0.72] }); }
   const done = new Set<string>();
   for (const s of b.segments) for (const id of s.link) { const rl = plan.relations[id]; if (!rl || done.has(id) || !els.has(rl.from) || !els.has(rl.to)) continue; done.add(id); add('rel_' + id, { arrow: [rl.from, rl.to], ...(rl.label ? { label: rl.label, labelSize: 36 } : {}), pen: 5 }); }
   for (const e of els.values()) drawStrokes(x, env, e.strokes);
@@ -352,7 +370,7 @@ const commands: Record<string, () => Promise<void> | void> = {
         for (const [bi, b] of plan.boards.entries()) {
           const ts = times.filter(t => t.board === bi);
           const rows = b.segments.map((s, si) => { const t = ts[si], say = Number.isFinite(t?.t0) ? pc.al.units.filter(u => u.start >= t.t0 - 1e-6 && u.start < t.t1 - 1e-6).map(u => u.display).join('') : ''; const what = [s.show.length ? `出场：${s.show.map(nm).join('、')}` : '', s.link.length ? `连线：${s.link.map(id => { const r = plan.relations[id]; return r ? `${nm(r.from)}→${nm(r.to)}` : id; }).join('、')}` : '', s.diagram ? `图：${s.diagram}` : '', s.revisit.length ? `回头改：${s.revisit.map(nm).join('、')}` : '', s.joins.length ? `连到分区：${s.joins.join('、')}` : ''].filter(Boolean).join('；'); return `<tr><td>${si + 1}</td><td>${Number.isFinite(t?.t0) ? fmtT(Math.max(0, t.t0)) : '?'}</td><td>${esc(say)}</td><td>${esc(s.in ?? '')}</td><td>${esc(s.intent)}${what ? `<br><span style="color:var(--dim)">${esc(what)}</span>` : ''}</td><td>${esc(s.words.join('、'))}</td></tr>`; }).join('');
-          blocks.push({ heading: `${plan.boards.length > 1 ? `第 ${bi + 1} 块板：` : '这块板：'}${b.id}`, note: `讲完是一张什么图：${b.picture}${b.hero ? `　主角（第一眼看到的）：${plan.cast[b.hero]?.name ?? b.hero}` : ''}${b.layout && LAYOUTS[b.layout] ? `　版式：${LAYOUTS[b.layout].title}` : ''}`, images: [{ src: await jpeg(sketches[bi], 88), caption: '结构草图', sub: '只表示谁在哪一区、谁连着谁、主角是谁。横条、图表这些“图”还没画，位置和大小也不是最后的样子。', wide: true }], html: `<div class="scroll"><table><tr><th>#</th><th>时间</th><th>口播</th><th>分区</th><th>画面上发生什么</th><th>板书</th></tr>${rows}</table></div>` });
+          blocks.push({ heading: `${plan.boards.length > 1 ? `第 ${bi + 1} 块板：` : '这块板：'}${b.id}`, note: `讲完是一张什么图：${b.picture}${b.hero ? `　主角（第一眼看到的）：${plan.cast[b.hero]?.name ?? b.hero}` : ''}${b.layout && LAYOUTS[b.layout] ? `　版式：${LAYOUTS[b.layout].title}` : ''}`, images: [{ src: await jpeg(sketches[bi], 88), caption: '结构草图', sub: '只表示谁在哪一区、谁连着谁、主角是谁。横条、图表这些“图”还没画，虚线框里写的是它们各自要画什么；位置和大小也不是最后的样子。', wide: true }], html: `<div class="scroll"><table><tr><th>#</th><th>时间</th><th>口播</th><th>分区</th><th>画面上发生什么</th><th>板书</th></tr>${rows}</table></div>` });
         }
         const hero = plan.boards.map(b => (b.hero ? plan.cast[b.hero]?.name ?? `“${b.hero}”` : '')).filter(Boolean).join('、');
         await writeReview(dir, { title: String(pc.meta.title ?? '未命名'), stage: 'plan', code, hash: plan.hash, step: 2, steps: STEPS,

@@ -9,6 +9,9 @@ import YAML from 'yaml';
 import { resolveAnchor, stripPunct, type Alignment } from './alignment';
 import type { Format } from './theme';
 import type { Compiled, Issue, TL } from './compile';
+import { loadDoodle } from './elements';
+import { iconExists } from './icons';
+import { POSES, ACCESSORIES } from './figure';
 
 export interface PlanCast { name: string; look: any }
 export interface PlanRelation { from: string; to: string; label?: string }
@@ -162,7 +165,7 @@ export function segmentTimes(plan: Plan, al: Alignment, duration: number): { tim
 }
 
 /** 查计划本身：格式对不对、锚点在不在、是不是一个连起来的系统、是不是又在写字 */
-export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: number): Issue[] {
+export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: number, projectDir?: string): Issue[] {
   const out: Issue[] = [];
   const err = (where: string, msg: string) => out.push({ level: 'error', where, msg });
   const warn = (where: string, msg: string) => out.push({ level: 'warn', where, msg });
@@ -178,6 +181,14 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
     const kinds = c.look && typeof c.look === 'object' ? LOOKS.filter(k => k in c.look) : [];
     if (c.look && typeof c.look === 'object' && 'crowd' in c.look) { const of = c.look.of; if (!of || !LOOKS.some(k => k in of)) err(where, 'look 是一群（crowd）时，of 里要写每一个长什么样：{ crowd: 6, cols: 3, of: { figure: stand } }'); }
     else if (kinds.length !== 1) err(where, `look 要写这个角色长什么样，而且只能是画出来的东西：${LOOKS.join(' / ')}，或一群 { crowd: N, of: {…} }。如 { doodle: bank }、{ figure: stand, wear: [tophat] }。不能是一行字或一个方框（hj assets doodles / figure 查现成的）`);
+    // 长相里点名的素材必须真的有：不然计划能过检查，执行者一动笔就卡死，而他又不能改计划
+    const one = c.look && typeof c.look === 'object' ? ('crowd' in c.look ? c.look.of : c.look) : null;
+    if (one && typeof one === 'object') {
+      if (one.doodle != null && !loadDoodle(String(one.doodle), projectDir)) err(where, `没有叫 "${one.doodle}" 的手绘件。运行 hj assets doodles 看有哪些，换一个现成的；都不合适就换成图标（hj assets icons <英文关键词>）或小人`);
+      if (one.icon != null && !iconExists(String(one.icon))) err(where, `没有叫 "${one.icon}" 的图标。运行 hj assets icons <英文关键词> 搜（只认英文，如 sun、court）`);
+      if (one.figure != null && !POSES[String(one.figure)]) err(where, `小人没有 "${one.figure}" 这个姿势。可用：${Object.keys(POSES).join(' ')}`);
+      for (const w of arr(one.wear)) if (!(ACCESSORIES as readonly string[]).includes(w)) err(where, `小人没有 "${w}" 这个配饰。可用：${ACCESSORIES.join(' ')}`);
+    }
     if (relIds.includes(id)) err(where, `角色和关系都叫 "${id}"，换一个名字`);
   }
   for (const [id, r] of Object.entries(plan.relations)) {
