@@ -562,7 +562,9 @@ test('跟拍：引擎推近正在画的东西、结尾回全景；自己写的�
   assert.ok(f.segs.length >= 3, '跟拍动了镜头');
   assert.ok(f.segs.some(k => k.to.zoom >= f.c.scenes[0].home.zoom * 1.35), '有真正的近景');
   assert.equal(f.segs[f.segs.length - 1].to, f.c.scenes[0].home, '最后回全景');
-  for (let i = 1; i < f.segs.length; i++) assert.ok(f.segs[i].t0 - f.segs[i - 1].t0 >= 3.4, '两次移动至少隔 3.5 秒');
+  // 跟拍定的间隔是 3.5 秒；要画的东西在画面外时镜头会提前最多 0.8 秒动身（落笔时已经到位），所以两次动身之间最少 2.7 秒
+  for (let i = 1; i < f.segs.length; i++) assert.ok(f.segs[i].t0 - f.segs[i - 1].t0 >= 2.6, '两次移动之间留够间隔');
+  { const b = f.c.tls.find(t => t.el.id === 'b')!, k = f.segs.find(x => x.t1 > b.drawT0! - 0.5 && x.t0 <= b.drawT0!)!; assert.ok(k.t1 <= b.drawT0! + 0.35, '要画的东西在画面外：镜头提前动身，落笔时基本到位'); }
   assert.doesNotMatch(lint(f.c).map(i => i.msg).join(), /镜头一次都没动/);
   assert.equal(run(scene('camera: still\n')).segs.length, 0);
   const e = run(scene('', '{ camera: { focus: [a], pad: 40 } }, '));
@@ -572,10 +574,10 @@ test('跟拍：引擎推近正在画的东西、结尾回全景；自己写的�
 });
 
 test('近景只框已经画出来的；后画的到时候再带进来；空近景和被切掉的东西会警告', () => {
-  const mk = (beats: string) => {
+  const mk = (beats: string, meta = '') => {
     const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
     writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先看上面这一个东西是什么。再过一会儿。又过了好一会儿。最后才轮到下面那一个。然后回头看看整体是什么样。')));
-    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\ncamera: still\n');
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\ncamera: still\n' + meta);
     writeFileSync(join(d, 'scenes/01.yaml'), `from: "先看"\nintent: 两样东西一上一下\nframe: false\nelements:\n  a: { doodle: bank, size: 160, at: [800, 150] }\n  b: { doodle: factory, size: 160, at: [800, 650] }\n  far: { doodle: house, size: 160, at: [150, 1100] }\nbeats:\n${beats}`);
     const c = compile(d); rmSync(d, { recursive: true }); return c;
   };
@@ -587,9 +589,56 @@ test('近景只框已经画出来的；后画的到时候再带进来；空近�
   assert.ok(segs[1].t0 < b.drawT0! && segs[1].t0 > b.drawT0! - 1, '镜头在 b 落笔前一点带过去');
   assert.ok(segs[1].to.zoom < segs[0].to.zoom, '带进 b 之后景别更宽');
   assert.doesNotMatch(lint(c).map(i => i.msg).join(), /近景取景不好|被画面边切掉/);
-  // 推近 a 之后，在画面外画别的东西：被切掉
-  const bad = mk(`  - { at: "先看", intent: 推近, do: [{ camera: { focus: [a], pad: 60 } }, { draw: a }] }\n  - { at: "最后才", intent: 画面外, do: [{ draw: far }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: b }] }\n`);
-  assert.match(lint(bad).map(i => i.msg).join(), /被画面边切掉了.*"far"/);
+  // 推近 a 之后，在画面外画别的东西：引擎先把镜头拉开到装得下它（看全），不再被切掉
+  const badBeats = `  - { at: "先看", intent: 推近, do: [{ camera: { focus: [a], pad: 60 } }, { draw: a }] }\n  - { at: "最后才", intent: 画面外, do: [{ draw: far }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: b }] }\n`;
+  const fixed = mk(badBeats), far = fixed.tls.find(t => t.el.id === 'far')!;
+  assert.doesNotMatch(lint(fixed).map(i => i.msg).join(), /被画面边切掉了/);
+  assert.ok(fixed.cams.some(k => k.t1 <= far.drawT0! + 0.01 && k.t0 > far.drawT0! - 1.5), '落笔之前镜头已经拉开');
+  // 关掉看全：照旧报出来
+  assert.match(lint(mk(badBeats, 'seeWhole: false\n')).map(i => i.msg).join(), /被画面边切掉了.*"far"/);
+});
+
+test('近景不从字和小人中间切过去：往旁边让开，正在讲的东西不被切', () => {
+  const mk = (els: string, beats: string) => {
+    const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+    writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先看上面这一个东西是什么。再过一会儿。又过了好一会儿。最后才轮到下面那一个。然后回头看看整体是什么样。')));
+    writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\ncamera: still\n');
+    writeFileSync(join(d, 'scenes/01.yaml'), `from: "先看"\nintent: 一样东西，旁边有字\nframe: false\nelements:\n${els}beats:\n${beats}`);
+    const c = compile(d); rmSync(d, { recursive: true }); return c;
+  };
+  const view = (c: any, cam: any) => { const FB = c.fmt.board, w = FB.w / cam.zoom, h = FB.h / cam.zoom, cx = cam.cx - FB.x - (c.fmt.W / 2 - (FB.x + FB.w / 2)) / cam.zoom, cy = cam.cy - FB.y - (c.fmt.H / 2 - (FB.y + FB.h / 2)) / cam.zoom; return { x: cx - w / 2, y: cy - h / 2, w, h }; };
+  const frac = (b: any, v: any) => Math.max(0, Math.min(b.x + b.w, v.x + v.w) - Math.max(b.x, v.x)) * Math.max(0, Math.min(b.y + b.h, v.y + v.h) - Math.max(b.y, v.y)) / (b.w * b.h);
+  // 早先写的一行字正好落在近景的右边沿上
+  const els = '  t: { text: "早先的字", size: 60, at: [640, 300] }\n  a: { doodle: bank, size: 200, at: [300, 300] }\n  far: { doodle: house, size: 160, at: [150, 1100] }\n';
+  const c = mk(els, `  - { at: "先看", intent: 写字, do: [{ draw: t }] }\n  - { at: "最后才", intent: 推近, do: [{ camera: { focus: [a], pad: 100 } }, { draw: a }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: far }] }\n`);
+  const seg = c.cams.find(k => k.t0 > 0 && k.to !== c.scenes[0].home)!, tb = c.tls.find(t => t.el.id === 't')!.el.box, ab = c.tls.find(t => t.el.id === 'a')!.el.box;
+  assert.ok(seg, '仍然是近景');
+  const f = frac(tb, view(c, seg.to));
+  assert.ok(f < 0.05 || f > 0.96, `字要么整个在画面里、要么整个在外面，现在露出 ${(f * 100).toFixed(0)}%`);
+  assert.ok(frac(ab, view(c, seg.to)) > 0.99, '对准的东西完整');
+  // 同一拍刚写的字横贯全板：近景要么整个避开它，要么回全景，不能切它
+  const wide = mk('  t: { text: "一二三四五六七八九十一二三四", size: 60, at: [480, 300] }\n  a: { doodle: bank, size: 120, at: [480, 420] }\n  far: { doodle: house, size: 160, at: [150, 1100] }\n', `  - { at: "先看", intent: 写字再推近, do: [{ draw: t }, { camera: { focus: [a], pad: 40 } }, { draw: a }] }\n  - { at: "然后回头", intent: 全景, do: [{ camera: home }, { draw: far }] }\n`);
+  const wb = wide.tls.find(t => t.el.id === 't')!.el.box;
+  for (const k of wide.cams.filter(k => k.t0 > -1 && k.to !== wide.scenes[0].home)) { const g = frac(wb, view(wide, k.to)); assert.ok(g < 0.05 || g > 0.96, `刚写的字被切了，露出 ${(g * 100).toFixed(0)}%`); }
+});
+
+test('打在箭头上的标记让开箭头自己的小字：叉沿线挪开，圈圈在小字外面；线太短让不开会警告', () => {
+  const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
+  writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画两样东西和一条线。再打一个叉。最后圈一下。')));
+  writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
+  const build = (x2: number) => { writeFileSync(join(d, 'scenes/01.yaml'), `from: "先画"\nintent: 线上的标记\nframe: false\nelements:\n  a: { doodle: bank, size: 120, at: [150, 300] }\n  b: { doodle: factory, size: 120, at: [${x2}, 300] }\n  r: { arrow: [a, b], label: 借出 }\n  a2: { doodle: bank, size: 120, at: [150, 800] }\n  b2: { doodle: factory, size: 120, at: [800, 800] }\n  r2: { arrow: [a2, b2], label: 还钱 }\n  x: { mark: cross, target: r }\n  o: { mark: circle, target: r2 }\nbeats:\n  - { at: "先画", intent: 画, do: [{ draw: [a, b, r, a2, b2, r2] }] }\n  - { at: "再打", intent: 叉, do: [{ draw: x }] }\n  - { at: "最后圈", intent: 圈, do: [{ draw: o }] }\n`); return compile(d); };
+  const el = (c: any, id: string) => c.tls.find((t: any) => t.el.id === id)!.el;
+  const labelOf = (e: any) => ({ x: e.box.x + e.label.x, y: e.box.y + e.label.y, w: e.label.w, h: e.label.h });
+  const over = (p: any, q: any) => Math.max(0, Math.min(p.x + p.w, q.x + q.w) - Math.max(p.x, q.x)) * Math.max(0, Math.min(p.y + p.h, q.y + q.h) - Math.max(p.y, q.y));
+  const c = build(800), lr = labelOf(el(c, 'r')), l2 = labelOf(el(c, 'r2')), xb = el(c, 'x').box, ob = el(c, 'o').box;
+  assert.ok(el(c, 'r').label, '箭头记下了小字的位置');
+  assert.equal(over(xb, lr), 0, '叉不压箭头自己的小字');
+  assert.ok(xb.w < 140, '叉是画在线上的一个小叉，不是盖住整条线');
+  assert.ok(ob.x < l2.x && ob.y < l2.y && ob.x + ob.w > l2.x + l2.w && ob.y + ob.h > l2.y + l2.h, '圈把小字整个圈在里面');
+  assert.doesNotMatch(lint(c).map(i => i.msg).join(), /自己的小字/);
+  // 两头挨得很近：线短到叉怎么挪都压着小字
+  assert.match(lint(build(330)).map(i => i.msg).join(), /压住了 "r" 自己的小字“借出”/);
+  rmSync(d, { recursive: true });
 });
 
 test('握笔的手跟着笔尖；线的轻重跟着大小；小人能按自己的锚点坐到凳子上', () => {

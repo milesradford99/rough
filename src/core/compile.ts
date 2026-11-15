@@ -4,12 +4,13 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { loadAlignment, resolveAnchor, buildSubtitles, type Alignment, type SubLine } from './alignment';
-import { buildElement, SrcError, KINDS, type El, type BuildCtx } from './elements';
+import { buildElement, SrcError, KINDS, THING_TIERS, type El, type BuildCtx } from './elements';
 import { POSES, FACES, type Pose } from './figure';
 import { FORMATS, THEME, type Format } from './theme';
 import { type Pt, type Box, unionBox } from './strokes';
 import { PATTERNS } from './patterns';
 import { loadPlan, planRegions, checkPlan, type Plan } from './plan';
+import { loadAppendix, layoutAppendix, appendixTiming, type AppendixLayout } from './appendix';
 
 export interface Issue { level: 'error' | 'warn' | 'info'; where: string; msg: string }
 export interface Tween { t0: number; t1: number; from: number; to: number }
@@ -42,6 +43,10 @@ export interface Compiled {
   keyHash: string;
   /** 规划者的计划（有 plan.yaml 时） */
   plan?: Plan;
+  /** 整条片子多长：口播讲完（duration）再加上附录 */
+  total: number;
+  /** 片尾的滚动附录：排在最后一块板的正下方，t0 起镜头往下走 */
+  appendix?: { layout: AppendixLayout; x: number; y: number; t0: number; t1: number; from: Cam; dist: number; speed: number };
   castUse?: Map<string, CastUse>;
 }
 
@@ -105,7 +110,10 @@ export function loadProject(dir: string): { meta: any; scenes: { file: string; s
     if (Array.isArray(v)) return v.map(x => useCast(x, seen));
     if (!v || typeof v !== 'object') return v;
     const o: any = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, useCast(x, seen)]));
-    if (typeof o.cast === 'string') { const base = cast[o.cast]; if (!base) { bad.push(o.cast); return o; } seen?.add(o.cast); const { cast: _c, ...rest } = o; void _c; return { ...base, ...rest }; }
+    if (typeof o.cast === 'string') { const base = cast[o.cast]; if (!base) { bad.push(o.cast); return o; } seen?.add(o.cast); const { cast: _c, ...rest } = o; void _c;
+      // 角色是一群时，写在外面的 size 是每一个的大小：骨架给每个角色都写 size，一群也要能用
+      if (base && typeof base === 'object' && 'crowd' in base && rest.size != null) { const { size, ...r2 } = rest; return { ...base, ...r2, of: { ...base.of, size } }; }
+      return { ...base, ...rest }; }
     return o;
   };
   for (const sc of scenes) {
@@ -300,7 +308,10 @@ export function compile(dir: string): Compiled {
       const esrc = esrc0 && typeof esrc0 === 'object' && 'crowd' in esrc0 ? inRegion(eid, esrc0) : esrc0; // 人群也可以写 in: 分区
       if (esrc && typeof esrc === 'object' && 'crowd' in esrc) {
         // 一群一样的东西：整体定位、整体对齐，成员叫 <id>1…<id>N
-        const w = `${file} / 元素 ${eid}`, n = +esrc.crowd, of = esrc.of;
+        // 档位写在一群上，说的是“这一群”有多大：每一个取这一档的一半，免得十几个人把分区撑满
+        const w = `${file} / 元素 ${eid}`, n = +esrc.crowd, of0 = esrc.of, tier = of0 && typeof of0 === 'object' && typeof of0.size === 'string' ? THING_TIERS[of0.size] : undefined;
+        if (of0 && typeof of0 === 'object' && typeof of0.size === 'string' && tier == null) { err(w, `size 没有 "${of0.size}" 这一档。可用：${Object.keys(THING_TIERS).join(' ')}，或直接写数字（每一个的大小）`); continue; }
+        const of = tier != null ? { ...of0, size: Math.round(tier / 2) } : of0;
         for (const k of Object.keys(esrc)) if (!['crowd', 'of', 'cols', 'at', 'gap', 'anchor'].includes(k)) err(w, `crowd 不认识字段 "${k}"。可用：crowd（个数）of（每一个长什么样）cols（每排几个）at（整群的中心）gap`);
         if (!(n >= 2 && n <= 60) || !of || typeof of !== 'object' || !Array.isArray(esrc.at)) { err(w, 'crowd 要写成 { crowd: 10, cols: 5, of: { figure: stand, size: 140 }, at: [x, y] }：个数 2–60，of 是每一个的元素定义，at 是整群中心的坐标'); continue; }
         const pcv = (v: any, total: number) => (typeof v === 'string' && v.endsWith('%') ? (parseFloat(v) / 100) * total : +v);
@@ -604,6 +615,39 @@ export function compile(dir: string): Compiled {
     // 1. 只框“镜头到位时已经画出来、或一秒多之内就要画”的东西；focus 里更晚才画的，等它快画时镜头再带过去——不对着半屏空白等
     // 2. 这一拍正在画的东西（箭头连线除外）顺手框进来，前提是不会把近景拉得太远
     // 3. 画面不越过板上内容的边：对准板边的东西时往里收
+    // 近景不从已经画好的东西中间切过去：画面边压到谁，就把谁整个框进来（箭头、线、标记除外：它们本来就通向别处）。
+    // 框进来之后放大倍数会变小；小到不值得推近时，由调用的地方决定回全景
+    const viewBox = (cm: Cam): Box => { const FB = fmt.board, w = FB.w / cm.zoom, h = FB.h / cm.zoom, cx = cm.cx - origin[0] - FB.x - (screenC[0] - boardC[0]) / cm.zoom, cy = cm.cy - FB.y - (screenC[1] - boardC[1]) / cm.zoom; return { x: cx - w / 2, y: cy - h / 2, w, h }; };
+    // 刚画的东西（正在讲的）必须完整：重 10。早先画的字和小人被切一刀也难看，但可以权衡：重 1。早先画的长横条、大图可以伸出画面：不算
+    const aliveAt = (t: number): (Box & { wt: number })[] => [...local.values()].flatMap(tl => {
+      const born = tl.drawT0 ?? tl.appear?.t ?? Infinity;
+      if (['axis', 'arrow', 'line', 'mark'].includes(tl.el.kind) || born > t || (tl.gone != null && tl.gone <= t)) return [];
+      const wt = born > t - 4 ? 10 : ['text', 'note', 'figure'].includes(tl.el.kind) ? 1 : 0;
+      if (!wt) return [];
+      const b = tl.el.kind === 'note' ? tl.el.solid : tl.el.box, mv = tl.moves.length ? tl.moves[tl.moves.length - 1].to as Pt : [0, 0];
+      return [{ x: b.x + mv[0], y: b.y + mv[1], w: b.w, h: b.h, wt }];
+    });
+    const whole = (b: Box, mk: (b: Box) => Cam, t: number): Cam => {
+      const alive = aliveAt(t), raw = mk(b), hz = home.zoom || 1, FB = fmt.board;
+      const cutBy = (v: Box) => alive.reduce((n, o) => { const a = o.w * o.h, i = Math.max(0, Math.min(o.x + o.w, v.x + v.w) - Math.max(o.x, v.x)) * Math.max(0, Math.min(o.y + o.h, v.y + v.h) - Math.max(o.y, v.y)); return n + (a > 0 && i / a > 0.04 && i / a < 0.97 ? o.wt : 0); }, 0);
+      const v0 = viewBox(raw);
+      if (!cutBy(v0)) return raw;
+      // 在原来的取景附近找一个不切东西的：稍微推近或拉开一点、往旁边让一点，对准的东西始终完整留在画面里
+      let best: Cam | null = null, bestCost = Infinity;
+      const c0x = v0.x + v0.w / 2, c0y = v0.y + v0.h / 2;
+      for (const f of [1, 1.12, 0.9, 1.25, 0.8, 1.4, 0.7, 0.6]) {
+        const z = raw.zoom * f, w = FB.w / z, h = FB.h / z;
+        if (z < hz * 1.2 || w < b.w + 24 || h < b.h + 24) continue;
+        for (const dx of [0, -0.08, 0.08, -0.16, 0.16, -0.24, 0.24]) for (const dy of [0, -0.08, 0.08, -0.16, 0.16, -0.24, 0.24]) {
+          const cx = c0x + dx * w, cy = c0y + dy * h, v = { x: cx - w / 2, y: cy - h / 2, w, h };
+          if (b.x < v.x + 12 || b.y < v.y + 12 || b.x + b.w > v.x + w - 12 || b.y + b.h > v.y + h - 12) continue;
+          const cost = cutBy(v) + 0.2 * Math.abs(Math.log(f)) + 0.3 * (Math.abs(dx) + Math.abs(dy));
+          if (cost < bestCost) { bestCost = cost; best = { cx: origin[0] + FB.x + cx + (screenC[0] - boardC[0]) / z, cy: FB.y + cy + (screenC[1] - boardC[1]) / z, zoom: z }; }
+        }
+      }
+      // 尽量少切；怎么挪都要切到正在讲的东西，这一拍就看全景
+      return best && bestCost < 10 ? best : home;
+    };
     if (pendingCams.length) {
       const FB = fmt.board;
       let CB: Box | null = null;
@@ -630,11 +674,11 @@ export function compile(dir: string): Compiled {
         const fset = new Set(p.items.map(it => it.id));
         const beat = [...local.values()].filter(tl => !fset.has(tl.el.id) && !['axis', 'arrow', 'line', 'mark'].includes(tl.el.kind) && bornOf(tl.el.id) >= p.ev.t0 - 0.1 && bornOf(tl.el.id) <= p.ev.t1 + 1.2).map(tl => (tl.el.kind === 'note' ? tl.el.solid : tl.el.box));
         if (beat.length && camFor(unionBox([...boxes, ...beat]), p.pad, p.maxZoom).zoom >= z0 * 0.75) boxes = [...boxes, ...beat];
-        Object.assign(p.ev.to, camFor(unionBox(boxes), p.pad, p.maxZoom));
+        { const first = unionBox(boxes), cam = whole(first, b => camFor(b, p.pad, p.maxZoom), p.ev.t1 + 1.2); p.ev.to = cam; }
         let lastT = p.ev.t1, lastCam = p.ev.to;
         for (const it of later) {
           boxes = [...boxes, it.box]; CB = sofar(it.born + 0.5);
-          const to = camFor(unionBox(boxes), p.pad, p.maxZoom), st = Math.max(lastT + 0.2, it.born - 0.5);
+          const to = whole(unionBox(boxes), b => camFor(b, p.pad, p.maxZoom), it.born + 0.5), st = Math.max(lastT + 0.2, it.born - 0.5);
           if (st + 0.9 > until || (Math.abs(to.zoom / lastCam.zoom - 1) < 0.04 && Math.hypot(to.cx - lastCam.cx, to.cy - lastCam.cy) * to.zoom < 30)) continue;
           camEvents.push({ t0: st, t1: st + 0.9, to }); lastT = st + 0.9; lastCam = to;
         }
@@ -675,7 +719,7 @@ export function compile(dir: string): Compiled {
         // 观众看到的是“走到了这一块”，在这一块里画的时候镜头不再跟着每一笔晃
         const want = unionBox([tgt, ...ahead]);
         const home0 = BIG ? [...regions.values()].filter(r => want.x >= r.x - 8 && want.y >= r.y - 8 && want.x + want.w <= r.x + r.w + 8 && want.y + want.h <= r.y + r.h + 8 && Math.min(FB.w / r.w, FB.h / r.h) >= 0.72).sort((p, q) => p.w * p.h - q.w * q.h)[0] : undefined;
-        const near = home0 ? camOf(home0, 0) : camOf(want), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
+        const near = whole(home0 ?? want, x => camOf(x, home0 && x === home0 ? 0 : PAD), b.t + GAP), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
         // 分镜自己定的景别（含自己写的全景）：要画的东西在画面里、而且在这个景别下看得清，就不动——那是为这个景别画的
         if (held && inside(tgt, viewOf(cur), 4) && Math.min(tgt.w, tgt.h) * cur.zoom >= 40) continue;
         if (cur === home) { if (worth && calm) go(b.t, near, !!home0); continue; }        // 全景里：要画的东西小，就推近去画
@@ -692,6 +736,65 @@ export function compile(dir: string): Compiled {
       // 结尾：最后几秒回到全景，看整张图
       if (cur !== home) go(Math.max(lastMove + GAP, t1 - 3.5), home);
     }
+    // 看全：观众看得见的变化，都要看完整。
+    // 近景里正在画（或擦、挪、强调）的东西伸出了画面——典型的是一条连到远处的箭头——观众只看到线头，不知道镜头外发生了什么。
+    // 这里把每一段近景过一遍：这样的变化发生时，镜头先拉开到装得下它（箭头连同它的两头），画完再推回去。
+    // 这是引擎保证的，不靠分镜自觉；meta.seeWhole: false 关掉
+    if (meta.seeWhole !== false) {
+      const FB = fmt.board, hz = home.zoom || 1;
+      const sceneEnd = (tl: TL) => tl.erase != null && erases[tl.erase].t0 >= t1 - 0.7;
+      const endsOf = (el: El): Box[] => (el.kind !== 'arrow' && el.kind !== 'line' ? [] : [].concat(el.src.arrow ?? el.src.line ?? []).flatMap((r: any) => { const tl = typeof r === 'string' ? local.get(r.split('.')[0].split('@')[0]) : undefined; return tl && tl.el.kind !== 'axis' && (tl.drawT0 != null || tl.appear) ? [tl.el.box] : []; }));
+      const needs: { t0: number; t1: number; box: Box }[] = [];
+      for (const tl of local.values()) {
+        if (tl.el.kind === 'axis' || tl.recalled) continue;
+        const box = unionBox([tl.el.box, ...endsOf(tl.el)]);
+        if (box.w <= 0 && box.h <= 0) continue;
+        if (tl.drawT0 != null) needs.push({ t0: tl.drawT0, t1: tl.drawT1 ?? tl.drawT0, box });
+        if (tl.appear) needs.push({ t0: tl.appear.t, t1: tl.appear.t + tl.appear.dur, box });
+        for (const k of tl.shakes) needs.push({ t0: k.t0, t1: k.t1, box });
+        for (const k of tl.poses) needs.push({ t0: k.t0, t1: k.t1, box });
+        for (const m of tl.moves) needs.push({ t0: m.t0, t1: m.t1, box: unionBox([shifted(tl.el.box, m.from), shifted(tl.el.box, m.to)]) });
+        if (tl.erase != null && !sceneEnd(tl)) needs.push({ t0: erases[tl.erase].t0, t1: erases[tl.erase].t1, box });
+      }
+      needs.sort((a, b) => a.t0 - b.t0);
+      const fits = (b: Box, v: Box, m = 6) => b.x >= v.x + m && b.y >= v.y + m && b.x + b.w <= v.x + v.w - m && b.y + b.h <= v.y + v.h - m;
+      const fit = (b: Box, maxZoom: number, t: number): Cam => {
+        const mk = (x: Box): Cam => { const z = Math.min(maxZoom, FB.w / (x.w + 120), FB.h / (x.h + 120)); return { cx: origin[0] + FB.x + x.x + x.w / 2 + (screenC[0] - boardC[0]) / z, cy: FB.y + x.y + x.h / 2 + (screenC[1] - boardC[1]) / z, zoom: z }; };
+        const cm = whole(b, mk, t);
+        return cm.zoom < hz * 1.12 || !fits(b, viewBox(cm), 0) ? home : cm;
+      };
+      const evs = camEvents.filter(k => k.t0 >= t0 - 1e-6 && k.t0 < t1).sort((a, b) => a.t0 - b.t0);
+      const added: CamSeg[] = [];
+      evs.forEach((ev, i) => {
+        const C = ev.to, end = evs[i + 1]?.t0 ?? t1;
+        if (C === home) return;
+        const mine = needs.filter(n => n.t0 >= ev.t0 - 0.05 && n.t0 < end);
+        const out = mine.filter(n => !fits(n.box, viewBox(C)));
+        if (!out.length) return;
+        const uStart = out[0].t0, uEnd = Math.max(...out.map(n => n.t1));
+        const early = uStart <= ev.t1 + 1.5;
+        // 拉开的那一段里要变的东西全框进来；不是一开头就拉开时，原来看着的那一块也留在画面里
+        const W = fit(unionBox([...mine.filter(n => n.t0 <= uEnd && (early || n.t0 >= uStart - 0.05)).map(n => n.box), ...(early ? [] : [viewBox(C)])]), C.zoom, uStart);
+        const wT0 = early ? ev.t0 : Math.max(ev.t1 + 0.1, uStart - 1);
+        if (early) ev.to = W;
+        else added.push({ t0: wT0, t1: uStart, to: W });
+        // 画完之后推回原来的近景：和拉开那一下至少隔三秒半（镜头不来回晃），推回去之后还得有三秒可看
+        const back = Math.max(uEnd + 0.35, wT0 + 3.5);
+        if (end - back >= 3 && W !== C) added.push({ t0: back, t1: back + 1, to: C });
+      });
+      camEvents.push(...added);
+      // 镜头正在路上、要画的东西在出发的那个景别里看不见：镜头提前半秒多动身（放进句子之间的停顿里），落笔时已经到位
+      const all = camEvents.filter(k => k.t0 >= t0 - 1e-6 && k.t0 < t1).sort((a, b) => a.t0 - b.t0);
+      all.forEach((ev, i) => {
+        const prev = all[i - 1], from = prev ? prev.to : home;
+        if (from === ev.to || ev.cut) return;
+        const during = needs.filter(n => n.t0 >= ev.t0 - 0.05 && n.t0 < ev.t1);
+        if (!during.some(n => !fits(n.box, viewBox(from)))) return;
+        const busy = Math.max(t0, prev ? prev.t1 + 0.15 : t0, ...needs.filter(n => n.t0 < ev.t0 - 0.05 && !fits(n.box, viewBox(ev.to))).map(n => n.t1 + 0.1));
+        const lead = Math.min(0.8, Math.max(0, ev.t0 - busy), Math.max(0, ev.t1 - Math.min(...during.map(n => n.t0))));
+        ev.t0 -= lead; ev.t1 -= lead;
+      });
+    }
     for (const tl of local.values()) {
       if (tl.drawT0 == null && !tl.appear && !fromPattern.has(tl.el.id) && tl.el.kind !== 'axis') warn(`${file} / 元素 ${tl.el.id}`, '定义了但从没画出来（没有任何 draw / pop / fade 用到它）');
       tls.push(tl);
@@ -705,8 +808,25 @@ export function compile(dir: string): Compiled {
   tls.sort((a, b) => a.order - b.order);
   // 有计划时，第一道确认认的是计划本身：执行者怎么画不会让它失效
   const planHash = plan ? plan.hash : sceneHash, keyHash = plan ? createHash('sha256').update(plan.hash + sceneHash).digest('hex').slice(0, 16) : sceneHash;
-  if (plan) issues.push(...checkPlan(plan, al, fmt, duration));
-  return { dir, meta, fmt, fps, al, duration, scenes, tls, erases, cams: camEvents, subs, issues, planHash, keyHash, ...(plan ? { plan } : {}), castUse };
+  if (plan) issues.push(...checkPlan(plan, al, fmt, duration, dir));
+  // 附录：排在最后一块板全景的正下方。镜头从全景出发，放到原大（附录按一屏的字号排），一路往下滚到最后一条停在画面中间偏上
+  const apx = loadAppendix(dir);
+  for (const i of apx.issues) issues.push(i);
+  let appendix: Compiled['appendix'], total = duration;
+  if (apx.appendix && scenes.length && !apx.issues.some(i => i.level === 'error')) {
+    const layout = layoutAppendix(apx.appendix, fmt), last = scenes[scenes.length - 1], from = last.home, vh = fmt.H / from.zoom;
+    const x = from.cx - fmt.W / 2, y = from.cy + vh / 2 + 40;
+    // 滚到底时，附录的最后一行落在画面高度的 58% 处（下面是平台的界面，不放字）
+    const dist = y + layout.height - fmt.H * 0.58 + fmt.H / 2 - from.cy;
+    const speed = apx.seconds != null ? Math.min(600, Math.max(60, dist / Math.max(1, apx.seconds - apx.appendix.hold - 0.9))) : apx.appendix.speed;
+    const tm = appendixTiming(dist, speed, apx.appendix.hold);
+    appendix = { layout, x, y, t0: duration, t1: duration + tm.total, from, dist, speed };
+    total = appendix.t1;
+    if (layout.missing.length) warn('appendix.yaml', `这些字符手写字体里没有，会缺字：${layout.missing.slice(0, 12).join(' ')}。换个写法`);
+    if (tm.total > 45) warn('appendix.yaml', `附录要滚 ${Math.round(tm.total)} 秒（${apx.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）。片尾太长观众会划走：删掉次要的几条，或者写 seconds: 30 滚快一点（太快就读不清了）`);
+    if (speed > 330) warn('appendix.yaml', `附录滚得太快（每秒 ${Math.round(speed)} 像素），字读不清。把 seconds 调大，或者删几条`);
+  }
+  return { dir, meta, fmt, fps, al, duration, total, ...(appendix ? { appendix } : {}), scenes, tls, erases, cams: camEvents, subs, issues, planHash: apx.appendix && !plan ? createHash('sha256').update(planHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : planHash, keyHash: apx.appendix && !plan ? createHash('sha256').update(keyHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : keyHash, ...(plan ? { plan } : {}), castUse };
 }
 
 function describe(el: El): string {

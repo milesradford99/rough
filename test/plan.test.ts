@@ -6,7 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
-import { fakeAlignment } from '../src/core/alignment';
+import { fakeAlignment, loadAlignment, resolveAnchor } from '../src/core/alignment';
+import { confirmCode, hasCode, type Stage } from '../src/core/review';
+import { cpSync, rmSync } from 'node:fs';
+import { compile } from '../src/core/compile';
+import { lint } from '../src/core/lint';
+import { focusAlpha } from '../src/core/render';
+import { autoBoardSize, loadPlan } from '../src/core/plan';
 import { packet, unpack, buildAlignment, scriptWarnings, edgeUnits, EDGE_VOICES, DEFAULT_EDGE_VOICE } from '../src/core/tts';
 
 const hj = (args: string[], env: Record<string, string> = {}) => spawnSync(process.execPath, ['bin/hj.mjs', ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
@@ -45,6 +51,8 @@ function project(plan = PLAN): string {
   return dir;
 }
 
+const codeOf = (dir: string, stage: Stage) => confirmCode(stage, JSON.parse(readFileSync(join(dir, 'out/review', stage + '.json'), 'utf8')).hash);
+
 test('没填的计划拦住一切：不能跳过规划直接画', () => {
   const dir = project('');
   const st = hj(['status', dir]);
@@ -78,7 +86,10 @@ test('规划者 → 用户确认 → 执行者：骨架能直接编译，偏离�
   assert.equal(hj(['plan', dir]).status, 0);
   const sb = readFileSync(join(dir, 'storyboard.md'), 'utf8');
   assert.match(sb, /论点/); assert.match(sb, /公司 → 交税 → 政府/); assert.match(sb, /回头改：公司/);
-  assert.equal(hj(['approve', dir, 'plan', '--by', '可以']).status, 0);
+  // 计划这一步也有图：结构草图。没带图上的确认码不能确认
+  assert.ok(existsSync(join(dir, 'out/review/plan.png')) && existsSync(join(dir, 'out/review/plan.html')));
+  assert.match(hj(['approve', dir, 'plan', '--by', '可以']).stderr, /没有确认码/);
+  assert.equal(hj(['approve', dir, 'plan', '--by', `确认 ${codeOf(dir, 'plan')}`]).status, 0);
   assert.match(hj(['status', dir]).stdout, /现在轮到：执行者[\s\S]*hj scaffold/);
 
   assert.equal(hj(['scaffold', dir]).status, 0);
@@ -107,6 +118,164 @@ test('规划者 → 用户确认 → 执行者：骨架能直接编译，偏离�
   assert.match(hj(['status', dir]).stdout, /现在轮到：规划者[\s\S]*重新确认/);
   const st = hj(['stills', dir]);
   assert.equal(st.status, 1); assert.match(st.stderr, /又改过了/);
+});
+
+test('确认码：随内容版本变，全角数字也认，夹在别的数字里不算', () => {
+  const c = confirmCode('look', 'abc');
+  assert.match(c, /^\d{4}$/);
+  assert.notEqual(c, confirmCode('look', 'abd')); assert.notEqual(c, confirmCode('keyframes', 'abc'));
+  assert.ok(hasCode(`好的，确认 ${c}`, c)); assert.ok(hasCode(`确认${[...c].map(d => String.fromCharCode(d.charCodeAt(0) + 0xfee0)).join('')}`, c));
+  assert.ok(!hasCode('可以', c)); assert.ok(!hasCode(`1${c}9`, c));
+});
+
+test('四道确认：计划 → 全景定稿 → 关键帧，每道都有审片页；审片页过期、板上的东西变了都要重来', { timeout: 240000 }, () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'hj-gate-')), 'p');
+  cpSync('examples/one-board', dir, { recursive: true }); rmSync(join(dir, 'out'), { recursive: true, force: true }); rmSync(join(dir, 'approvals.json'), { force: true });
+  // 没生成这一版的审片页，不能确认
+  assert.match(hj(['approve', dir, 'plan', '--by', '确认 1234']).stderr, /还没有生成审片页/);
+  assert.equal(hj(['plan', dir]).status, 0);
+  assert.equal(hj(['approve', dir, 'plan', '--by', `确认 ${codeOf(dir, 'plan')}`]).status, 0);
+  // 全景定稿没确认：不出正式关键帧，不能确认关键帧
+  const early = hj(['stills', dir]);
+  assert.equal(early.status, 1); assert.match(early.stderr, /全景定稿还没有得到用户确认/);
+  assert.match(hj(['status', dir]).stdout, /hj look/);
+  const look = hj(['look', dir]);
+  assert.equal(look.status, 0, look.stderr);
+  assert.match(look.stdout, /必须让用户看到图/);
+  const html = readFileSync(join(dir, 'out/review/look.html'), 'utf8');
+  assert.match(html, /眯眼看/); assert.match(html, /data:image\/jpeg;base64/); assert.match(html, new RegExp(codeOf(dir, 'look')));
+  assert.match(hj(['approve', dir, 'look', '--by', '挺好看的']).stderr, /没有确认码/);
+  assert.equal(hj(['approve', dir, 'look', '--by', `确认 ${codeOf(dir, 'look')}，好看`]).status, 0);
+  // 微调位置不让全景定稿失效；换了大小的档位就失效
+  const f = join(dir, 'scenes/01-board.yaml'), src = readFileSync(f, 'utf8');
+  writeFileSync(f, src.replace('at: [690, 78]', 'at: [690, 78], dx: 6'));
+  assert.match(hj(['check', dir]).stdout, /全景定稿 ✓ 已确认/);
+  writeFileSync(f, src.replace('text: "= 1000", size: hero', 'text: "= 1000", size: key'));
+  const ck = hj(['check', dir]);
+  assert.match(ck.stdout, /全景定稿 ✗ 需重新确认/); assert.match(ck.stdout, /差得不够开/);
+  assert.match(hj(['stills', dir]).stderr, /板上的东西[\s\S]*又改过了/);
+  writeFileSync(f, src);
+  const st = hj(['stills', dir]);
+  assert.equal(st.status, 0, st.stderr);
+  assert.match(readFileSync(join(dir, 'out/review/keyframes.html'), 'utf8'), /口播：/);
+  assert.equal(hj(['approve', dir, 'keyframes', '--by', `确认 ${codeOf(dir, 'keyframes')}`]).status, 0);
+  assert.match(hj(['status', dir]).stdout, /hj render/);
+  // 草稿多出一张眯眼图
+  assert.equal(hj(['stills', dir, '--draft']).status, 0);
+  assert.ok(existsSync(join(dir, 'out/draft/squint-01-board.png')));
+});
+
+test('角色的长相点名的素材必须真的有：不存在的手绘件、图标、姿势、配饰在计划这一步就拦住', () => {
+  const r = hj(['check', project(PLAN.replace('doodle: factory', 'doodle: nosuchthing').replace('doodle: gov', 'icon: no-such-icon').replace('figure: stand', 'figure: moonwalk, wear: [cape]'))]);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /cast\.co\n\s+没有叫 "nosuchthing" 的手绘件/); assert.match(r.stdout, /没有叫 "no-such-icon" 的图标/);
+  assert.match(r.stdout, /没有 "moonwalk" 这个姿势/); assert.match(r.stdout, /没有 "cape" 这个配饰/);
+  // 项目自己 doodles/ 里画的也算有；现成的配饰不误伤
+  const dir = project(PLAN.replace('doodle: factory', 'doodle: mine').replace('figure: stand', 'figure: stand, wear: [crown, tie]'));
+  mkdirSync(join(dir, 'doodles'), { recursive: true }); cpSync('doodles/bank.yaml', join(dir, 'doodles/mine.yaml'));
+  const ok = hj(['check', dir]); assert.doesNotMatch(ok.stdout, /没有叫|这个配饰|这个姿势/, ok.stdout);
+});
+
+test('讲到哪儿、别处淡下去：默认开，focus: false 关掉；不在讲的东西变淡，主角不淡，讲完整块板恢复', () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'hj-focus-')), 'p'); cpSync('examples/one-board', dir, { recursive: true });
+  const py = readFileSync(join(dir, 'project.yaml'), 'utf8').split('\n').filter(l => !/^focus:/.test(l)).join('\n');
+  writeFileSync(join(dir, 'project.yaml'), py + '\nfocus: false\n');
+  const off = compile(dir), bank0 = off.tls.find(t => t.el.id === 'bank')!;
+  assert.equal(focusAlpha(off, bank0, 30), 1);
+  writeFileSync(join(dir, 'project.yaml'), py); // 不写就是开
+  const c = compile(dir), sc = c.scenes[0], mid = (sc.t0 + sc.t1) / 2, at = (t: number) => c.tls.filter(x => (x.drawT0 ?? x.appear?.t ?? 1e9) < t - 2 && !(x.gone != null && x.gone < t)).map(x => focusAlpha(c, x, t));
+  assert.ok(at(mid).some(v => v < 0.6), '讲到一半时，前面画的东西应该有淡下去的');
+  assert.ok(at(sc.t1 + 5).every(v => v === 1), '讲完后整块板恢复');
+  const hero = c.tls.find(t => t.el.src?.size === 'hero' || t.el.src?.__tier === 'hero')!;
+  assert.ok(hero, '示例里有主角'); for (let t = sc.t0; t < sc.t1; t += 1.7) assert.equal(focusAlpha(c, hero, t), 1);
+});
+
+test('板的大小跟着内容量走：东西少是一屏，东西多自动放大，封顶 1.4；写了 size 照写的来', () => {
+  const seg = (o: any = {}) => ({ at: 'x', intent: '', show: [], link: [], revisit: [], words: [], joins: [], ...o });
+  assert.equal(autoBoardSize({ segments: [seg({ show: ['a', 'b'], link: ['r'], words: ['十倍'] })] }, 'portrait'), 1);
+  const busy = Array.from({ length: 8 }, (_, i) => seg({ show: [`c${i % 5}`], link: [`r${i}`], words: [`词语${i}`, `数字${i}`], ...(i % 3 === 0 ? { diagram: '一个图' } : {}) }));
+  const k = autoBoardSize({ segments: busy }, 'portrait');
+  assert.ok(k > 1.1 && k <= 1.4, `东西多的板应该放大，现在是 ${k}`);
+  assert.equal(autoBoardSize({ segments: [...busy, ...busy.map(s => ({ ...s, words: s.words.map((w: string) => w + '再') })), ...busy.map(s => ({ ...s, link: s.link.map((w: string) => w + 'x'), diagram: '图' }))] }, 'portrait'), 1.4);
+  const dir = project(); assert.ok(loadPlan(dir)!.boards.every(b => b.autoSize && typeof b.size === 'number'));
+  const fixed = project(PLAN.replace('  - id: loop\n', '  - id: loop\n    size: 1.5\n')), fb = loadPlan(fixed)!.boards[0];
+  assert.equal(fb.size, 1.5); assert.ok(!fb.autoSize);
+});
+
+test('口播简报的卡点：每一小句都给一个能直接用的片段，短的、重复的小句往后多带几个字', () => {
+  const root = mkdtempSync(join(tmpdir(), 'hj-brief-')), voice = join(root, 'v'), dir = join(root, 'proj');
+  mkdirSync(voice, { recursive: true });
+  writeFileSync(join(voice, 'alignment.json'), JSON.stringify(fakeAlignment('涉及数字、人名、出处，都要再核一遍。先说结论，再讲原因。先说结论，最后才轮到决定。')));
+  assert.equal(hj(['init', dir, '--voice', voice]).status, 0);
+  assert.equal(hj(['brief', dir]).status, 0);
+  const md = readFileSync(join(dir, 'brief.md'), 'utf8'), al = loadAlignment(join(dir, 'voice/alignment.json'));
+  const rows = md.slice(md.indexOf('## 分句卡点')).split('\n').filter(l => /^\| \d/.test(l)).map(l => l.split('|').map(c => c.trim()));
+  assert.ok(rows.length >= 7, md);
+  assert.doesNotMatch(md, /用 #2/);
+  for (const r of rows) {
+    const anchor = /^`(.+)`$/.exec(r[3])?.[1];
+    assert.ok(anchor, `“${r[2]}” 没有给卡点`);
+    const hit = resolveAnchor(al, anchor!);
+    assert.ok(Math.abs(hit.time - +r[1]) < 0.011 && !hit.ambiguous, `“${r[2]}” 的卡点 ${anchor} 应该正好落在 ${r[1]} 秒且不重复，实际 ${hit.time.toFixed(2)}`);
+  }
+  assert.ok(rows.some(r => r[2].startsWith('人名') && r[3] === '`人名`'), '两个字的小句也有卡点');
+  assert.ok(rows.filter(r => r[2].startsWith('先说结论')).every(r => r[3].length > '`先说结论`'.length), '重复的小句往后多带几个字');
+});
+
+test('长线：一条关系的两头在不挨着的分区，计划检查会提醒；挨着的不提醒', () => {
+  assert.doesNotMatch(hj(['check', project()]).stdout, /两头分别在分区/);
+  // 三行叠着：公司在最上面，你在最下面，中间隔着政府那一行
+  const far = PLAN.replace(/    grid:\n      areas:\n        - \[up, up\]\n        - \[left, right\]\n    regions: \{[^\n]*\n/, '    grid:\n      areas:\n        - [up]\n        - [left]\n        - [right]\n    regions: { up: 公司, left: 政府, right: 你 }\n')
+    .replace('in: up, show: [co, gov], link: [tax]', 'in: up, show: [co], words: ["100"], intent: 公司 }\n      - { at: "交一百块税", act: 例子, in: left, show: [gov], link: [tax]')
+    .replace('in: left, show: [me], link: [give]', 'in: right, show: [me], link: [give]').replace('in: left, link: [spend]', 'in: right, link: [spend]').replace('in: right, revisit: [co]', 'in: left, revisit: [co]');
+  const r = hj(['check', project(far)]);
+  assert.match(r.stdout, /关系 spend（你 → 公司）的两头分别在分区 "right" 和 "up"，中间隔着 "left"/, r.stdout);
+  assert.doesNotMatch(r.stdout, /关系 (tax|give)（/, '挨着的分区之间的关系不提醒');
+});
+
+test('主角和版式：主角必须是板上真有的东西；版式展开成分区；没指定主角会提醒', () => {
+  const noHero = hj(['check', project()]);
+  assert.match(noHero.stdout, /没有指定主角（hero）/);
+  const bad = hj(['check', project(PLAN.replace('  - id: loop\n', '  - id: loop\n    hero: "没有这个词"\n'))]);
+  assert.equal(bad.status, 1); assert.match(bad.stdout, /hero 写的 "没有这个词"/);
+  const ok = hj(['check', project(PLAN.replace('  - id: loop\n', '  - id: loop\n    hero: "+0"\n'))]);
+  assert.doesNotMatch(ok.stdout, /hero/);
+  const lay = PLAN.replace(/    grid:\n      areas:\n        - \[up, up\]\n        - \[left, right\]\n    regions: \{[^\n]*\n/, '    layout: cycle\n').replace(/in: up/g, 'in: head').replace(/in: left/g, 'in: loop').replace(/in: right/g, 'in: sum');
+  const l1 = hj(['check', project(lay)]);
+  assert.match(l1.stdout, /0 个错误/, l1.stdout);
+  // 版式在竖屏下是上下排的：计划里说“左栏、右栏”会被指出来
+  const cmp = PLAN.replace(/    grid:\n      areas:\n        - \[up, up\]\n        - \[left, right\]\n    regions: \{[^\n]*\n/, '    layout: compare\n').replace(/in: up/g, 'in: head').replace(/in: left/g, 'in: a').replace(/in: right/g, 'in: b');
+  assert.doesNotMatch(hj(['check', project(cmp)]).stdout, /分区只有一列/);
+  assert.match(hj(['check', project(cmp.replace('picture: 公司、政府、你站成一个三角', 'picture: 左栏是公司和政府，右栏是你'))]).stdout, /写了“左栏”，但这块板的分区只有一列，是上下排的（版式 compare 在竖屏下/);
+  const l2 = hj(['check', project(lay.replace('layout: cycle', 'layout: spiral'))]);
+  assert.equal(l2.status, 1); assert.match(l2.stdout, /没有叫 "spiral" 的版式/);
+  assert.match(hj(['layouts']).stdout, /compare[\s\S]*两组对照/);
+});
+
+test('构图检查：档位写错、字号太多、漂着的字、差一点对齐、左右失衡；手写坐标会被吸附对齐', () => {
+  const dir = project(PLAN.replace('  - id: loop\n', '  - id: loop\n    hero: "+0"\n'));
+  assert.equal(hj(['scaffold', dir]).status, 0);
+  const f = join(dir, 'scenes/01-loop.yaml'), src = readFileSync(f, 'utf8');
+  assert.match(src, /size: hero/, '骨架给主角最大一档'); assert.match(src, /size: key/);
+  const msgs = () => lint(compile(dir)).filter(i => i.level !== 'info').map(i => i.msg).join('\n');
+  const add = (els: string) => writeFileSync(f, src.replace('beats:\n', 'beats:\n  - { at: "公司", intent: 加几样, do: [{ draw: [x1, x2, x3, x4, x5, x6] }] }\n').replace('elements:\n', 'elements:\n' + els));
+  // 档位名写错
+  writeFileSync(f, src.replace('size: key', 'size: huge'));
+  assert.match(hj(['check', dir]).stdout, /size 没有 "huge" 这一档/);
+  // 字号太多 + 漂着的字
+  add('  x1: { text: "甲", size: 30, at: [60, 1200] }\n  x2: { text: "乙", size: 37, at: [200, 300] }\n  x3: { text: "丙", size: 43, at: [300, 300] }\n  x4: { text: "丁", size: 52, at: [400, 300] }\n  x5: { text: "戊", size: 58, at: [500, 300] }\n  x6: { text: "己", size: 77, at: [600, 300] }\n');
+  const m1 = msgs();
+  assert.match(m1, /种字号/); assert.match(m1, /“甲”（x1） 是漂着的字/);
+  // 左右失衡：东西全堆在左边
+  add('  x1: { shape: rect, w: 200, h: 200, at: [120, 300] }\n  x2: { shape: rect, w: 200, h: 200, at: [120, 520] }\n  x3: { shape: rect, w: 200, h: 200, at: [120, 740] }\n  x4: { shape: rect, w: 200, h: 200, at: [120, 960] }\n  x5: { shape: rect, w: 60, h: 60, at: [330, 300] }\n  x6: { shape: rect, w: 60, h: 60, at: [330, 520] }\n');
+  assert.match(msgs(), /左重右轻/);
+  // 吸附：左边只差 9px 的两行字被吸到同一条左边；差 40px 的不动；snap: false 关掉
+  add('  x1: { text: "第一行字", size: key, at: [300, 300], anchor: left }\n  x2: { text: "第二行", size: key, at: [309, 400], anchor: left }\n  x3: { text: "第三行", size: key, at: [340, 500], anchor: left }\n  x4: { text: "第四行", size: key, at: [309, 600], anchor: left, snap: false }\n  x5: { text: "五", size: key, at: [700, 300] }\n  x6: { text: "六", size: key, at: [800, 300] }\n');
+  const c = compile(dir), bx = (id: string) => c.tls.find(t => t.el.id === id)!.el.box.x;
+  assert.ok(Math.abs(bx('x2') - bx('x1')) < 0.6, '差 9px 的被吸附到同一条左边');
+  assert.ok(Math.abs(bx('x3') - bx('x1')) > 25, '差得多的不动');
+  assert.ok(Math.abs(bx('x4') - bx('x1')) > 5, 'snap: false 不吸附');
+  assert.match(lint(c).map(i => i.msg).join('\n'), /差一点对齐/, '关掉吸附后剩下的近似对齐会被指出来');
 });
 
 test('配音协议：帧的编码和解码', () => {

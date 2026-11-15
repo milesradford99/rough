@@ -1,11 +1,12 @@
 // 渲染器：画面是时间的纯函数。drawFrame(ctx, compiled, t) 能精确画出任意时刻的一帧。
+import { appendixOffset } from './appendix';
 import type { Compiled, TL, Cam, EraseGroup } from './compile';
 import { type Stroke, type LineStroke, type Pt, cumLen, pointAt, widthProfile, rng } from './strokes';
 import { lerpPose } from './figure';
 import { textStrokes } from './text';
 import { THEME } from './theme';
 
-export interface Env { createCanvas(w: number, h: number): any; Path2D: any; /** 读一张位图（image 元素用） */ image?(file: string): any }
+export interface Env { createCanvas(w: number, h: number): any; Path2D: any; /** 读一张位图（image 元素用）；视频片段给第几帧 */ image?(file: string, frame?: { dir: string; i: number }): any }
 export interface FrameOpts { scale?: number; subtitles?: boolean; /** 笔：marker 只有一支马克笔，hand 是握着笔的手；true 等于 marker */ pen?: boolean | 'marker' | 'hand'; guides?: boolean; /** 只画板上的东西，不画纸面、暗角和上下的遮罩（透明底，给封面等二次合成用） */ bare?: boolean }
 
 const ease = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
@@ -14,6 +15,12 @@ const span = (t: number, t0: number, t1: number) => (t1 <= t0 ? (t >= t1 ? 1 : 0
 const outBack = (k: number) => 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2);
 
 export function camAt(c: Compiled, t: number): Cam {
+  // 附录：从最后的全景出发，放到原大，顺着纸往下走
+  const ap = c.appendix;
+  if (ap && t > ap.t0) {
+    const u = t - ap.t0, k = ease(clamp01(u / 1.4));
+    return { cx: ap.from.cx, cy: ap.from.cy + appendixOffset(u, ap.dist, ap.speed), zoom: Math.exp(Math.log(ap.from.zoom) * (1 - k)) };
+  }
   let s: Cam = c.cams[0]?.to ?? { cx: c.fmt.W / 2, cy: c.fmt.H / 2, zoom: 1 };
   for (const seg of c.cams) {
     if (t >= seg.t1) { s = seg.to; continue; }
@@ -61,7 +68,15 @@ function lineBrush(ctx: any, s: LineStroke, frac: number) {
   }
 }
 
-export function drawStroke(ctx: any, env: Env, s: Stroke, frac: number, alpha: number) {
+/** 视频片段在“画完之后第 mt 秒”该放第几帧 */
+export function clipIndex(clip: { fps: number; n: number; loop: boolean }, mt: number): number {
+  const k = Math.max(0, Math.floor(mt * clip.fps));
+  return clip.loop ? k % clip.n : Math.min(k, clip.n - 1);
+}
+/** 这个元素画完之后过了多少秒（视频从画完那一刻开始播） */
+export const mediaTime = (tl: TL, t: number) => t - (tl.drawT1 ?? (tl.appear ? tl.appear.t + tl.appear.dur : 0));
+/** mt：这个元素画完之后过了多少秒（视频片段据此取帧；不传就是第一帧） */
+export function drawStroke(ctx: any, env: Env, s: Stroke, frac: number, alpha: number, mt = 0) {
   if (frac <= 0) return;
   if (s.kind === 'line') {
     ctx.globalAlpha = alpha * (s.alpha ?? 1);
@@ -84,8 +99,11 @@ export function drawStroke(ctx: any, env: Env, s: Stroke, frac: number, alpha: n
     for (let i = 2; i < s.pts.length; i += 2) ctx.lineTo(s.pts[i], s.pts[i + 1]);
     ctx.closePath(); ctx.fill(); ctx.restore();
   } else if (s.kind === 'image') {
-    // 位图：先垫一张白底（照片的白边），沿斜向揭开
-    const img = env.image?.(s.file); if (!img) return;
+    // 位图 / 视频帧：先垫一张白底（照片的白边），沿斜向揭开
+    let img: any;
+    if (s.clip) img = env.image?.(s.file, { dir: s.clip.dir, i: clipIndex(s.clip, mt) });
+    else img = env.image?.(s.file);
+    if (!img) return;
     ctx.save(); ctx.globalAlpha = alpha;
     if (frac < 1) {
       const b = s.box, lo = b.x * 0.83 + b.y * 0.55, hi = (b.x + b.w) * 0.83 + (b.y + b.h) * 0.55, edge = lo + (hi - lo) * frac, R = 1e5;
@@ -94,9 +112,17 @@ export function drawStroke(ctx: any, env: Env, s: Stroke, frac: number, alpha: n
       ctx.lineTo(edge * 0.83 + 0.55 * R - 0.83 * R, edge * 0.55 - 0.83 * R - 0.55 * R); ctx.lineTo(edge * 0.83 - 0.55 * R - 0.83 * R, edge * 0.55 + 0.83 * R - 0.55 * R);
       ctx.closePath(); ctx.clip();
     }
-    ctx.fillStyle = 'rgba(60,45,25,0.16)'; ctx.fillRect(s.box.x + 5, s.box.y + 7, s.box.w, s.box.h);
-    ctx.fillStyle = '#fff'; ctx.fillRect(s.box.x, s.box.y, s.box.w, s.box.h);
-    ctx.drawImage(img, s.box.x, s.box.y, s.box.w, s.box.h);
+    const b = s.box, pc = s.pic ? { x: b.x + s.pic.x, y: b.y + s.pic.y, w: s.pic.w, h: s.pic.h } : b;
+    if (s.round) {
+      ctx.fillStyle = 'rgba(60,45,25,0.16)'; ctx.beginPath(); ctx.ellipse(b.x + b.w / 2 + 4, b.y + b.h / 2 + 6, b.w / 2, b.h / 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w / 2, b.h / 2, 0, 0, Math.PI * 2); ctx.clip();
+    } else { ctx.fillStyle = 'rgba(60,45,25,0.16)'; ctx.fillRect(b.x + 5, b.y + 7, b.w, b.h); }
+    ctx.fillStyle = '#fffdf8'; ctx.fillRect(b.x, b.y, b.w, b.h);
+    // 视频帧在抽出来的时候已经裁好；图片在这里按比例裁满
+    const iw = img.width, ih = img.height, cr = s.clip || !s.crop ? { x: 0, y: 0, w: 1, h: 1 } : s.crop;
+    ctx.drawImage(img, cr.x * iw, cr.y * ih, cr.w * iw, cr.h * ih, pc.x, pc.y, pc.w, pc.h);
+    // 照片不是纯白纸上的印刷品：压一层很淡的暖色，和纸面的色调靠拢
+    ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = 'rgba(250,244,230,1)'; ctx.fillRect(pc.x, pc.y, pc.w, pc.h); ctx.globalCompositeOperation = 'source-over';
     ctx.restore();
   } else {
     ctx.globalAlpha = alpha; ctx.save();
@@ -245,7 +271,7 @@ function drawEl(ctx: any, env: Env, tl: TL, t: number, st: ElState) {
   for (const under of [true, false]) for (let i = 0; i < ss.length; i++) {
     const s = ss[i];
     if (!!(s as any).under !== under) continue;
-    drawStroke(ctx, env, s, same ? strokeFrac(tl, i, t) : 1, st.alpha);
+    drawStroke(ctx, env, s, same ? strokeFrac(tl, i, t) : 1, st.alpha, s.kind === 'image' && s.clip ? mediaTime(tl, t) : 0);
   }
   ctx.restore();
 }
@@ -393,6 +419,49 @@ function drawHand(ctx: any, hp: HandPos, hand: boolean, size: number) {
   ctx.restore();
 }
 
+// ── 讲到哪儿、别处淡下去（默认开；project.yaml 里 focus: false 关掉）──
+// 每一拍动到的东西（新画的、被标记的、连线的两头）是“正在讲的”，板上其余的东西淡下去；
+// 最后一拍画完，整块板回到原样：收尾的全景是完整的一张图。
+interface FocusSeg { t0: number; ids: Set<string> }
+const focusCache = new WeakMap<Compiled, Map<number, { segs: FocusSeg[]; release: number }>>();
+const FOCUS_DIM = 0.45, FOCUS_FADE = 0.45;
+/** 主角不淡：它是讲完后第一眼要看到的东西，画出来之后一直是最实的 */
+function isHero(c: Compiled, tl: TL): boolean {
+  const src = tl.el.src ?? {}, sc = c.scenes[tl.scene];
+  if (src.size === 'hero' || src.__tier === 'hero') return true;
+  const cast = c.castUse?.get(sc.file)?.els.get(tl.el.id);
+  return !!cast && !!c.plan?.boards.some(b => b.hero === cast);
+}
+function focusOf(c: Compiled): Map<number, { segs: FocusSeg[]; release: number }> {
+  let m = focusCache.get(c); if (m) return m;
+  m = new Map(); focusCache.set(c, m);
+  const byId = new Map<string, TL>(); for (const tl of c.tls) byId.set(`${tl.scene}/${tl.el.id}`, tl);
+  for (const sc of c.scenes) {
+    const segs: FocusSeg[] = []; let release = sc.t0;
+    for (const b of sc.beats) {
+      const ids = new Set<string>();
+      for (const a of b.actions) { if (a.verb === 'camera' || a.verb === 'wait') continue; for (const id of a.ids) ids.add(id); release = Math.max(release, a.t1); }
+      if (!ids.size) continue;
+      // 标记、批注、连线牵着的东西也算正在讲的
+      for (const id of [...ids]) { const src = byId.get(`${sc.index}/${id}`)?.el.src; if (!src || typeof src !== 'object') continue; for (const r of [src.target, src.arrow, src.line].flat()) if (typeof r === 'string') ids.add(r.split('.')[0]); }
+      segs.push({ t0: b.t, ids });
+    }
+    m.set(sc.index, { segs, release: release + 0.5 });
+  }
+  return m;
+}
+/** 这样东西在 t 时刻该淡到几成（1 = 不淡） */
+export function focusAlpha(c: Compiled, tl: TL, t: number): number {
+  if (c.meta?.focus === false || isHero(c, tl)) return 1;
+  const f = focusOf(c).get(tl.scene); if (!f || !f.segs.length) return 1;
+  let i = -1; for (let k = 0; k < f.segs.length; k++) if (f.segs[k].t0 <= t) i = k; else break;
+  if (i < 0) return 1;
+  const born = tl.drawT0 ?? tl.appear?.t ?? -1, lvl = (k: number) => (k < 0 || f.segs[k].ids.has(tl.el.id) || born >= f.segs[k].t0 ? 1 : FOCUS_DIM);
+  let v = lvl(i - 1) + (lvl(i) - lvl(i - 1)) * ease(span(t, f.segs[i].t0, f.segs[i].t0 + FOCUS_FADE));
+  if (t > f.release) v += (1 - v) * ease(span(t, f.release, f.release + 0.7));
+  return v;
+}
+
 const subCache = new Map<string, { strokes: Stroke[]; w: number }>();
 let layer: any = null;
 
@@ -419,6 +488,7 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     if (sc.origin[0] > vx1 || sc.origin[0] + (sc.span ?? W) < vx0) continue;
     const st = stateAt(tl, t);
     if (!st.visible) continue;
+    if (c.meta?.focus !== false && !st.drawing) st.alpha *= focusAlpha(c, tl, t);
     if (tl.erase != null) { const g = c.erases[tl.erase]; if (t >= g.t0) { if (!groups.has(tl.erase)) groups.set(tl.erase, []); groups.get(tl.erase)!.push({ tl, st }); continue; } }
     if (tl.scene !== curScene) { world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y); curScene = tl.scene; }
     drawEl(ctx, env, tl, t, st);
@@ -441,6 +511,16 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     ctx.drawImage(layer, 0, 0);
     ctx.globalAlpha = 1;
   }
+  // 附录：就在最后一块板的下面，镜头走到了才看得见
+  if (c.appendix && vy1 > c.appendix.y) {
+    const ap = c.appendix;
+    world(ctx); ctx.translate(ap.x, ap.y); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const under of [true, false]) for (const row of ap.layout.rows) {
+      if (ap.y + row.y1 < vy0 - 20 || ap.y + row.y0 > vy1 + 20) continue;
+      for (const s of row.strokes) if (!!(s as any).under === under) drawStroke(ctx, env, s, 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
   // 画板上下是平台界面和字幕的地方：近景时邻近的东西会漫进去，用纸面把它们柔和地收掉
   ctx.setTransform(k, 0, 0, k, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   if (!o.bare) ctx.drawImage(veil(env, tex, W, H, board), 0, 0, W, H);
@@ -450,7 +530,7 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     if (hp) { ctx.setTransform(k, 0, 0, k, 0, 0); drawHand(ctx, hp, o.pen === 'hand', Math.sqrt(cam.zoom / (c.scenes[hp.scene]?.home.zoom || 1)) * (W < H ? 1 : 0.85)); }
   }
   ctx.setTransform(k, 0, 0, k, 0, 0);
-  if (!o.bare) drawMinimap(ctx, c, t, cam);
+  if (!o.bare && !(c.appendix && t > c.appendix.t0)) drawMinimap(ctx, c, t, cam);
   if (o.guides) {
     ctx.strokeStyle = '#4dabf7'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]); ctx.strokeRect(board.x, board.y, board.w, board.h); ctx.setLineDash([]);
   }

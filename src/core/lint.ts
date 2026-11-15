@@ -4,6 +4,7 @@ import { stripPunct } from './alignment';
 import type { Box, Pt } from './strokes';
 import type { El } from './elements';
 import { conform } from './plan';
+import { camAt } from './render';
 
 /** 沿元素的线条每隔约 10px 取一个点（只取线，不取字形和填充） */
 function linePoints(el: El, pathOnly = false): Pt[] {
@@ -82,6 +83,38 @@ export function lint(c: Compiled): Issue[] {
     const reds = shown.filter(t => (t.el.kind === 'text' || t.el.kind === 'note') && t.el.src.color === 'red' && !(t.gone != null && t.gone < sc.t1 - 0.7));
     // 一块板讲得越久，能容下的红字越多（每十秒左右一处），但总要远少于墨色
     if (reds.length > Math.max(4, Math.round((sc.t1 - sc.t0) / 8))) add('warn', sc.file, `这块板上有 ${reds.length} 处红字（${reds.slice(0, 6).map(t => `“${t.el.text}”`).join('、')}${reds.length > 6 ? '…' : ''}）。红色只留给否定、警示的数字和此刻的重点，一块板不超过三四处；其余改回墨色，次要的用灰色`);
+    // ── 构图的四样可以数出来的东西：字号有几档、差一点对齐、漂着的字、左右轻重（只查带计划的项目）──
+    if (c.plan) {
+      const alive = shown.filter(t => !(t.gone != null && t.gone < sc.t1 - 0.7)), endBox = (t: typeof shown[number]) => { const b = t.el.kind === 'note' ? t.el.solid : t.el.box, mv = t.moves.length ? t.moves[t.moves.length - 1].to : [0, 0]; return { x: b.x + mv[0], y: b.y + mv[1], w: b.w, h: b.h }; };
+      const texts = alive.filter(t => t.el.kind === 'text');
+      // 字号的档位：超过五种就看不出层级了
+      const sizes = [...new Set([...texts, ...alive.filter(t => t.el.kind === 'note')].map(t => +(t.el.src.size ?? (t.el.kind === 'note' ? 46 : 72))))].sort((a, b) => b - a);
+      if (sizes.length > 5) add('warn', sc.file, `这块板上的字用了 ${sizes.length} 种字号（${sizes.join('、')}）。字号一多就没有层级：收成四档，写档位名不写数字——size: hero（主角，一处）/ key（关键数字和词）/ label（标签、小账）/ note（批注）`);
+      // 差一点对齐：上下排着的两行字，左边差了几个像素，既不是左对齐也不是居中
+      const near: string[] = [];
+      for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+        const a = endBox(texts[i]), b = endBox(texts[j]);
+        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), gy = Math.max(a.y - (b.y + b.h), b.y - (a.y + a.h));
+        if (ox < Math.min(a.w, b.w) * 0.5 || gy < 0 || gy > 160) continue;
+        const dl = Math.abs(a.x - b.x), dc = Math.abs(a.x + a.w / 2 - b.x - b.w / 2), dr = Math.abs(a.x + a.w - b.x - b.w);
+        if (Math.min(dl, dc, dr) > 5 && dl <= 22) near.push(`"${texts[i].el.id}" 和 "${texts[j].el.id}"（左边差 ${dl.toFixed(0)}px）`);
+      }
+      if (near.length) add('warn', sc.file, `有 ${near.length} 处差一点对齐：${near.slice(0, 4).join('、')}。差几个像素比差很多更难看：让后一个写 at: [前一个.left, y], anchor: left 共用一条左边，或者用 below: 前一个, align: start`);
+      // 漂着的字：一行字周围很远都没有它在说的东西
+      const lim = Math.min(B.w, B.h) * 0.17, others = alive.filter(t => !['mark', 'axis'].includes(t.el.kind));
+      const adrift = texts.filter(t => {
+        if ((t.el.src.size ?? 72) >= 84) return false; // 大字（主角、标题）自己就是一样东西
+        const a = endBox(t);
+        return !others.some(o => { if (o === t) return false; const b = endBox(o); if (['arrow', 'line'].includes(o.el.kind) && o.el.path) { const p = o.el.path; for (let k = 0; k < p.length; k += 2) if (p[k] > a.x - lim && p[k] < a.x + a.w + lim && p[k + 1] > a.y - lim && p[k + 1] < a.y + a.h + lim) return true; return false; } return Math.max(b.x - (a.x + a.w), a.x - (b.x + b.w), 0) < lim && Math.max(b.y - (a.y + a.h), a.y - (b.y + b.h), 0) < lim; });
+      });
+      if (adrift.length) add('warn', sc.file, `${adrift.slice(0, 4).map(t => `“${t.el.text}”（${t.el.id}）`).join('、')} 是漂着的字：周围 ${lim.toFixed(0)}px 之内没有任何东西。字要挨着它说的那样东西：改成那样东西的 label，或写成批注 { note: 字, target: 那样东西 }，或者挪到它旁边`);
+      // 左右轻重：按占的面积算重心
+      const solid = alive.filter(t => !['mark', 'arrow', 'line', 'axis'].includes(t.el.kind)).map(endBox), mass = solid.reduce((n, b) => n + b.w * b.h, 0);
+      if (solid.length >= 5 && mass > 0) {
+        const gx = solid.reduce((n, b) => n + (b.x + b.w / 2) * b.w * b.h, 0) / mass, off = (gx - B.w / 2) / B.w;
+        if (Math.abs(off) > 0.13) add('warn', sc.file, `这块板${off < 0 ? '左重右轻' : '右重左轻'}：东西的重心偏到了板宽的 ${(50 + off * 100).toFixed(0)}% 处，${off < 0 ? '右' : '左'}边撑不住。把一两样支撑的东西（数字、小账、批注）挪到轻的那一侧，或者把整组内容往中间收`);
+      }
+    }
     // 构图：场景结束时，板上有没有一整条横带是空的
     if (visual.length && sc.t1 - sc.t0 >= 8) {
       const live = shown.filter(t => t.el.kind !== 'mark').map(t => { const b = t.el.kind === 'note' ? t.el.solid : t.el.box, mv = t.moves.length ? t.moves[t.moves.length - 1].to : [0, 0]; return [b.y + mv[1], b.y + mv[1] + b.h]; });
@@ -136,6 +169,9 @@ export function lint(c: Compiled): Issue[] {
           const isText = o.el.kind === 'text' || o.el.kind === 'note';
           if (countIn(pts, o.el.solid, isText ? 4 : 10) >= (isText ? 2 : 5)) hit.push(o.el.id);
         }
+        // 打在箭头上的叉、划线压住了箭头自己的小字（线太短，沿线让不开）
+        const own = tids.map(i => byId.get(i)!).filter(tg => tg?.el.label && countIn(pts, { x: tg.el.box.x + tg.el.label.x, y: tg.el.box.y + tg.el.label.y, w: tg.el.label.w, h: tg.el.label.h }, 4) >= 2).map(tg => tg.el.id);
+        if (own.length) add('warn', where, `这个标记压住了 ${NAMES(own)} 自己的小字“${byId.get(own[0])!.el.text}”：这条线太短，标记沿线让不开。把线两头的东西拉开一点，或者把小字从 label 改成线旁边单独的一行字`);
         if (hit.length) add('warn', where, `这个${{ circle: '圈', box: '框', cross: '叉', strike: '划线', underline: '下划线' }[String(el.src.mark)] ?? '标记'}画下去会压到 ${NAMES(hit)}。引擎已经把标记收到最紧了还是压到：把它们从 ${NAMES(tids)} 旁边挪开一点、调小 pad，或换一种标记（underline 占地最小）`);
       }
       // 字被线穿过（分隔线、箭头、别的批注的牵线）
@@ -251,6 +287,17 @@ export function lint(c: Compiled): Issue[] {
         }
       });
       if (empty.length) add('warn', sc.file, `有 ${empty.length} 个近景取景不好：${empty.slice(0, 4).join('、')}。近景要对准“这一刻已经画出来和正在画的东西”：focus 里别放很久以后才画的元素，pad 别留太大；或者先对准眼前这一样，等下一样要画了再用一个 camera 动作带过去`);
+      // 看全：连线、标记画的时候伸出画面，观众只看到半截（引擎默认会自动拉开镜头；关掉 seeWhole 或镜头来不及时这里会报）
+      {
+        const half: string[] = [];
+        for (const tl of mine) {
+          if (!['arrow', 'line', 'mark'].includes(tl.el.kind) || tl.drawT0 == null || tl.recalled) continue;
+          const t = tl.drawT1 ?? tl.drawT0, cm = camAt(c, t), w = FB.w / cm.zoom, h = FB.h / cm.zoom, cx = cm.cx - sc.origin[0] - FB.x - scx / cm.zoom, cy = cm.cy - FB.y - scy / cm.zoom;
+          const b = tl.el.box, a = Math.max(b.w, 8) * Math.max(b.h, 8), bb = { x: b.x, y: b.y, w: Math.max(b.w, 8), h: Math.max(b.h, 8) };
+          if (inter(bb, { x: cx - w / 2, y: cy - h / 2, w, h }) / a < 0.9) half.push(`${fmtT(tl.drawT0)} "${tl.el.id}"`);
+        }
+        if (half.length) add('warn', sc.file, `有 ${half.length} 条连线或标记画的时候伸出了画面，观众只看到半截：${half.slice(0, 5).join('、')}。画它的那一拍先 { camera: home }，或者把它的两头都放进 camera 的 focus`);
+      }
       if (cut.length) add('warn', sc.file, `近景里正在画的东西被画面边切掉了：${cut.slice(0, 5).join('、')}。把它加进这一拍 camera 的 focus，或者画它之前先 { camera: home } 拉回全景`);
     }
     // 推近却几乎没放大：竖屏里横贯全宽的东西推不近，近景要对准局部的几样东西

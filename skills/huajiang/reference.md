@@ -12,6 +12,8 @@
   brief.md            hj brief 生成：逐句时间简报
   plan.yaml           规划者写：论点、角色、关系、板、分区、分段
   storyboard.md       hj plan 生成：给用户确认的分镜计划
+  appendix.yaml       （可选）规划者写：片尾的滚动附录，只写内容（见“片尾附录”）
+  media/              （可选）真实的照片、截图、视频片段
   scenes/             执行者写：一个文件是一块板，文件名去掉序号就是计划里板的 id。由 hj scaffold 生成骨架
   doodles/            （可选）本项目自己画的手绘件
   approvals.json      hj approve 写入：三道确认的记录
@@ -37,9 +39,11 @@
 | `musicVolume` | 0.16 | 背景音乐音量。`musicDuck: false` 关掉“说话时压低” |
 | `cover` | 无 | 封面：`{ title: "两行以内\n每行八个字以内", accent: 2, sub: 一句小字, at: 口播片段 }`。`hj cover` 出图：整块板的全景加手写大标题。`accent` 是第几行用红字加黄色马克笔底（默认最后一行）；`at` 取哪一刻的画面（默认片尾全景） |
 | `shade` | `true` | 灰色马克笔阴影：手绘件、形状、柱状图的柱子画完后在右下侧扫一道灰，小人脚下有一小团影子。`false` 关掉全片的阴影 |
+| `focus` | `true` | 讲到哪儿、别处淡下去：每一拍动到的东西（新画的、被标记的、连线两头的）保持原样，板上其余的淡到四成半；主角画出来之后不淡；最后一拍画完整块板恢复。不想要就写 `focus: false` |
 | `autoframe` | `true` | 自动取景：一块板上的东西没铺满画板时，镜头推近到刚好装满（最多 1.4 倍），位置关系不变，东西和字整体变大。`false` 关掉全片；单个场景里写 `frame: false` 关掉这一场。沿用（recall）的场景和原场景取同一个景 |
 | `minimap` | 板大于两屏时开 | 推近时在角上显示一张小地图：灰块是已经画出来的东西，红框是镜头的位置。`false` 关掉，`true` 在小一点的板上也显示 |
 | `tail` | 0.6 | 口播结束后多留几秒 |
+| `seeWhole` | `true` | 看完整：正在画的线、箭头、标记有一头在镜头外面时，镜头先拉开到两头都看得见，画完再推回去。`false` 关掉（`hj check` 会改为警告“伸出了画面”） |
 
 ## 画板坐标
 
@@ -220,6 +224,10 @@ lp:  { doodle: laptop, size: 90, at: dk.surface, anchor: bottom }
 
 `shade: false`：这个元素不要灰色阴影（默认有，见项目设置的 `shade`）。阴影是引擎自动加的，只加在外轮廓上，不占位置、不参与避让；光永远从左上来，全片一致。
 
+`size` 可以写档位名：字和批注 `hero`（108）`key`（64）`label`（46）`note`（40）；手绘件、小人、图标、图片、形状 `big`（210）`mid`（160）`small`（120）。
+
+`snap: false`：不要自动吸附对齐（默认：手写的数字坐标离同类东西的左边、中线、底边差不到 18px 时吸过去）。
+
 颜色名：`ink red blue green yellow orange purple gray paper`，也可以直接写 `"#rrggbb"`。
 
 ### 各类元素
@@ -229,13 +237,14 @@ lp:  { doodle: laptop, size: 90, at: dk.surface, anchor: bottom }
 | 文字 | `{ text: "+0", size: 150, color: red }` | `\n` 换行；`align`。`size` 是字高。字体是手写马克笔体「霞鹜漫黑」 |
 | 小人 | `{ figure: stand, face: happy, wear: [tophat, tie], size: 420 }` | `size` 是身高；`accent` 是配饰颜色；`carry: { doodle: moneybag, hand: left }` 手里拿一样东西（默认右手，跟着手动）。姿势/表情/配饰清单：`hj assets figure` |
 | 手绘件 | `{ doodle: banknote, size: 200, vars: { text: "100" } }` | **首选**。126 个（`hj assets doodles` 列出每个在 `size: 200` 时的宽高：`size` 管的是长边），和小人同一画风：`hj assets doodles` 查看；`peep-` 开头的 32 个是真人插画（`peep-bust-*` 半身、`peep-sit-*` 坐蹲骑、`peep-stand-*` 站立），要坐着、蹲着、拿东西的人时用它们，火柴人仍是默认角色；`vars` 是该手绘件开放的可调项 |
-| 图片 | `{ image: images/chart.png, size: 360, label: 来源 }` | 位图：截图、照片、logo（PNG、JPEG、WebP）。路径相对项目目录；`size` 是宽，高按比例（或写 `w`、`h`）。像一张贴到板上的照片：`draw` 时沿斜向揭开，外面手绘一圈框（`frame: false` 不要框）。只在必须给人看原物时用（一张真实的截图、一个真实的 logo）；能画出来的东西仍然画 |
+| 图片 | `{ image: media/chart.png, size: 360, label: 来源 }` | 位图：截图、照片、logo（PNG、JPEG、WebP）。路径相对项目目录；`size` 是宽，高按比例（或写 `w`、`h`，比例不同时居中裁切）。`draw` 时沿斜向揭开。`style`：`plain`（默认，贴图加一圈手绘框，`frame: false` 不要框）、`photo`（白边加一截胶带，像贴上去的照片）、`avatar`（裁成圆形头像）。只在必须给人看原物时用（一个真实的人、一件真实的产品、一张真实的截图）；能画出来的东西仍然画 |
+| 视频 | `{ video: media/keynote.mp4, size: 420, from: 3, to: 9, style: photo }` | 一段真实的影像，写法和样式同图片。画的时候是第一帧，画完开始播；`from` / `to` 取其中几秒（最多 20 秒），播完从头循环（`loop: false` 停在最后一帧）。没有声音。需要 ffmpeg |
 | 图标 | `{ icon: building-bank, size: 280 }` | 兜底。5000+ 个线条图标，`hj assets icons <英文关键词>` 搜索。造型偏“界面图标”，手绘件里有的就别用它 |
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 46；默认灰色。用来补数字、名字、出处 |
 | 数轴 | `{ axis: [0, 4], length: 800, at: [80, 600], unit: 年 }` | 一根带刻度的线，也是一把比例尺。`at` 是起点（第一个数值的位置）；`dir: up` 竖着从下往上；`step` 刻度间隔或 `ticks: [0, 1, 3]` 直接列出；`labels: false` 不写数字。**不画它（不在任何 draw 里），它就只当比例尺**，不会报“定义了没画”。画出来时，横轴的刻度数字写在线的下方约 60px 以内（竖轴写在左侧），这一带别再放别的东西 |
 | 区间条 | `{ span: [0, 3], on: t, color: blue, inside: 3年 }` | 沿数轴从一个数值画到另一个数值，长度和对齐由数轴算。`at: [0, 400]` 给出它在哪一行：横轴看 y（条的中线），竖轴看 x，另一个数随便写，不写就贴在数轴上方；`h` 粗细（默认 50）；`inside` 写在条里面的字。锚点 `from` / `to` 是两端 |
-| 箭头 | `{ arrow: [a, b], curve: 0.2, label: 交税 }` | 起终点可以是元素 id（自动停在边缘外）、`"id.锚点"` 或 `[x, y]`。`curve` 弯曲程度（正负决定朝向）、`both: true` 双向、`head` 箭头大小、`pad` 离元素的距离、`label` 写在箭头中段的小字（`labelSize` 默认 46） |
+| 箭头 | `{ arrow: [a, b], curve: 0.2, label: 交税 }` | 起终点可以是元素 id（自动停在边缘外）、`"id.锚点"` 或 `[x, y]`。`curve` 弯曲程度（正数往箭头前进方向的右手边鼓：从左往右的箭头向下弯，从上往下的向左弯；负数相反）、`both: true` 双向、`head` 箭头大小、`pad` 离元素的距离、`label` 写在箭头中段的小字（`labelSize` 默认 46） |
 | 连线 | `{ line: [a, b] }` | 同箭头，没有箭头尖 |
 | 标记 | `{ mark: circle, target: x }` | `circle box underline strike cross highlight check burst`。`target` 可以是数组；`pad` 调松紧；默认红色 |
 | 图表 | `{ chart: bar, data: [3800, 1200], labels: [法定, 实发], values: true }` | `bar` / `line`。`highlight: 1` 或 `highlight: {1: red}` 标红某项；`unit` 数值后缀；`w`、`h` |
@@ -315,6 +324,25 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 
 导入的文件里有一行 `source:` 记着出处，留着它。
 
+## 片尾附录（appendix.yaml）
+
+口播讲完之后，镜头顺着同一张纸往下滚过一份补充材料：完整时间线、数据出处、名词表。只写内容，版面、字号、滚动都由引擎排，字和线与正片是同一套手写笔画。没有这个文件就没有附录。
+
+```yaml
+title: 1993–2026 关键事件          # 这一节的标题
+note: 持股比例按当年披露口径       # 可选：标题下面一行灰色小字
+items:
+  - { when: "1993.04", tag: "33.3%", title: 三人各出资创办英伟达, text: 一两句说明 }
+  - { when: "1999.01", tag: "约 10%", color: red, title: 纳斯达克上市 }
+  - 也可以只写一句话
+seconds: 30                        # 可选：总共滚多少秒；不写按每秒 170 像素（speed）
+```
+
+- 每条：`title` 必写；`when`（时间，有它就排成时间线）、`tag`（时间下面的一个数）、`text`（110 字以内）、`color`（`blue` 默认，`red` 用于转折，`gray` 用于次要的一条）可省。
+- 分几节：最外层改写 `sections: [{ title, note, items }, …]`。`hold` 是滚到底之后停几秒（默认 1.5）。
+- 附录算在计划的版本号里：改了它，计划要重新确认。`hj plan` 的审片页和 `hj stills` 的 `sheet-appendix.png` 上有它排好版的样子。
+- 滚动超过 45 秒、或快到读不清，`hj check` 会警告。
+
 ## 命令
 
 | 命令 | 作用 |
@@ -324,13 +352,15 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 | `hj voice <目录> [--engine volc\|edge] [--speaker 音色] [--rate 语速] [--pitch 音高] [--redo]` | 配音，见 voice.md。`hj voice --voices` 列出免费音色 |
 | `hj brief <目录>` | 口播逐句时间简报 |
 | `hj check <目录> [--strict]` | 查计划；有场景后连画面一起查。有错误时退出码为 1；`--strict` 时有警告也算失败 |
-| `hj plan <目录>` | 由 `plan.yaml` 排出分镜计划 `storyboard.md` |
-| `hj approve <目录> script\|plan\|keyframes --by "<用户原话>"` | 记录用户确认 |
+| `hj plan <目录>` | 由 `plan.yaml` 排出分镜计划 `storyboard.md` 和审片页 `out/review/plan.png`、`plan.html`（结构草图） |
+| `hj layouts [名字]` | 版式：现成的分区方案 |
+| `hj approve <目录> script\|plan\|look\|keyframes --by "<用户原话>"` | 记录用户确认。后三道要求这一版的审片页已经生成，且原话里带着图上的四位确认码 |
+| `hj look <目录>` | 全景定稿的审片页 `out/review/look.png`、`look.html`：每块板讲完时的全景和眯眼图（需先确认计划） |
 | `hj scaffold <目录> [--force]` | 照计划生成场景骨架。已有的场景文件不动，`--force` 覆盖 |
 | `hj layout <目录> [--scene 板]` | 布局线框：每个元素最后落在哪儿（坐标表、占用图、线框 PNG）。不需要确认，随时跑 |
 | `hj stills <目录> --draft [--scene 板] [--guides]` | 草稿关键帧：半分辨率、带水印，输出到 `out/draft/`。自查用，不需要确认。`--guides` 画出画板边界。场景有错误时不出图，目录里留着的是旧图 |
-| `hj stills <目录> [--scene 板] [--at 秒数或口播片段]` | 正式关键帧（需先确认计划） |
-| `hj render <目录> [--scene 板 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染（需先确认关键帧）。`--draft` 为半分辨率、15 帧 |
+| `hj stills <目录> [--scene 板] [--at 秒数或口播片段]` | 正式关键帧和审片页 `out/review/keyframes.png`、`keyframes.html`（需先确认计划和全景定稿）。`--scene`、`--at` 只出图，不更新审片页 |
+| `hj render <目录> [--scene 板 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染（需先确认全景定稿和关键帧）。`--draft` 为半分辨率、15 帧 |
 | `hj cover <目录> [--draft] [--out 文件]` | 封面图 `out/cover.png`。标题写在 project.yaml 的 `cover` 里 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |
 | `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件]` | 素材 |
@@ -343,9 +373,10 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 |---|---|
 | 错误：计划（查 `plan.yaml`，见 planner.md） | 卡点找不到；角色的长相是字或框；有角色不出场、有关系没画；一段只有字；板书超过 10 个字或照抄口播 |
 | 错误：照计划执行（查场景） | 缺一段的起点；角色或关系没在计划的那一段画出来；`revisit`、`joins` 没落实；计划外的角色；计划外超过 4 个字的板书；一段只写了字；场景里写了 `from`、`regions`、`board`、`recall` |
-| 警告：计划 | 角色没连成网；分区是孤岛；一块板不回头；板太碎；一段太长 |
+| 警告：计划 | 角色没连成网；分区是孤岛；一条关系的两头在不挨着的分区（线要穿过半块板）；`picture`、`intent` 说的左右上下和分区的排法对不上；一块板不回头；板太碎；一段太长 |
 | 错误 | 锚点在口播里找不到；引用了不存在的元素；缺 `intent`；板书照抄口播 ≥7 字；元素整个在画板外；批注/标记比它的目标先出现（或目标从没画出来） |
-| 警告：摆放 | 标记（圈、框、叉）压到了目标以外的东西；字被线穿过；被引擎挪了很远（超过 80px）；一排东西里被单独挪走一个；贴着画板边缘；东西摆在小人手的位置上而不是 `carry`；元素重叠（引擎没能自动挪开时）；画面太空；板面有一整条横带是空的；字号太小 |
-| 警告：镜头 | 近景里大半是空的或东西偏在一边；近景里正在画的东西被画面边切掉；推近却几乎没放大；一块板全程一个景别；结尾没回全景 |
+| 警告：摆放 | 标记（圈、框、叉）压到了目标以外的东西；打在箭头上的标记压住了箭头自己的小字；字被线穿过；被引擎挪了很远（超过 80px）；一排东西里被单独挪走一个；贴着画板边缘；东西摆在小人手的位置上而不是 `carry`；元素重叠（引擎没能自动挪开时）；画面太空；板面有一整条横带是空的；字号太小 |
+| 警告：构图（带计划的项目） | 主角不是最大的、被东西围住、讲完时不在板上；字号超过五种；两行字差一点对齐；一行字周围没有任何东西；左右轻重失衡 |
+| 警告：镜头 | 近景里大半是空的或东西偏在一边；近景里正在画的东西被画面边切掉；连线或标记画的时候伸出了画面；推近却几乎没放大；一块板全程一个景别；结尾没回全景 |
 | 警告：节奏 | 画得太赶（超过自然速度 2.5 倍）；一拍里赶着画一大群；一拍的动作拖过了下一拍；画面静止超过 4.2 秒；新板面空着超过 1.5 秒才落第一笔；连续 11 秒只有晃动、换姿势这类小动作；刚画完就被擦掉；小人走到一半原地消失；最后一个动作收在配音结束之后 |
 | 警告：内容 | 纯文字场景；信息密度偏低（讲得久、东西少；一模一样的东西重复画只算一组）；板书太多；一块板上红字超过四处；弹出/淡入用得太多；卡点落在时间不可靠的字上；锚点有歧义 |

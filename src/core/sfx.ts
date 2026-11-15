@@ -44,7 +44,7 @@ function readWav(file: string): Float32Array | null {
 
 export function writeSfx(c: Compiled, file: string): { count: number; mode: string } {
   const mode: 'sparse' | 'full' = c.meta.sfx === 'full' ? 'full' : 'sparse', volume = c.meta.sfxVolume ?? 1;
-  const sr = 48000, n = Math.ceil(c.duration * sr), buf = new Float32Array(n), rand = rng(20240229);
+  const sr = 48000, n = Math.ceil((c.total ?? c.duration) * sr), buf = new Float32Array(n), rand = rng(20240229);
   const samples: Record<string, Float32Array | null> = {};
   for (const k of ['pen', 'mark', 'erase']) { const f = c.meta.sfxSamples?.[k]; samples[k] = f && existsSync(join(c.dir, f)) ? readWav(join(c.dir, f)) : null; }
   const list = cues(c, mode);

@@ -13,7 +13,17 @@ export interface WipeStroke { kind: 'wipe'; d: string; tx: number; ty: number; s
 /** 实心填充块：在自己的时间片里淡入 */
 export interface FillStroke { kind: 'fill'; pts: number[]; color: string; alpha: number; len: number; under: true }
 /** 位图（截图、照片、logo）：像一张贴到板上的照片，沿斜向揭开 */
-export interface ImageStroke { kind: 'image'; file: string; tx: number; ty: number; color: string; len: number; box: Box; under: true }
+export interface ImageStroke {
+  kind: 'image'; file: string; tx: number; ty: number; color: string; len: number; box: Box; under: true;
+  /** 画面在 box 里占的地方，相对 box 的左上角（照片样式四周留白边）；不写就是整个 box */
+  pic?: Box;
+  /** 原图里取哪一块（0–1 的比例），用来按比例裁满，不拉伸 */
+  crop?: { x: number; y: number; w: number; h: number };
+  /** 裁成圆的（头像） */
+  round?: boolean;
+  /** 视频片段：一帧一张图放在 dir 里（f00001.jpg…），画完之后开始播 */
+  clip?: { dir: string; src: string; fps: number; n: number; from: number; loop: boolean; w: number };
+}
 export type Stroke = LineStroke | GlyphStroke | WipeStroke | FillStroke | ImageStroke;
 
 /** 读 PNG / JPEG / GIF / WebP 文件头里的宽高（不解码） */

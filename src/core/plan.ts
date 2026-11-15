@@ -7,8 +7,12 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { resolveAnchor, stripPunct, type Alignment } from './alignment';
-import type { Format } from './theme';
+import { FORMATS, type Format } from './theme';
 import type { Compiled, Issue, TL } from './compile';
+import { loadDoodle } from './elements';
+import { iconExists } from './icons';
+import { loadAppendix, type Appendix } from './appendix';
+import { POSES, ACCESSORIES } from './figure';
 
 export interface PlanCast { name: string; look: any }
 export interface PlanRelation { from: string; to: string; label?: string }
@@ -21,15 +25,58 @@ export interface PlanSegment {
 }
 export interface PlanBoard {
   id: string; picture: string; size?: number | number[]; recall?: string;
+  /** size 是引擎按内容量算出来的（计划里没写，或写了 auto） */
+  autoSize?: boolean;
+  /** 主角：这块板讲完后，观众第一眼该看到的那样东西（通常是结论）。写一条板书的原文，或一个角色的 id */
+  hero?: string;
+  /** 版式：现成的分区方案（hj layouts）。写了它就不用写 grid */
+  layout?: string;
   grid: { rows?: number[]; cols?: number[]; areas: string[][] };
   regions: Record<string, string>;
   segments: PlanSegment[];
 }
-export interface Plan { thesis: string; cast: Record<string, PlanCast>; relations: Record<string, PlanRelation>; boards: PlanBoard[]; hash: string }
+export interface Plan { thesis: string; cast: Record<string, PlanCast>; relations: Record<string, PlanRelation>; boards: PlanBoard[]; hash: string; /** 片尾的滚动附录（appendix.yaml），算在计划里：用户确认计划时一并确认 */ appendix?: Appendix }
+
+/** 版式：把“这件事的形状”做成现成的分区。竖屏和横屏各一套比例，分区名固定 */
+export interface Layout { title: string; when: string; link: string; regions: Record<string, string>; portrait: PlanBoard['grid']; landscape: PlanBoard['grid'] }
+export const LAYOUTS: Record<string, Layout> = {
+  flow: { title: '一路推下来', when: '因果、推演、算账：一步推出下一步，最后落到结论', link: '每一步用向下（横屏向右）的箭头接到下一步',
+    regions: { a: '第一步：起点、前提', b: '第二步', c: '第三步：转折或关键的一步', sum: '结论' },
+    portrait: { rows: [24, 28, 28, 20], areas: [['a'], ['b'], ['c'], ['sum']] }, landscape: { rows: [68, 32], cols: [1, 1, 1], areas: [['a', 'b', 'c'], ['sum', 'sum', 'sum']] } },
+  stack: { title: '几行共用一根轴', when: '几样东西比长短、比时间、比多少：对齐本身就是论证', link: '所有横条左对齐、共用一根轴；汇总从它们往下连',
+    regions: { head: '谁、规则、前提', rows: '几行左对齐的横条或时间段', sum: '汇总、结论' },
+    portrait: { rows: [24, 54, 22], areas: [['head'], ['rows'], ['sum']] }, landscape: { rows: [22, 78], cols: [68, 32], areas: [['head', 'head'], ['rows', 'sum']] } },
+  compare: { title: '两组对照', when: '两种情况、两个方案、以前和现在', link: '两组里对应的东西对齐（竖屏两组上下排、对齐同一列；横屏左右排、对齐同一行）；最后一条把两组括起来',
+    regions: { head: '比的是什么', a: '一组', b: '另一组', sum: '差别、结论' },
+    portrait: { rows: [20, 30, 30, 20], areas: [['head'], ['a'], ['b'], ['sum']] }, landscape: { rows: [16, 60, 24], cols: [1, 1], areas: [['head', 'head'], ['a', 'b'], ['sum', 'sum']] } },
+  cycle: { title: '转一圈', when: '钱、货、信息在几方之间流转', link: '圈上的箭头首尾相接；结论写在圈的中间或下面',
+    regions: { head: '起因、谁在场', loop: '转起来的圈', sum: '转完之后的结果' },
+    portrait: { rows: [23, 54, 23], areas: [['head'], ['loop'], ['sum']] }, landscape: { rows: [24, 76], cols: [64, 36], areas: [['loop', 'head'], ['loop', 'sum']] } },
+  hub: { title: '几股力量指向一件事', when: '几个原因、几方压力作用在同一样东西上', link: '四周的每一区都有一条箭头指向中间',
+    regions: { core: '被作用的那件事（结论落在这里）', f1: '第一股力量', f2: '第二股力量', f3: '第三股力量', f4: '第四股力量' },
+    portrait: { rows: [30, 40, 30], cols: [1, 1], areas: [['f1', 'f2'], ['core', 'core'], ['f3', 'f4']] }, landscape: { rows: [1, 1], cols: [28, 44, 28], areas: [['f1', 'core', 'f2'], ['f3', 'core', 'f4']] } },
+  tree: { title: '拆开来看', when: '拆解、分类、一笔账怎么分', link: '从根往下分叉的线；底部把几块加回去',
+    regions: { root: '被拆的那样东西', parts: '拆出来的几块，并排对齐', sum: '加回去、结论' },
+    portrait: { rows: [25, 50, 25], areas: [['root'], ['parts'], ['sum']] }, landscape: { rows: [24, 50, 26], areas: [['root'], ['parts'], ['sum']] } },
+};
+
+/** 板该放大多少：估这块板要放的东西各占多少地方，凑到“全景不挤”的密度。
+ *  全景是缩小的整块板，推近才是原大——东西多的板自动变大，全景里每样东西就小一点、空隙多一点。 */
+export function autoBoardSize(b: Pick<PlanBoard, 'segments' | 'hero'>, fmtName: string): number {
+  const fb = FORMATS[fmtName] ?? FORMATS.portrait;
+  const cast = new Set(b.segments.flatMap(s => s.show)).size, links = new Set(b.segments.flatMap(s => s.link)).size;
+  const words = [...new Set(b.segments.flatMap(s => s.words))];
+  const need = cast * 48000 + links * 26000 + b.segments.filter(s => s.diagram || s.pattern).length * 90000
+    + b.segments.reduce((n, s) => n + s.revisit.length * 12000 + s.joins.length * 15000, 0)
+    + words.reduce((n, w) => n + (w === b.hero ? wordLen(w) * 108 * 150 : wordLen(w) * 56 * 90), 0);
+  const k = Math.sqrt(need / (AUTO_FILL * fb.board.w * fb.board.h));
+  return Math.min(1.4, Math.max(1, Math.round(k * 20) / 20)); // 再大，全景里的小字就看不清了：更多的内容该分板
+}
+const AUTO_FILL = 0.46;
 
 export const ACTS = ['设问', '说法', '理由', '例子', '算账', '数据', '对比', '转折', '推翻', '结论', '补充'];
 /** 角色的长相只能是“画出来的东西”，不能是一行字或一个框 */
-const LOOKS = ['figure', 'doodle', 'icon', 'image', 'parts'];
+const LOOKS = ['figure', 'doodle', 'icon', 'image', 'video', 'parts'];
 const W = 'plan.yaml';
 const arr = (v: any): string[] => (v == null ? [] : Array.isArray(v) ? v.map(String) : [String(v)]);
 const fmtT = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
@@ -50,21 +97,34 @@ export function loadPlan(dir: string): Plan | null {
   let raw: any;
   try { raw = YAML.parse(readFileSync(f, 'utf8'), { prettyErrors: true }); } catch (e: any) { throw new Error(`plan.yaml 的 YAML 写错了：${e.message}`); }
   if (raw == null || typeof raw !== 'object' || Array.isArray(raw) || !Array.isArray(raw.boards) || !raw.boards.length) throw new Error('plan.yaml 还没有填。先由规划者把计划写完（论点、角色、关系、板和分段），hj check 通过、用户确认之后，执行者才开始写场景。写法见技能里的 planner.md');
+  let fmtName = 'portrait';
+  try { fmtName = String((YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {}).format ?? 'portrait'); } catch { /* 没有 project.yaml 时按竖屏 */ }
+  const gridOf = (b: any): PlanBoard['grid'] => {
+    const lay = b?.layout != null && !b?.grid ? LAYOUTS[String(b.layout)] : undefined;
+    if (lay) return JSON.parse(JSON.stringify(fmtName === 'landscape' ? lay.landscape : lay.portrait));
+    return { ...(Array.isArray(b?.grid?.rows) ? { rows: b.grid.rows.map(Number) } : {}), ...(Array.isArray(b?.grid?.cols) ? { cols: b.grid.cols.map(Number) } : {}), areas: Array.isArray(b?.grid?.areas) ? b.grid.areas.map((r: any) => arr(r)) : [] };
+  };
   const cast: Record<string, PlanCast> = {};
   for (const [k, v] of Object.entries(raw.cast ?? {}) as [string, any][]) cast[k] = { name: String(v?.name ?? k), look: v?.look };
   const relations: Record<string, PlanRelation> = {};
   for (const [k, v] of Object.entries(raw.relations ?? {}) as [string, any][]) relations[k] = { from: String(v?.from ?? ''), to: String(v?.to ?? ''), ...(v?.label != null ? { label: String(v.label) } : {}) };
   const boards: PlanBoard[] = raw.boards.map((b: any, i: number) => ({
-    id: String(b?.id ?? `board${i + 1}`), picture: String(b?.picture ?? ''), ...(b?.size != null ? { size: b.size } : {}), ...(b?.recall != null ? { recall: String(b.recall) } : {}),
-    grid: { ...(Array.isArray(b?.grid?.rows) ? { rows: b.grid.rows.map(Number) } : {}), ...(Array.isArray(b?.grid?.cols) ? { cols: b.grid.cols.map(Number) } : {}), areas: Array.isArray(b?.grid?.areas) ? b.grid.areas.map((r: any) => arr(r)) : [] },
-    regions: Object.fromEntries(Object.entries(b?.regions ?? {}).map(([k, v]) => [k, String(v ?? '')])),
+    id: String(b?.id ?? `board${i + 1}`), picture: String(b?.picture ?? ''), ...(b?.size != null && b.size !== 'auto' ? { size: b.size } : {}), ...(b?.recall != null ? { recall: String(b.recall) } : {}),
+    ...(b?.hero != null ? { hero: String(b.hero) } : {}), ...(b?.layout != null ? { layout: String(b.layout) } : {}),
+    grid: gridOf(b),
+    // 用了版式又没写 regions 的分区，用版式自带的说明
+    regions: { ...(b?.layout != null && !b?.grid && LAYOUTS[String(b.layout)] ? LAYOUTS[String(b.layout)].regions : {}), ...Object.fromEntries(Object.entries(b?.regions ?? {}).map(([k, v]) => [k, String(v ?? '')])) },
     segments: (Array.isArray(b?.segments) ? b.segments : []).map((s: any) => ({
       at: String(s?.at ?? ''), ...(s?.act != null ? { act: String(s.act) } : {}), ...(s?.in != null ? { in: String(s.in) } : {}), intent: String(s?.intent ?? ''),
       show: arr(s?.show), link: arr(s?.link), revisit: arr(s?.revisit), words: arr(s?.words), joins: arr(s?.joins),
       ...(s?.diagram != null ? { diagram: String(s.diagram) } : {}), ...(s?.pattern != null ? { pattern: String(s.pattern) } : {}),
     })),
   }));
-  const plan = { thesis: String(raw.thesis ?? ''), cast, relations, boards };
+  // 没写 size（或写 auto）的板：按内容量定大小。沿用别的板（recall）的，和那块板一样大
+  for (const b of boards) if (b.size == null && !b.recall) { b.size = autoBoardSize(b, fmtName); b.autoSize = true; }
+  for (const b of boards) if (b.size == null && b.recall) { const o = boards.find(x => x.id === b.recall); if (o?.size != null) { b.size = o.size; b.autoSize = true; } }
+  const ap = loadAppendix(dir);
+  const plan = { thesis: String(raw.thesis ?? ''), cast, relations, boards, ...(ap.appendix ? { appendix: ap.appendix } : {}) };
   const hash = createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16);
   // 记下原始字段，检查时报“不认识的字段”（不参与版本号）
   return Object.assign({ ...plan, hash }, { __raw: raw });
@@ -126,7 +186,7 @@ export function segmentTimes(plan: Plan, al: Alignment, duration: number): { tim
 }
 
 /** 查计划本身：格式对不对、锚点在不在、是不是一个连起来的系统、是不是又在写字 */
-export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: number): Issue[] {
+export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: number, projectDir?: string): Issue[] {
   const out: Issue[] = [];
   const err = (where: string, msg: string) => out.push({ level: 'error', where, msg });
   const warn = (where: string, msg: string) => out.push({ level: 'warn', where, msg });
@@ -142,6 +202,15 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
     const kinds = c.look && typeof c.look === 'object' ? LOOKS.filter(k => k in c.look) : [];
     if (c.look && typeof c.look === 'object' && 'crowd' in c.look) { const of = c.look.of; if (!of || !LOOKS.some(k => k in of)) err(where, 'look 是一群（crowd）时，of 里要写每一个长什么样：{ crowd: 6, cols: 3, of: { figure: stand } }'); }
     else if (kinds.length !== 1) err(where, `look 要写这个角色长什么样，而且只能是画出来的东西：${LOOKS.join(' / ')}，或一群 { crowd: N, of: {…} }。如 { doodle: bank }、{ figure: stand, wear: [tophat] }。不能是一行字或一个方框（hj assets doodles / figure 查现成的）`);
+    // 长相里点名的素材必须真的有：不然计划能过检查，执行者一动笔就卡死，而他又不能改计划
+    const one = c.look && typeof c.look === 'object' ? ('crowd' in c.look ? c.look.of : c.look) : null;
+    if (one && typeof one === 'object') {
+      if (one.doodle != null && !loadDoodle(String(one.doodle), projectDir)) err(where, `没有叫 "${one.doodle}" 的手绘件。运行 hj assets doodles 看有哪些，换一个现成的；都不合适就换成图标（hj assets icons <英文关键词>）或小人`);
+      for (const k of ['image', 'video']) if (one[k] != null && projectDir && !existsSync(join(projectDir, String(one[k])))) err(where, `找不到${k === 'video' ? '视频' : '图片'} ${one[k]}（路径相对项目目录）。真实的照片、截图、视频片段由用户提供，放进项目的 media/ 目录；没有就换成手绘件或小人，不要写一个不存在的文件`);
+      if (one.icon != null && !iconExists(String(one.icon))) err(where, `没有叫 "${one.icon}" 的图标。运行 hj assets icons <英文关键词> 搜（只认英文，如 sun、court）`);
+      if (one.figure != null && !POSES[String(one.figure)]) err(where, `小人没有 "${one.figure}" 这个姿势。可用：${Object.keys(POSES).join(' ')}`);
+      for (const w of arr(one.wear)) if (!(ACCESSORIES as readonly string[]).includes(w)) err(where, `小人没有 "${w}" 这个配饰。可用：${ACCESSORIES.join(' ')}`);
+    }
     if (relIds.includes(id)) err(where, `角色和关系都叫 "${id}"，换一个名字`);
   }
   for (const [id, r] of Object.entries(plan.relations)) {
@@ -168,10 +237,18 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
   const boardIds = new Map<string, Set<string>>();
   plan.boards.forEach((b, bi) => {
     const where = `${W} / ${b.id}`, rb = raw.boards?.[bi] ?? {};
-    for (const k of Object.keys(rb)) if (!['id', 'picture', 'size', 'recall', 'grid', 'regions', 'segments', 'note'].includes(k)) err(where, `板不认识字段 "${k}"。可用：id picture size recall grid regions segments note`);
+    for (const k of Object.keys(rb)) if (!['id', 'picture', 'size', 'recall', 'hero', 'layout', 'grid', 'regions', 'segments', 'note'].includes(k)) err(where, `板不认识字段 "${k}"。可用：id picture size recall hero layout grid regions segments note`);
+    if (b.layout != null && rb.grid != null) err(where, 'layout 和 grid 只写一个：layout 是现成的分区，grid 是自己划分区');
+    else if (b.layout != null && !LAYOUTS[b.layout]) { err(where, `没有叫 "${b.layout}" 的版式。可用：${Object.entries(LAYOUTS).map(([k, v]) => `${k}（${v.title}）`).join(' ')}。hj layouts 看每种怎么分；都不合适就自己写 grid`); return; }
     if (!/^[A-Za-z][\w-]*$/.test(b.id)) err(where, '板的 id 用英文字母开头的短名（如 main、credit），场景文件会叫 scenes/NN-<id>.yaml');
     if (seenBoard.has(b.id)) err(where, `板的 id "${b.id}" 重复了`);
     seenBoard.add(b.id);
+    // 说的是左右，分的是上下（或反过来）：picture 和 intent 是给用户和执行者看的，方位要和分区对得上
+    { const cols = Math.max(1, ...b.grid.areas.map(r => r.length)), rows = b.grid.areas.length, said = [b.picture, ...b.segments.map(s => s.intent)].join(' ');
+      const lr = /左栏|右栏|左右两栏|左半|右半/.exec(said), ud = /上半|下半|上下两栏/.exec(said);
+      if (lr && cols < 2) warn(where, `picture 或 intent 里写了“${lr[0]}”，但这块板的分区只有一列，是上下排的${b.layout ? `（版式 ${b.layout} 在${fmt.name === 'portrait' ? '竖屏' : '横屏'}下就是这样分的，hj layouts ${b.layout} 可以看）` : ''}。照实际的分区改写成“上面、下面”，或者自己写 grid 分成左右两列`);
+      if (ud && rows < 2) warn(where, `picture 或 intent 里写了“${ud[0]}”，但这块板的分区只有一行，是左右排的。照实际的分区改写成“左边、右边”，或者自己写 grid 分成上下两行`);
+    }
     if (wordLen(b.picture) < 10) err(where, 'picture 没有写清楚：这块板讲完是一张什么图（有哪几块、什么形状、怎么连）。这句话会原样给用户看');
     if (b.recall && !plan.boards.slice(0, bi).some(p => p.id === b.recall)) err(where, `recall 要写前面某块板的 id，没有找到 "${b.recall}"`);
     const { regions, errors: ge } = planRegions(b, fmt);
@@ -226,7 +303,22 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
         if (d < 1.2) warn(sw, `这一段只有 ${d.toFixed(1)} 秒，画不完一样东西。和相邻的段合并`);
       }
     });
-    for (const rn of rnames) if (!usedRegions.has(rn)) warn(where, `分区 "${rn}" 没有任何一段画在里面：全景缺了一块。去掉它，或者把该放这儿的段落写上`);
+    for (const rn of rnames) if (!usedRegions.has(rn)) warn(where, `分区 "${rn}" 没有任何一段画在里面：全景缺了一块。${b.layout ? `版式 ${b.layout} 自带这个分区；用不上就换一种版式（hj layouts），或者自己写 grid` : '去掉它，或者把该放这儿的段落写上'}`);
+    // 长线：一条关系的两头住在不挨着的分区里，这条线只能从中间的分区穿过去，压住那里的东西
+    for (const id of new Set(b.segments.flatMap(s => s.link))) {
+      const r = plan.relations[id], hf = r && home.get(r.from), ht = r && home.get(r.to), A = hf && regions[hf], C = ht && regions[ht];
+      if (!r || !A || !C || hf === ht) continue;
+      const gx = Math.max(A[0] - (C[0] + C[2]), C[0] - (A[0] + A[2])), gy = Math.max(A[1] - (C[1] + C[3]), C[1] - (A[1] + A[3]));
+      if (Math.max(gx, gy) <= 2) continue; // 挨着（共用一条边或一个角）
+      const mid = (v: number[]) => [v[0] + v[2] / 2, v[1] + v[3] / 2], [ax, ay] = mid(A), [cx, cy] = mid(C);
+      const between = rnames.filter(n => n !== hf && n !== ht && regions[n]).filter(n => { const R = regions[n]; for (let k = 1; k < 20; k++) { const x = ax + ((cx - ax) * k) / 20, y = ay + ((cy - ay) * k) / 20; if (x > R[0] && x < R[0] + R[2] && y > R[1] && y < R[1] + R[3]) return true; } return false; });
+      warn(where, `关系 ${id}（${plan.cast[r.from]?.name} → ${plan.cast[r.to]?.name}）的两头分别在分区 "${hf}" 和 "${ht}"，${between.length ? `中间隔着 ${between.map(n => `"${n}"`).join('、')}` : '两个分区不挨着'}：这条线要穿过半块板，压住中间的东西。让其中一个角色在挨着对方的分区出场（改它第一次 show 的那一段的 in）；或者去掉这条关系，讲到这里时回头改对方（revisit）`);
+    }
+    // 主角：讲完之后第一眼该看到谁。它决定了执行者把谁画得最大、周围留白最多
+    const allWords = new Set(b.segments.flatMap(s => s.words).map(norm));
+    if (!b.hero) warn(where, `没有指定主角（hero）：这块板讲完后，观众第一眼该看到哪样东西？通常是结论的那个数或那个词。写 hero: "板书原文"（${[...new Set(b.segments.filter(s => s.act === '结论').flatMap(s => s.words))].slice(0, 3).map(w => `"${w}"`).join('、') || 'words 里的一条'}）或一个角色的 id。不指定，板上的东西就一样大，没有主次`);
+    else if (!allWords.has(norm(b.hero)) && !(plan.cast[b.hero] && ids.has(b.hero))) err(where, `hero 写的 "${b.hero}" 既不是这块板某一段的板书（words 的原文），也不是在这块板出场的角色。主角必须是板上真有的东西`);
+    else if (allWords.has(norm(b.hero)) && wordLen(b.hero) > 6) warn(where, `主角 "${b.hero}" 有 ${wordLen(b.hero)} 个字。主角要画得最大，越短越有力：一个数、一个词（不超过 6 个字）`);
     // 分区之间有没有连起来：关系跨过分区、或者回头去改别的分区里的东西，都算一条连线
     if (rnames.length >= 2) {
       const parent = new Map(rnames.map(r => [r, r])), find = (x: string): string => (parent.get(x) === x ? x : (parent.set(x, find(parent.get(x)!)), parent.get(x)!));
@@ -272,17 +364,20 @@ export function scaffold(plan: Plan, b: PlanBoard, fmt: Format, al: Alignment, d
   const q = (s: string) => JSON.stringify(s);
   L.push(`# 板 ${b.id}：由 plan.yaml 生成的骨架（hj scaffold）。`, `# 全景：${b.picture}`, '#', '# 开口的位置（from）、全景（intent）、分区（regions）、板的大小（board）都由计划决定，不要在这里写。', `# 画板 ${B.w}×${B.h}。分区的坐标 [x, y, 宽, 高]：`);
   for (const [n, r] of Object.entries(regions)) L.push(`#   ${n.padEnd(8)} [${r.join(', ')}]  ${b.regions[n] ?? ''}`);
-  L.push('#', '# 你要做的：给每样东西定位置和大小（in: 分区 之后，at 相对那个分区），把每一拍的 do 写完，把标了“要你画”的图画出来。', '# 不要增删角色（cast）和关系，不要加计划之外超过 4 个字的板书，每一段的 at 不要改。', 'elements:');
+  L.push('#', '# 你要做的：给每样东西定位置和大小（in: 分区 之后，at 相对那个分区），把每一拍的 do 写完，把标了“要你画”的图画出来。', '# 不要增删角色（cast）和关系，不要加计划之外超过 4 个字的板书，每一段的 at 不要改。',
+    '# 大小写档位，不写数字。字：hero（主角，一块板一处）key（关键数字和词）label（标签、小账）note（批注）；东西：big mid small。',
+    ...(b.hero ? [`# 主角：${plan.cast[b.hero] ? plan.cast[b.hero].name : `“${b.hero}”`}。讲完之后它是全板最显眼的东西。`] : []), 'elements:');
   const firstIn = new Map<string, string>(), texts: { id: string; w: string; seg: number }[] = [];
   const local = new Set<string>();
   b.segments.forEach((s, si) => { for (const id of [...s.show, ...s.link]) if (!firstIn.has(id) && s.in) firstIn.set(id, s.in); s.words.forEach(w => { if (!texts.some(t => t.w === w)) texts.push({ id: `w${texts.length + 1}`, w, seg: si }); }); });
-  for (const s of b.segments) for (const id of s.show) if (!local.has(id) && plan.cast[id]) { local.add(id); L.push(`  ${id}: { cast: ${id}, in: ${firstIn.get(id)} }    # ${plan.cast[id].name}`); }
+  for (const s of b.segments) for (const id of s.show) if (!local.has(id) && plan.cast[id]) { local.add(id); L.push(`  ${id}: { cast: ${id}, size: ${b.hero === id ? 'big' : 'mid'}, in: ${firstIn.get(id)} }    # ${plan.cast[id].name}${b.hero === id ? '（主角）' : ''}`); }
   for (const s of b.segments) for (const id of s.link) if (!local.has(id) && plan.relations[id]) {
     const r = plan.relations[id]; local.add(id);
     const ends = local.has(r.from) && local.has(r.to);
     L.push(`  ${id}: { arrow: [${ends ? `${r.from}, ${r.to}` : `[100, 100], [300, 100]`}]${r.label ? `, label: ${q(r.label)}` : ''} }    # 关系：${plan.cast[r.from]?.name} → ${plan.cast[r.to]?.name}${ends ? '' : '（有一头在沿用的板上或还没定义：把端点改成那个元素的名字）'}`);
   }
-  for (const t of texts) L.push(`  ${t.id}: { text: ${q(t.w)}, size: 56, in: ${b.segments[t.seg].in} }`);
+  const isHero = (w: string) => !!b.hero && norm(w) === norm(b.hero);
+  for (const t of texts) L.push(`  ${t.id}: { text: ${q(t.w)}, size: ${isHero(t.w) ? 'hero' : 'key'}, in: ${b.segments[t.seg].in} }${isHero(t.w) ? '    # 主角：全板最大，周围留白，别的东西不要比它抢眼' : ''}`);
   L.push('beats:');
   b.segments.forEach((s, si) => {
     const draw = [...s.show.filter(id => b.segments.slice(0, si).every(p => !p.show.includes(id))), ...s.link.filter(id => b.segments.slice(0, si).every(p => !p.link.includes(id))), ...texts.filter(t => t.seg === si).map(t => t.id)];
@@ -302,10 +397,10 @@ export function scaffold(plan: Plan, b: PlanBoard, fmt: Format, al: Alignment, d
 export function planStoryboard(plan: Plan, meta: any, al: Alignment, fmt: Format, duration: number, issues: Issue[]): string {
   const L: string[] = [], { times } = segmentTimes(plan, al, duration);
   const nm = (id: string) => plan.cast[id]?.name ?? id;
-  const lookOf = (l: any): string => (!l || typeof l !== 'object' ? '' : 'crowd' in l ? `一群（${l.crowd} 个）${lookOf(l.of)}` : l.doodle ? `手绘件 ${l.doodle}` : l.figure ? `小人${l.wear ? `，戴 ${arr(l.wear).join('、')}` : ''}` : l.icon ? `图标 ${l.icon}` : l.image ? `图片 ${l.image}` : '自己画的图形');
+  const lookOf = (l: any): string => (!l || typeof l !== 'object' ? '' : 'crowd' in l ? `一群（${l.crowd} 个）${lookOf(l.of)}` : l.doodle ? `手绘件 ${l.doodle}` : l.figure ? `小人${l.wear ? `，戴 ${arr(l.wear).join('、')}` : ''}` : l.icon ? `图标 ${l.icon}` : l.image ? `图片 ${l.image}` : l.video ? `视频 ${l.video}` : '自己画的图形');
   L.push(`# 分镜计划：${meta.title ?? '未命名'}`, '');
   L.push(`画幅 ${fmt.name === 'portrait' ? '竖屏 9:16' : '横屏 16:9'} · 时长 ${fmtT(duration)} · ${plan.boards.length} 块板 · 计划版本 \`${plan.hash}\``, '');
-  L.push('> 这是动笔之前的计划，还没有任何画面。请按这个顺序看：**论点**对不对；**角色和关系**是不是这件事的骨架；每块板的**全景**和**分区**；最后逐段看“画面”一栏是不是在**演示**口播讲的事，而不是把话再写一遍。确认之后才会开始画。', '');
+  L.push('> 这是动笔之前的计划，还没有画面，只有一张结构草图（`out/review/plan.png`，和这份表一起看）。请按这个顺序看：**论点**对不对；**角色和关系**是不是这件事的骨架；每块板的**全景**和**分区**；最后逐段看“画面”一栏是不是在**演示**口播讲的事，而不是把话再写一遍。确认之后才会开始画。', '');
   L.push(`**论点：** ${plan.thesis}`, '');
   L.push('## 角色', '', '| 角色 | 长相（全片不变） |', '|---|---|');
   for (const c of Object.values(plan.cast)) L.push(`| ${c.name} | ${lookOf(c.look)} |`);
@@ -317,7 +412,9 @@ export function planStoryboard(plan: Plan, meta: any, al: Alignment, fmt: Format
     const ts = times.filter(t => t.board === bi), B = boardBox(b, fmt);
     L.push(`## ${plan.boards.length > 1 ? `第 ${bi + 1} 块板：` : ''}${b.id}　${fmtT(Math.max(0, ts[0]?.t0 ?? 0))}–${fmtT(ts[ts.length - 1]?.t1 ?? duration)}`, '');
     L.push(`**全景：** ${b.picture}`, '');
-    if (B.w > fmt.board.w + 1 || B.h > fmt.board.h + 1) L.push(`这块板比屏幕大（${(B.w / fmt.board.w).toFixed(1)} 屏宽、${(B.h / fmt.board.h).toFixed(1)} 屏高）：全景是缩小的整块板，镜头走近才是原大。`, '');
+    if (b.hero) L.push(`**主角（讲完后第一眼看到的）：** ${plan.cast[b.hero] ? plan.cast[b.hero].name : `“${b.hero}”`}`, '');
+    if (b.layout && LAYOUTS[b.layout]) L.push(`**版式：** ${LAYOUTS[b.layout].title}（${LAYOUTS[b.layout].link}）`, '');
+    if (B.w > fmt.board.w + 1 || B.h > fmt.board.h + 1) L.push(`这块板比屏幕大（${+(B.w / fmt.board.w).toFixed(2)} 屏宽、${+(B.h / fmt.board.h).toFixed(2)} 屏高${b.autoSize ? '，引擎按这块板的内容量定的；想自己定就写 size' : ''}）：全景是缩小的整块板，镜头走近才是原大。`, '');
     if (b.recall) L.push(`板上一开始就有 ${b.recall} 那块板留下的画面，在它上面接着讲。`, '');
     L.push('板面怎么分：', '', '```');
     const dw = (n: string) => [...n].reduce((k, ch) => k + (/[\u2e80-\u9fff\uff00-\uffef]/.test(ch) ? 2 : 1), 0), wd = Math.max(...b.grid.areas.flat().map(dw), 4) + 2;
@@ -403,7 +500,7 @@ export function conform(c: Compiled): Issue[] {
     // 计划之外的东西
     for (const t of tls) {
       if (!use.declared.has(t.el.id) || t.recalled) continue;
-      if (['figure', 'doodle', 'icon', 'image'].includes(t.el.kind) && !use.els.has(t.el.id)) err(`${sc.file} / 元素 ${t.el.id}`, `这是计划之外的东西：它不是从角色表来的。执行者不添角色。它是计划里的某个角色就写成 { cast: 角色名, … }；确实需要一样新东西，请规划者把它加进 plan.yaml 的 cast`);
+      if (['figure', 'doodle', 'icon', 'image', 'video'].includes(t.el.kind) && !use.els.has(t.el.id)) err(`${sc.file} / 元素 ${t.el.id}`, `这是计划之外的东西：它不是从角色表来的。执行者不添角色。它是计划里的某个角色就写成 { cast: 角色名, … }；确实需要一样新东西，请规划者把它加进 plan.yaml 的 cast`);
     }
     const extras: string[] = [];
     for (const t of tls) {
@@ -413,6 +510,27 @@ export function conform(c: Compiled): Issue[] {
         const whole = norm(s0.replace(/\n/g, '')); if (!whole || allowed.has(whole) || s0.split('\n').every(ln => allowed.has(norm(ln)))) continue;
         if (wordLen(whole) > 4) err(`${sc.file} / 元素 ${t.el.id}`, `板书 "${s0.replace(/\n/g, ' ')}" 不在计划里。执行者可以自己加不超过 4 个字的小标签，更长的字必须是计划 words 里的原文。要么删掉、换成画，要么请规划者加进计划`);
         else extras.push(whole);
+      }
+    }
+    // 主角是不是板上最显眼的：字最大，或者东西最大
+    if (b.hero) {
+      const alive = tls.filter(t => !t.recalled && (t.drawT0 != null || t.appear) && !(t.gone != null && t.gone < sc.t1 - 0.3));
+      const szOf = (t: TL) => +(t.el.src?.size ?? 72);
+      if (plan.cast[b.hero]) {
+        const mine = elsOf(b.hero).filter(t => alive.includes(t)), big = (t: TL) => Math.max(t.el.body?.w ?? t.el.box.w, t.el.body?.h ?? t.el.box.h);
+        const rival = alive.filter(t => ['figure', 'doodle', 'icon', 'image', 'video', 'parts'].includes(t.el.kind) && !mine.includes(t)).sort((x, y) => big(y) - big(x))[0];
+        if (!mine.length) warn(sc.file, `主角 ${plan.cast[b.hero].name}（${b.hero}）到这块板讲完时已经不在板上了。主角要留到最后`);
+        else if (rival && big(rival) > Math.max(...mine.map(big)) * 0.95) warn(`${sc.file} / 元素 ${mine[0].el.id}`, `计划的主角是 ${plan.cast[b.hero].name}，但 "${rival.el.id}" 画得和它一样大或更大。主角写 size: big，其余的东西写 mid 或 small`);
+      } else {
+        const mine = alive.filter(t => t.el.kind === 'text' && norm(String(t.el.src?.text ?? '')) === norm(b.hero!));
+        const rival = alive.filter(t => t.el.kind === 'text' && !mine.includes(t)).sort((x, y) => szOf(y) - szOf(x))[0];
+        if (!mine.length) warn(sc.file, `主角“${b.hero}”到这块板讲完时不在板上（没画，或者被擦掉了）。主角要留到最后：它是观众带走的那一样东西`);
+        else if (rival && szOf(rival) > Math.max(...mine.map(szOf)) / 1.3) warn(`${sc.file} / 元素 ${mine[0].el.id}`, `计划的主角是“${b.hero}”（字号 ${Math.max(...mine.map(szOf))}），但“${String(rival.el.src?.text).replace(/\n/g, ' ')}”的字号是 ${szOf(rival)}，差得不够开，一眼分不出谁是主角。主角写 size: hero，其余的字用 key / label / note`);
+        else {
+          // 主角周围要有留白：外扩一圈里不该挤着别的东西
+          const hb = mine[0].el.box, pad = Math.min(hb.h * 0.35, 40), crowd = alive.filter(t => t !== mine[0] && !['mark', 'arrow', 'line', 'axis', 'note'].includes(t.el.kind) && !arr(t.el.src?.target).includes(mine[0].el.id) && t.el.solid.x < hb.x + hb.w + pad && t.el.solid.x + t.el.solid.w > hb.x - pad && t.el.solid.y < hb.y + hb.h + pad && t.el.solid.y + t.el.solid.h > hb.y - pad);
+          if (crowd.length >= 2) warn(`${sc.file} / 元素 ${mine[0].el.id}`, `主角“${b.hero}”被 ${crowd.slice(0, 4).map(t => `"${t.el.id}"`).join('、')} 贴着围住了。主角靠留白显出来：把它们挪开一点（至少隔开半个字高），或者挪到主角的同一侧排整齐`);
+        }
       }
     }
     const planned = new Set(b.segments.flatMap(s => s.words)).size;

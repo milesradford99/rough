@@ -2,8 +2,9 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { R, type Stroke, type Style, type Pt, type Box, boxOf, unionBox, translateStrokes, cloneStrokes, hash, polyLen, imageSize } from './strokes';
+import { R, type ImageStroke, type Stroke, type Style, type Pt, type Box, boxOf, unionBox, translateStrokes, cloneStrokes, hash, polyLen, imageSize } from './strokes';
 import { textStrokes } from './text';
 import { iconStrokes, iconExists, scalePath } from './icons';
 import { figureStrokes, POSES, FACES, ACCESSORIES, type Pose, type FigureSpec } from './figure';
@@ -25,18 +26,25 @@ export interface El {
   solid: Box;
   /** 不含标签的本体，相对 box 左上角（box 随元素平移，这个偏移不变）。标记打叉、划线时只盖本体，不盖住标签 */
   body?: Box;
+  /** 箭头、连线上那行小字的位置，相对 box 左上角。打在线上的标记要让开它 */
+  label?: Box;
   /** 数轴：数值范围。数值 v 的位置在 anchors.start 和 anchors.end 之间按比例插值 */
   axis?: [number, number];
   /** 被引擎自动挪动的距离 */
   nudged?: Pt;
+  /** 被引擎吸附对齐的距离 */
+  snapped?: Pt;
 }
 
-export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
+/** 大小的档位：写名字不写数字，同一类东西全片一样大。字四档，东西三档 */
+export const TEXT_TIERS: Record<string, number> = { hero: 108, key: 64, label: 46, note: 40 };
+export const THING_TIERS: Record<string, number> = { big: 210, mid: 160, small: 120 };
+export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'video', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', '__rigid', '__seed'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier'];
 const FIELDS: Record<string, string[]> = {
-  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame'], doodle: ['vars'], parts: ['box', 'anchors'],
+  text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame', 'style'], video: ['frame', 'style', 'from', 'to', 'loop'], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
   axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'],
@@ -44,6 +52,19 @@ const FIELDS: Record<string, string[]> = {
 
 const DOODLE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '../../doodles');
 export function doodleDirs(projectDir?: string): string[] { return [projectDir ? join(projectDir, 'doodles') : '', DOODLE_DIR].filter(d => d && existsSync(d)); }
+/** 一段视频的宽、高、时长（用 ffprobe 读；读不出返回 null） */
+const probed = new Map<string, { w: number; h: number; dur: number } | null>();
+export function probeVideo(file: string): { w: number; h: number; dur: number } | null {
+  if (probed.has(file)) return probed.get(file)!;
+  let out: { w: number; h: number; dur: number } | null = null;
+  try {
+    const r = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,duration:format=duration', '-of', 'json', file], { encoding: 'utf8' });
+    const j = JSON.parse(r.stdout || '{}'), s0 = j.streams?.[0], dur = +(s0?.duration ?? j.format?.duration ?? 0);
+    if (s0?.width && s0?.height && dur > 0) out = { w: +s0.width, h: +s0.height, dur };
+  } catch { /* 没有 ffprobe */ }
+  probed.set(file, out);
+  return out;
+}
 export function loadDoodle(name: string, projectDir?: string): any | null {
   if (!/^[\w-]+$/.test(String(name))) return null; // 名字只能是字母数字和连字符，不当路径用
   for (const d of doodleDirs(projectDir)) { const f = join(d, name + '.yaml'); if (existsSync(f)) return YAML.parse(readFileSync(f, 'utf8')); }
@@ -264,6 +285,11 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   const kind = KINDS.find(k => k in src);
   if (!kind) throw new SrcError(where, `看不出这是什么元素。需要包含其中一个键：${KINDS.join(' ')}`);
   for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
+  if (typeof src.size === 'string') {
+    const tiers = kind === 'text' || kind === 'note' ? TEXT_TIERS : ['figure', 'doodle', 'parts', 'icon', 'image', 'video', 'shape'].includes(kind) ? THING_TIERS : null;
+    if (!tiers || !(src.size in tiers)) throw new SrcError(where, tiers ? `size 没有 "${src.size}" 这一档。${tiers === TEXT_TIERS ? '字' : '东西'}的档位：${Object.entries(tiers).map(([k, v]) => `${k}（${v}）`).join(' ')}；也可以直接写数字` : `${kind} 的 size 要写数字`);
+    src = { ...src, size: tiers[src.size], __tier: src.size };
+  }
   const B = ctx.fmt.board;
   const seed = hash((src.__seed ?? ctx.scene) + '/' + id); // 沿用过来的元素用原场景的种子，抖动才一模一样
   // 线的轻重：weight 写 bold / light；不写时按东西的大小来——小东西线细、大东西线粗，像真人换着力道画
@@ -274,6 +300,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   const shade = (src.shade ?? ctx.shade) !== false;
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
   let placed = false; // arrow/line/mark 直接画在场景坐标里
+  let lineLabel: Box | null = null; // 箭头上小字的绝对位置，box 定下来之后换成相对的
 
   if (kind === 'text') {
     const t = textStrokes(String(src.text), { size: src.size ?? THEME.textSize, color: st.color, align: src.align, lineGap: src.lineGap });
@@ -320,15 +347,41 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
         el.anchors[an] = [(pt as number[])[0] * k, (pt as number[])[1] * k];
       }
     }
-  } else if (kind === 'image') {
-    // 位图：截图、照片、logo。像贴在板上的一张照片，外面手绘一圈框
-    const file = resolve(ctx.projectDir ?? '.', String(src.image));
-    if (!existsSync(file)) throw new SrcError(where, `找不到图片 ${src.image}（路径相对项目目录，如 images/chart.png）`);
-    const dim = imageSize(readFileSync(file));
-    if (!dim || !dim.w || !dim.h) throw new SrcError(where, `读不出 ${src.image} 的尺寸。支持 PNG、JPEG、WebP、GIF`);
-    const w = src.w ?? src.size ?? 360, h = src.h ?? (w * dim.h) / dim.w;
-    el.strokes = [{ kind: 'image', file, tx: 0, ty: 0, color: '', len: (w + h) * 0.5, box: { x: 0, y: 0, w, h }, under: true }];
-    if (src.frame !== false) el.strokes.push(...R.rect(0, 0, w, h, { ...st, fill: undefined, shade: false }));
+  } else if (kind === 'image' || kind === 'video') {
+    // 真实的影像：照片、截图、logo、一段视频。像贴在板上的一张照片，外面手绘一圈框；视频画完之后在框里播
+    const name = String(src[kind]), file = resolve(ctx.projectDir ?? '.', name);
+    if (!existsSync(file)) throw new SrcError(where, `找不到${kind === 'video' ? '视频' : '图片'} ${name}（路径相对项目目录，如 media/${kind === 'video' ? 'clip.mp4' : 'photo.jpg'}）`);
+    const STYLES = ['plain', 'photo', 'avatar'], style = src.style ?? 'plain';
+    if (!STYLES.includes(style)) throw new SrcError(where, `style 只能是 plain（贴图，默认）/ photo（带白边和胶带的照片）/ avatar（圆形头像）`);
+    let dim: { w: number; h: number } | null, clip: ImageStroke['clip'];
+    if (kind === 'video') {
+      const info = probeVideo(file);
+      if (!info) throw new SrcError(where, `读不出 ${name}：需要装有 ffmpeg / ffprobe，文件要是带画面的视频（mp4、mov、webm、gif）`);
+      const from = +(src.from ?? 0), to = Math.min(+(src.to ?? info.dur), info.dur);
+      if (!(to > from)) throw new SrcError(where, `from / to 是从片段里取哪几秒（这段视频长 ${info.dur.toFixed(1)} 秒），to 要大于 from`);
+      if (to - from > 20) throw new SrcError(where, `一段视频最多播 20 秒（现在是 ${(to - from).toFixed(1)} 秒）：用 from / to 取其中最要紧的几秒，如 { from: 3, to: 9 }`);
+      dim = info;
+      const fps = 25;
+      clip = { dir: '', src: file, fps, n: Math.max(1, Math.round((to - from) * fps)), from, loop: src.loop !== false, w: 0 };
+    } else {
+      dim = imageSize(readFileSync(file));
+      if (!dim || !dim.w || !dim.h) throw new SrcError(where, `读不出 ${name} 的尺寸。支持 PNG、JPEG、WebP、GIF`);
+    }
+    const round = style === 'avatar';
+    const w = src.w ?? src.size ?? 360, h = src.h ?? (round ? w : (w * dim.h) / dim.w);
+    // 白边：照片样式四周留一圈，下边宽一点（拍立得）
+    const m = style === 'photo' ? Math.max(8, w * 0.045) : 0, pic: Box = { x: m, y: m, w: w - 2 * m, h: h - m * 3.2 };
+    if (style !== 'photo') Object.assign(pic, { x: 0, y: 0, w, h });
+    // 按比例裁满，不拉伸
+    const ar = pic.w / pic.h, sr = dim.w / dim.h, crop = sr > ar ? { x: (1 - ar / sr) / 2, y: 0, w: ar / sr, h: 1 } : { x: 0, y: (1 - sr / ar) * 0.3, w: 1, h: sr / ar };
+    if (clip) clip.w = Math.min(1080, Math.ceil(pic.w) * 2); // 抽帧时先裁后缩，存成显示尺寸的两倍
+    el.strokes = [{ kind: 'image', file, tx: 0, ty: 0, color: '', len: (w + h) * 0.5, box: { x: 0, y: 0, w, h }, under: true, pic, crop, ...(round ? { round } : {}), ...(clip ? { clip } : {}) }];
+    if (style === 'photo') {
+      // 一截胶带，斜着贴在上边
+      const tw = Math.min(120, w * 0.34), th = tw * 0.3, cx = w / 2, sk = th * 0.25;
+      el.strokes.push({ kind: 'fill', pts: [cx - tw / 2, -th * 0.55 + sk, cx + tw / 2, -th * 0.55 - sk, cx + tw / 2, th * 0.45 - sk, cx - tw / 2, th * 0.45 + sk], color: '#f1d98a', alpha: 0.78, len: tw, under: true });
+      if (src.frame !== false) el.strokes.push(...R.rect(0, 0, w, h, { ...st, color: '#8a8378', w: Math.max(2, st.w * 0.55), fill: undefined, shade: false }));
+    } else if (src.frame !== false) el.strokes.push(...(round ? R.ellipse(w / 2, h / 2, w, h, { ...st, fill: undefined, shade: false }) : R.rect(0, 0, w, h, { ...st, fill: undefined, shade: false })));
   } else if (kind === 'shape') {
     const w = src.w ?? src.size ?? 240, h = src.h ?? src.size ?? 160, sst = { ...st, shade };
     if (src.shape === 'rect') el.strokes = R.rect(0, 0, w, h, sst);
@@ -426,6 +479,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       if (hits(lb(lx, ly), lblObs, 6)) { const ax = 2 * mid[0] - lx, ay = 2 * mid[1] - ly; if (!hits(lb(ax, ay), lblObs, 6)) { lx = ax; ly = ay; } }
       translateStrokes(t.strokes, lx - t.w / 2, ly - t.h / 2);
       el.strokes.push(...t.strokes); el.text = String(src.label); el.missing = t.missing;
+      lineLabel = lb(lx, ly);
     }
     placed = true;
   } else if (kind === 'note') {
@@ -466,16 +520,21 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     // 叉、划线、框、高亮只盖本体，标签留在外面读得清；圈和下划线连标签一起
     const bodyOf = (e: El): Box => (e.body && ['cross', 'strike', 'box', 'highlight'].includes(src.mark) ? { x: e.box.x + e.body.x, y: e.box.y + e.body.y, w: e.body.w, h: e.body.h } : e.box);
     let tb = unionBox(targets.map((t: any) => bodyOf(t.el!)));
-    // 叉、划线打在一条箭头或连线上：意思是“把这条线掐断”，只在线的中点画一个小的，不盖住整条线的外框（长斜线的外框很大，会压住两头的东西和标签）
-    if (targets.length === 1 && ['cross', 'strike'].includes(src.mark) && ['arrow', 'line'].includes(targets[0].el!.kind) && targets[0].el!.path && targets[0].el!.path.length >= 4) {
-      const pth = targets[0].el!.path as number[]; let total = 0;
+    // 标记打在一条箭头或连线上：只在线的中点画一个小的，不盖住整条线的外框。叉、划线的意思是“把这条线掐断”（长斜线的外框很大，会压住两头的东西和标签）
+    const cut = ['cross', 'strike'].includes(src.mark);
+    if (targets.length === 1 && (cut || ['circle', 'box', 'highlight', 'underline'].includes(src.mark)) && ['arrow', 'line'].includes(targets[0].el!.kind) && targets[0].el!.path && targets[0].el!.path.length >= 4) {
+      const T = targets[0].el!, pth = T.path as number[]; let total = 0;
       for (let i = 2; i < pth.length; i += 2) total += Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]);
-      let acc = 0, mx = pth[0], my = pth[1];
-      for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (acc + d >= total / 2) { const k = d ? (total / 2 - acc) / d : 0; mx = pth[i - 2] + (pth[i] - pth[i - 2]) * k; my = pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k; break; } acc += d; }
-      // 小字写在中点上：往线的三分之一处挪，让开它
-      if (targets[0].el!.src?.label) { let a2 = 0; for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (a2 + d >= total * 0.28) { const k = d ? (total * 0.28 - a2) / d : 0; mx = pth[i - 2] + (pth[i] - pth[i - 2]) * k; my = pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k; break; } a2 += d; } }
-      const r = Math.max(26, Math.min(40, total * 0.12));
-      tb = { x: mx - r, y: my - r, w: r * 2, h: r * 2 };
+      const at = (f: number): Pt => { let acc = 0; for (let i = 2; i < pth.length; i += 2) { const d = Math.hypot(pth[i] - pth[i - 2], pth[i + 1] - pth[i - 1]); if (acc + d >= total * f) { const k = d ? (total * f - acc) / d : 0; return [pth[i - 2] + (pth[i] - pth[i - 2]) * k, pth[i - 1] + (pth[i + 1] - pth[i - 1]) * k]; } acc += d; } return [pth[pth.length - 2], pth[pth.length - 1]]; };
+      const lab: Box | null = T.label ? { x: T.box.x + T.label.x, y: T.box.y + T.label.y, w: T.label.w, h: T.label.h } : null;
+      const around = (c: Pt, r: number): Box => ({ x: c[0] - r, y: c[1] - r, w: r * 2, h: r * 2 });
+      if (cut) {
+        // 叉、划线：把线掐断。画在线上离小字最近的空处——先试中点，压到小字就沿线往两头让
+        const r = Math.max(26, Math.min(40, total * 0.12)), clear = (b: Box) => !lab || !hits(b, [lab], 6);
+        const spots = [0.5, 0.34, 0.66, 0.24, 0.76].map(f => around(at(f), r));
+        tb = spots.find(clear) ?? spots.reduce((a, b) => { const d = (q: Box) => Math.hypot(q.x + r - lab!.x - lab!.w / 2, q.y + r - lab!.y - lab!.h / 2); return d(b) > d(a) ? b : a; });
+      } else if (lab) tb = lab; // 圈、框、高亮、下划线：意思是“看这条关系”。线上有小字就标那行小字，圈在字外面，不从字上压过去
+      else tb = around(at(0.5), Math.max(34, Math.min(58, total * 0.16))); // 没有小字：圈住线的中段，不去圈整条线的外框
     }
     const ms: Style = { ...st, color: color(src.color, THEME.colors.red), w: src.pen ?? THEME.pen * 1.15 };
     const m = src.mark;
@@ -531,6 +590,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   }
   el.box = boxOf(el.strokes);
   if (labelStrokes.length) el.body = { x: core.x - el.box.x, y: core.y - el.box.y, w: core.w, h: core.h };
+  if (lineLabel) el.label = { x: lineLabel.x - el.box.x, y: lineLabel.y - el.box.y, w: lineLabel.w, h: lineLabel.h };
 
   if (!placed) {
     const keys = POS_KEYS.filter(k => k in src);
@@ -560,6 +620,22 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       else { ty = rb.y - gap - b.y - b.h; tx = alignX(); }
     }
     tx += src.dx ?? 0; ty += src.dy ?? 0;
+    // 差一点对齐的，引擎帮着对齐：手写的坐标离同类东西的边只差十几个像素时吸过去。字对左边和中线，东西对底边和中线
+    if (ctx.life && src.snap !== false && src.__rigid !== true && Array.isArray(src.at) && src.at.every((v: any) => typeof v === 'number')) {
+      const me = ctx.life.get(id), isText = kind === 'text', THINGS = ['figure', 'doodle', 'icon', 'parts', 'image', 'video'], nb = { x: b.x + tx, y: b.y + ty, w: b.w, h: b.h };
+      let sx = 0, sy = 0, bx = 19, by = 19;
+      if (me && (isText || THINGS.includes(kind))) for (const o of ctx.els.values()) {
+        if (isText ? o.kind !== 'text' : !THINGS.includes(o.kind)) continue;
+        if (o.src?.__rigid === true) continue;
+        const lf = ctx.life.get(o.id); if (!lf || Math.max(me[0], lf[0]) >= Math.min(me[1], lf[1])) continue;
+        const ob = o.body ? { x: o.box.x + o.body.x, y: o.box.y + o.body.y, w: o.body.w, h: o.body.h } : o.box;
+        const gapX = Math.max(ob.x - (nb.x + nb.w), nb.x - (ob.x + ob.w)), gapY = Math.max(ob.y - (nb.y + nb.h), nb.y - (ob.y + ob.h));
+        // 上下排着的对左边 / 中线；左右排着的对底边 / 中线
+        if (gapY > -4 && gapY < 320 && gapX < 0) for (const d of isText ? [ob.x - nb.x, ob.x + ob.w / 2 - nb.x - nb.w / 2] : [ob.x + ob.w / 2 - nb.x - nb.w / 2]) if (Math.abs(d) > 0.5 && Math.abs(d) < bx) { bx = Math.abs(d); sx = d; }
+        if (gapX > -4 && gapX < 320 && gapY < 0) for (const d of isText ? [ob.y + ob.h / 2 - nb.y - nb.h / 2] : [ob.y + ob.h - nb.y - (el.body ? el.body.y + el.body.h : nb.h), ob.y + ob.h / 2 - nb.y - nb.h / 2]) if (Math.abs(d) > 0.5 && Math.abs(d) < by) { by = Math.abs(d); sy = d; }
+      }
+      if (sx || sy) { tx += sx; ty += sy; el.snapped = [sx, sy]; }
+    }
     if (el.figure) { el.figure.dx = 0; el.figure.dy = 0; el.figure.labelStrokes = labelStrokes; }
     shiftEl(el, tx, ty);
     if (ctx.life) {
