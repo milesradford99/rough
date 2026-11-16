@@ -15,7 +15,7 @@ export function hasCode(by: string, code: string): boolean {
   return new RegExp(`(^|\\D)${code}(\\D|$)`).test(half);
 }
 
-export interface ReviewImage { src: string; caption?: string; sub?: string; wide?: boolean }
+export interface ReviewImage { src: string; caption?: string; sub?: string; wide?: boolean; /** 要用户留意的地方（如一拍里干等太久），红字标出 */ alert?: string }
 export interface ReviewBlock { heading: string; note?: string; images?: ReviewImage[]; html?: string; grid?: boolean }
 export interface ReviewPage {
   title: string; stage: Stage; code: string; hash: string;
@@ -33,7 +33,7 @@ export const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, ch => ({ '
 
 export function reviewHtml(p: ReviewPage): string {
   const name = STAGE_NAME[p.stage];
-  const img = (i: ReviewImage) => `<figure${i.wide ? ' class="wide"' : ''}><img loading="lazy" src="${i.src}" alt="${esc(i.caption ?? '')}">${i.caption || i.sub ? `<figcaption>${i.caption ? `<b>${esc(i.caption)}</b>` : ''}${i.sub ? `<span>${esc(i.sub)}</span>` : ''}</figcaption>` : ''}</figure>`;
+  const img = (i: ReviewImage) => `<figure${i.wide ? ' class="wide"' : ''}><img loading="lazy" src="${i.src}" alt="${esc(i.caption ?? '')}">${i.caption || i.sub || i.alert ? `<figcaption>${i.caption ? `<b>${esc(i.caption)}</b>` : ''}${i.alert ? `<em class="alert">⚠ ${esc(i.alert)}</em>` : ''}${i.sub ? `<span>${esc(i.sub)}</span>` : ''}</figcaption>` : ''}</figure>`;
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(name)} · ${esc(p.title)}</title>
@@ -51,7 +51,7 @@ h1{font-size:26px;margin:6px 0 2px}h2{font-size:19px;margin:36px 0 8px;padding-t
 .code{display:inline-block;font:700 30px/1 ui-monospace,Menlo,monospace;letter-spacing:4px;color:var(--red);background:var(--yellow);padding:8px 14px;border-radius:8px;vertical-align:middle}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
 figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}figure.wide{max-width:760px;margin:0 auto 14px}
-img{display:block;width:100%;height:auto}figcaption{padding:8px 10px;font-size:13.5px}figcaption b{display:block}figcaption span{display:block;color:var(--dim)}
+img{display:block;width:100%;height:auto}figcaption .alert{display:block;font-style:normal;color:var(--red);font-weight:600}figure:has(.alert){border-color:var(--red)}figcaption{padding:8px 10px;font-size:13.5px}figcaption b{display:block}figcaption span{display:block;color:var(--dim)}
 table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}th{color:var(--dim);font-weight:500;white-space:nowrap}
 .scroll{overflow-x:auto}.note{color:var(--dim);font-size:14px;margin:4px 0 12px}.warn li{margin:6px 0}
 .segs{display:flex;flex-direction:column;gap:14px}

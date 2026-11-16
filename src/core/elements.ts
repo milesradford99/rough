@@ -45,7 +45,7 @@ const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
 const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame', 'style'], video: ['frame', 'style', 'from', 'to', 'loop'], doodle: ['vars'], parts: ['box', 'anchors'],
-  shape: [], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
+  shape: ['inside', 'insideSize'], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
   axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'],
 };
@@ -391,6 +391,18 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     else if (src.shape === 'triangle') el.strokes = R.poly([[0, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]], true, sst);
     else if (src.shape === 'cloud') { const d = `M${-w * 0.3},${h * 0.3} C${-w * 0.62},${h * 0.3} ${-w * 0.6},${-h * 0.15} ${-w * 0.33},${-h * 0.12} C${-w * 0.32},${-h * 0.5} ${w * 0.08},${-h * 0.55} ${w * 0.13},${-h * 0.22} C${w * 0.4},${-h * 0.42} ${w * 0.62},${-h * 0.05} ${w * 0.4},${h * 0.08} C${w * 0.6},${h * 0.2} ${w * 0.45},${h * 0.32} ${w * 0.3},${h * 0.3} Z`; el.strokes = R.path(d, sst); }
     else throw new SrcError(where, `没有形状 "${src.shape}"。可用：rect ellipse circle diamond triangle cloud`);
+    if (src.inside != null) {
+      // 框里的字：和框是一样东西，一起画（框画完接着写字，不会空着框等下一拍）。字号不写时按框的大小取，放不下就缩
+      const sb = boxOf(el.strokes), inner = { w: sb.w * (src.shape === 'rect' ? 0.86 : 0.66), h: sb.h * (src.shape === 'rect' ? 0.8 : 0.6) };
+      const lines = String(src.inside).split('\n').length;
+      let size = typeof src.insideSize === 'string' ? TEXT_TIERS[src.insideSize] ?? NaN : +(src.insideSize ?? Math.min(64, (inner.h / lines) * 0.8));
+      if (!(size > 0)) throw new SrcError(where, `insideSize 写字号数字，或档位：${Object.keys(TEXT_TIERS).join(' ')}`);
+      let t = textStrokes(String(src.inside), { size, color: st.color, align: 'center' });
+      if (src.insideSize == null) while ((t.w > inner.w || t.h > inner.h) && size > 30) { size = Math.max(30, Math.round(size * 0.9)); t = textStrokes(String(src.inside), { size, color: st.color, align: 'center' }); }
+      if (t.w > sb.w || t.h > sb.h) throw new SrcError(where, `框里的字“${src.inside}”（${Math.round(t.w)}×${Math.round(t.h)}）比框（${Math.round(sb.w)}×${Math.round(sb.h)}）还大：把框写大（w、h），或者字写短`);
+      translateStrokes(t.strokes, sb.x + sb.w / 2 - t.w / 2, sb.y + sb.h / 2 - t.h / 2);
+      el.strokes.push(...t.strokes); el.text = String(src.inside); el.missing = t.missing;
+    }
   } else if (kind === 'axis') {
     // 数轴：一根带刻度的线，也是一把比例尺。别的东西用 "名字@数值" 落在它的数值上；不画它就只当比例尺用
     const r0 = Array.isArray(src.axis) ? src.axis : [src.axis?.from, src.axis?.to];

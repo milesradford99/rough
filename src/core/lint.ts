@@ -5,6 +5,7 @@ import type { Box, Pt } from './strokes';
 import type { El } from './elements';
 import { conform } from './plan';
 import { camAt } from './render';
+import { isDivider } from './compile';
 
 /** 沿元素的线条每隔约 10px 取一个点（只取线，不取字形和填充） */
 function linePoints(el: El, pathOnly = false): Pt[] {
@@ -222,6 +223,43 @@ export function lint(c: Compiled): Issue[] {
       const avg = ds.reduce((n, a) => n + a.t1 - a.t0, 0) / ds.length;
       if (avg < 0.26) add('warn', sc.file, `${fmtT(b.t)} 这一拍要画 ${ds.length} 样东西，平均每样只有 ${avg.toFixed(2)} 秒，看起来是“唰”地闪出来的，不是画出来的。分到两三拍，或者用 lead 提前起笔`);
     }
+    // 空框干等：框画出来了，里面的字隔了好几秒才写。观众盯着一个空框，不知道它要装什么
+    {
+      const waits: string[] = [];
+      for (const box of shown) {
+        if (box.el.kind !== 'shape' || box.el.src.inside != null || box.el.src.fill != null || box.drawT1 == null || box.recalled) continue; // 上了色的块本身就是一样东西，不是空框
+        const bb = box.el.box, inner = shown.filter(t => (t.el.kind === 'text' || t.el.kind === 'note') && !t.recalled && contains(bb, t.el.kind === 'note' ? t.el.solid : t.el.box, 6) && t0of(t) > t0of(box) - 0.01 && t0of(t) < (box.gone ?? Infinity));
+        if (!inner.length) continue;
+        // 框里还放了别的东西（几段条、图标）：那是一个容器、一条数轴似的底，不是等字的空框
+        if (shown.some(o => o !== box && !['text', 'note', 'mark', 'arrow', 'line', 'axis'].includes(o.el.kind) && contains(bb, o.el.box, 6))) continue;
+        const first = Math.min(...inner.map(t0of)), gap = first - box.drawT1;
+        if (gap > 1.0) waits.push(`"${box.el.id}" 空了 ${gap.toFixed(1)} 秒才写 ${inner.map(t => `"${t.el.id}"`).slice(0, 2).join('、')}`);
+      }
+      if (waits.length) add('warn', sc.file, `有 ${waits.length} 个框先画出来、空着等字：${waits.slice(0, 4).join('；')}。字写进框里：{ shape: rect, inside: "字", w: …, h: … }，框和字是一样东西、一起画完；或者把框和字放进同一拍，字写 { draw: 字, with: true }`);
+    }
+    // 板书说到才写：板书和口播共有的一截，在这块板的口播里什么时候说到；画早了（抢跑）或画晚了，观众对不上
+    {
+      const span = c.al.units.map((u, i) => [u, i] as const).filter(([u]) => u.start >= sc.t0 - 1e-6 && u.start < sc.t1 - 1e-6);
+      if (span.length) {
+        const f0 = c.al.flatUnit.indexOf(span[0][1]), f1 = c.al.flatUnit.lastIndexOf(span[span.length - 1][1]) + 1, flat = c.al.flat.slice(f0, f1);
+        const early: string[] = [], late: string[] = [];
+        for (const tl of shown) {
+          if (tl.recalled || tl.drawT0 == null || !tl.el.text || !['text', 'shape'].includes(tl.el.kind) || +(tl.el.src.size ?? 72) >= 84) continue; // 大字是标题、主角：先立起来再讲是常态
+          const p = stripPunct(tl.el.text.replace(/\n/g, '')), need = Math.max(2, Math.ceil(p.length * 0.5));
+          let sub = '';
+          for (let n = Math.min(p.length, 10); n >= need && !sub; n--) for (let a = 0; a + n <= p.length; a++) if (flat.includes(p.slice(a, a + n))) { sub = p.slice(a, a + n); break; }
+          if (!sub) continue;
+          const ts: number[] = [];
+          for (let k = flat.indexOf(sub); k >= 0; k = flat.indexOf(sub, k + 1)) ts.push(c.al.units[c.al.flatUnit[f0 + k]].start);
+          const d = tl.drawT0, near = ts.filter(t => Math.abs(t - d) < 20), before = near.filter(t => t <= d + 2.5);
+          if (!near.length) continue; // 隔着二十秒以上才对上的，多半不是在说同一件事
+          if (!before.length) early.push(`"${tl.el.id}"“${tl.el.text.replace(/\n/g, ' ')}” ${fmtT(d)} 就写了，${fmtT(near[0])} 才说到“${sub}”（早 ${(near[0] - d).toFixed(1)} 秒）`);
+          else if (d - Math.max(...before) > 6 && !(c.plan?.boards.find(b => b.id === sc.id)?.hero === tl.el.text)) late.push(`"${tl.el.id}"“${tl.el.text.replace(/\n/g, ' ')}” ${fmtT(Math.max(...before))} 说到，${fmtT(d)} 才写（晚 ${(d - Math.max(...before)).toFixed(1)} 秒）`);
+        }
+        if (early.length) add('warn', sc.file, `有 ${early.length} 处板书比口播抢跑：${early.slice(0, 3).join('；')}。说到什么，才写什么：把它挪到说到它的那一拍（at: "说到它的那几个字"），或者在那一拍里用动作的 at 单独起笔`);
+        if (late.length) add('warn', sc.file, `有 ${late.length} 处板书比口播晚了很久：${late.slice(0, 3).join('；')}。观众听到时板上还没有，等写出来时话题已经过去了：挪到说到它的那一拍`);
+      }
+    }
     // 5. 画面静止太久
     const acts = sc.beats.flatMap(b => b.actions).sort((x, y) => x.t0 - y.t0);
     let cursor = sc.t0;
@@ -291,7 +329,7 @@ export function lint(c: Compiled): Issue[] {
       {
         const half: string[] = [];
         for (const tl of mine) {
-          if (!['arrow', 'line', 'mark'].includes(tl.el.kind) || tl.drawT0 == null || tl.recalled) continue;
+          if (!['arrow', 'line', 'mark'].includes(tl.el.kind) || tl.drawT0 == null || tl.recalled || isDivider(tl.el)) continue;
           const t = tl.drawT1 ?? tl.drawT0, cm = camAt(c, t), w = FB.w / cm.zoom, h = FB.h / cm.zoom, cx = cm.cx - sc.origin[0] - FB.x - scx / cm.zoom, cy = cm.cy - FB.y - scy / cm.zoom;
           const b = tl.el.box, a = Math.max(b.w, 8) * Math.max(b.h, 8), bb = { x: b.x, y: b.y, w: Math.max(b.w, 8), h: Math.max(b.h, 8) };
           if (inter(bb, { x: cx - w / 2, y: cy - h / 2, w, h }) / a < 0.9) half.push(`${fmtT(tl.drawT0)} "${tl.el.id}"`);

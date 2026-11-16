@@ -12,8 +12,12 @@ import { cpSync, rmSync } from 'node:fs';
 import { compile } from '../src/core/compile';
 import { lint } from '../src/core/lint';
 import { focusAlpha } from '../src/core/render';
-import { autoBoardSize, loadPlan } from '../src/core/plan';
-import { packet, unpack, buildAlignment, scriptWarnings, edgeUnits, EDGE_VOICES, DEFAULT_EDGE_VOICE } from '../src/core/tts';
+import { autoBoardSize, loadPlan, AUTO_MAX } from '../src/core/plan';
+import { packet, unpack, buildAlignment, scriptWarnings, speakable, edgeUnits, EDGE_VOICES, DEFAULT_EDGE_VOICE } from '../src/core/tts';
+import { buildSubtitles } from '../src/core/alignment';
+import { buildElement } from '../src/core/elements';
+import { isDivider } from '../src/core/compile';
+import { FORMATS } from '../src/core/theme';
 
 const hj = (args: string[], env: Record<string, string> = {}) => spawnSync(process.execPath, ['bin/hj.mjs', ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
 const SCRIPT = '公司交一百块税。政府发给你。你又花回公司。转了一圈，一分没多赚。所以这笔钱，谁也没有多出来。';
@@ -190,16 +194,20 @@ test('讲到哪儿、别处淡下去：默认开，focus: false 关掉；不在�
   assert.ok(hero, '示例里有主角'); for (let t = sc.t0; t < sc.t1; t += 1.7) assert.equal(focusAlpha(c, hero, t), 1);
 });
 
-test('板的大小跟着内容量走：东西少是一屏，东西多自动放大，封顶 1.4；写了 size 照写的来', () => {
+test('板的大小跟着内容量走：东西少是一屏，东西多自动放大，封顶两屏；写了 size 照写的来；大小不算在计划的版本号里', () => {
   const seg = (o: any = {}) => ({ at: 'x', intent: '', show: [], link: [], revisit: [], words: [], joins: [], ...o });
   assert.equal(autoBoardSize({ segments: [seg({ show: ['a', 'b'], link: ['r'], words: ['十倍'] })] }, 'portrait'), 1);
   const busy = Array.from({ length: 8 }, (_, i) => seg({ show: [`c${i % 5}`], link: [`r${i}`], words: [`词语${i}`, `数字${i}`], ...(i % 3 === 0 ? { diagram: '一个图' } : {}) }));
   const k = autoBoardSize({ segments: busy }, 'portrait');
-  assert.ok(k > 1.1 && k <= 1.4, `东西多的板应该放大，现在是 ${k}`);
-  assert.equal(autoBoardSize({ segments: [...busy, ...busy.map(s => ({ ...s, words: s.words.map((w: string) => w + '再') })), ...busy.map(s => ({ ...s, link: s.link.map((w: string) => w + 'x'), diagram: '图' }))] }, 'portrait'), 1.4);
+  assert.ok(k > 1.1 && k <= AUTO_MAX, `东西多的板应该放大，现在是 ${k}`);
+  assert.equal(autoBoardSize({ segments: [...busy, ...busy.map(s => ({ ...s, words: s.words.map((w: string) => w + '再') })), ...busy.map(s => ({ ...s, link: s.link.map((w: string) => w + 'x'), diagram: '图' })), ...busy.map(s => ({ ...s, show: s.show.map((w: string) => w + 'y'), words: s.words.map((w: string) => w + '又') }))] }, 'portrait'), AUTO_MAX);
   const dir = project(); assert.ok(loadPlan(dir)!.boards.every(b => b.autoSize && typeof b.size === 'number'));
   const fixed = project(PLAN.replace('  - id: loop\n', '  - id: loop\n    size: 1.5\n')), fb = loadPlan(fixed)!.boards[0];
   assert.equal(fb.size, 1.5); assert.ok(!fb.autoSize);
+  // 放大缩小板是构图的事：计划的版本号不变（不用重新确认计划），全景定稿和关键帧的版本号变
+  assert.equal(loadPlan(fixed)!.hash, loadPlan(dir)!.hash);
+  assert.equal(hj(['scaffold', dir]).status, 0); assert.equal(hj(['scaffold', fixed]).status, 0);
+  assert.notEqual(compile(fixed).keyHash, compile(dir).keyHash);
 });
 
 test('口播简报的卡点：每一小句都给一个能直接用的片段，短的、重复的小句往后多带几个字', () => {
@@ -359,4 +367,83 @@ test('免费配音：逐词时间拆成逐字，标点从原文补回，数字�
   // 默认值：每个音色都有语速和音高，音高不超过会失真的范围
   assert.ok(EDGE_VOICES[DEFAULT_EDGE_VOICE]);
   for (const v of Object.values(EDGE_VOICES)) { assert.match(v.rate, /^[+-]\d+%$/); assert.ok(Math.abs(parseInt(v.pitch)) <= 15); }
+});
+
+test('朗读稿的读法提醒：单个字母、引号挨着引号、太长的段和句、换行没标点；合成前补上停顿', () => {
+  const w = (t: string) => scriptWarnings(t).join('\n');
+  assert.match(w('在A股主板。K线也看。'), /单个字母：A股主板、K线也看/);
+  assert.doesNotMatch(w('这是一家AI公司。'), /单个字母/);
+  assert.match(w('满屏都是口诀：“龙头首阴必低吸”“空间龙一定要跟”。'), /引号紧挨着引号/);
+  assert.match(w('一字跌停卖不掉的那些股票在十个交易日内平均还要再跌百分之十几这件事很少有人说。'), /超过 35 个字/);
+  assert.match(w(`${'字'.repeat(160)}。`), /超过 150 字/);
+  assert.match(w('第一行没有标点\n第二行接着说。'), /换行时上一行末尾没有标点/);
+  assert.doesNotMatch(w('第一行有标点，\n第二行接着说。'), /换行时/);
+  assert.equal(speakable('第一行没有标点\n第二行接着说。'), '第一行没有标点，第二行接着说。');
+  assert.equal(speakable('第一句。\n第二句。'), '第一句。第二句。');
+  assert.equal(speakable('口诀：“龙头首阴必低吸”“空间龙一定要跟”'), '口诀：“龙头首阴必低吸”、“空间龙一定要跟”');
+  assert.equal(EDGE_VOICES['zh-CN-YunjianNeural'].rate, '+0%');
+});
+
+test('字幕：引号之间也断句，开引号不挂在行尾；过长的句子不切在引号里、不切在“的”前面', () => {
+  const root = mkdtempSync(join(tmpdir(), 'hj-sub-')), f = join(root, 'a.json');
+  writeFileSync(f, JSON.stringify(fakeAlignment('满屏都是这种口诀：“龙头首阴必低吸”“空间龙一定要跟”“冰点出妖股”。很多人以为闭着眼睛随便买涨停的股票就能赚钱其实一点都不对。')));
+  const subs = buildSubtitles(loadAlignment(f), 14);
+  for (const s of subs) {
+    assert.ok(!/[“‘（]$/.test(s.text), `开引号挂在了行尾：${s.text}`);
+    assert.equal((s.text.match(/“/g) ?? []).length, (s.text.match(/”/g) ?? []).length, `一行里的引号没配对：${s.text}`);
+    assert.ok(!/^[的了着]/.test(s.text), `切在了助词前面：${s.text}`);
+    assert.ok([...s.text.replace(/[\s\p{P}]/gu, '')].length <= 14, s.text);
+  }
+  assert.ok(subs.some(s => s.text === '“空间龙一定要跟”'), subs.map(s => s.text).join(' | '));
+});
+
+test('框里写字：一样东西一起画完；字放不下报错。分隔线（不连着东西、没有小字）不算要看全的线', () => {
+  const ctx = { scene: 's', fmt: FORMATS.portrait, els: new Map() };
+  const el = buildElement(ctx, 'b', { shape: 'rect', w: 360, h: 140, inside: '只进货基', at: [400, 400] });
+  assert.equal(el.text, '只进货基');
+  assert.ok(el.strokes.length > 8, '框和字的笔画都在');
+  assert.throws(() => buildElement(ctx, 'c', { shape: 'rect', w: 80, h: 40, inside: '这几个字放不进去', insideSize: 64 }), /比框/);
+  assert.ok(isDivider({ kind: 'line', src: { line: [[0, 10], [900, 10]] } } as any));
+  assert.ok(!isDivider({ kind: 'line', src: { line: [[0, 10], [900, 10]], label: '分界' } } as any));
+  assert.ok(!isDivider({ kind: 'line', src: { line: ['a', 'b'] } } as any));
+});
+
+test('声画同步：板书说到才写（骨架按说到的时刻拆拍）；抢跑、空框干等会被提醒；段首拍可以用 lead 提前起笔', () => {
+  const plan = PLAN.replace('words: ["+0"], intent: 回到公司身上圈一下：它没有多赚 }', 'words: ["+0", "多出来"], intent: 回到公司身上圈一下：它没有多赚 }');
+  const dir = project(plan);
+  assert.equal(hj(['scaffold', dir]).status, 0);
+  const f = join(dir, 'scenes/01-loop.yaml'), src = readFileSync(f, 'utf8');
+  assert.match(src, /- at: "多出来"/, '说到“多出来”时单独起一拍：' + src);
+  const issues = (d: string) => lint(compile(d));
+  const sync = (is: any[]) => is.filter(i => /抢跑|空着等字|没有卡在这一刻/.test(i.msg));
+  assert.deepEqual(sync(issues(dir)), []);
+  // 不拆拍：整段的板书堆在段首，比口播早了好几秒
+  const lump = src.replace(/  - at: "多出来".*\n    intent: .*\n    do:\n      - draw: \[(\w+)\]\n/, '').replace(/(- draw: \[[^\]]*w2)\]/, '$1, w3]');
+  writeFileSync(f, lump.replace('draw: [w2]', 'draw: [w2, w3]'));
+  assert.ok(issues(dir).some(i => /抢跑/.test(i.msg)), '堆在段首的板书要报抢跑：' + readFileSync(f, 'utf8'));
+  // 段首拍加 lead 提前起笔，不算丢了段的起点
+  writeFileSync(f, src.replace('  - at: "政府发给你"', '  - lead: 0.2\n    at: "政府发给你"'));
+  assert.deepEqual(issues(dir).filter(i => /没有卡在这一刻/.test(i.msg)), []);
+  // 空框干等：框先画，过了几秒才往里写字
+  writeFileSync(f, src.replace('elements:\n', 'elements:\n  frame: { shape: rect, w: 420, h: 200, in: right }\n  inner: { text: "零", size: label, at: frame }\n')
+    .replace(/(  - at: "你又花回公司"\n    intent: .*\n    do:\n)/, '$1      - draw: frame\n').replace(/(  - at: "一分没多赚"\n    intent: .*\n    do:\n)/, '$1      - draw: inner\n'));
+  assert.ok(issues(dir).some(i => /空着等字/.test(i.msg)), '空框干等要提醒');
+});
+
+test('审片页的文件名带版本号；关键帧卡片写着每一拍的起止和时长；有声预览不需要确认', { timeout: 240000 }, () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'hj-rev-')), 'p');
+  cpSync('examples/one-board', dir, { recursive: true }); rmSync(join(dir, 'out'), { recursive: true, force: true }); rmSync(join(dir, 'approvals.json'), { force: true });
+  const pl = hj(['plan', dir]);
+  assert.equal(pl.status, 0, pl.stderr);
+  const hash = JSON.parse(readFileSync(join(dir, 'out/review/plan.json'), 'utf8')).hash;
+  assert.ok(existsSync(join(dir, `out/review/plan-${hash.slice(0, 8)}.png`)) && existsSync(join(dir, `out/review/plan-${hash.slice(0, 8)}.html`)));
+  assert.match(pl.stdout, new RegExp(`plan-${hash.slice(0, 8)}\\.png`));
+  assert.equal(hj(['approve', dir, 'plan', '--by', `确认 ${codeOf(dir, 'plan')}`]).status, 0);
+  assert.equal(hj(['look', dir]).status, 0);
+  assert.equal(hj(['approve', dir, 'look', '--by', `确认 ${codeOf(dir, 'look')}`]).status, 0);
+  assert.equal(hj(['stills', dir]).status, 0);
+  assert.match(readFileSync(join(dir, 'out/review/keyframes.html'), 'utf8'), /1\.1  0:00\.0–\d:\d\d\.\d（[\d.]+ 秒）/);
+  const pv = hj(['preview', dir, '--from', '0', '--to', '2']);
+  assert.equal(pv.status, 0, pv.stderr);
+  assert.ok(existsSync(join(dir, 'out/0-2.preview.mp4')));
 });

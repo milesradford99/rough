@@ -85,10 +85,34 @@ export const scriptHash = (text: string) => createHash('sha256').update(text.tri
 /** 朗读稿里容易读错、时间不准的地方（不拦，只提醒） */
 export function scriptWarnings(text: string): string[] {
   const out: string[] = [], digits = [...new Set(text.match(/\d[\d.,%]*/g) ?? [])], latin = [...new Set(text.match(/[A-Za-z]{2,}/g) ?? [])];
-  if (digits.length) out.push(`稿子里有阿拉伯数字：${digits.slice(0, 8).join('、')}${digits.length > 8 ? '…' : ''}。平台会把一串数字当成一个词，时间不准，读法也可能不是你想的。按读法写成汉字（2026 年写“二零二六年”，53% 写“百分之五十三”）`);
-  if (latin.length) out.push(`稿子里有英文：${latin.slice(0, 8).join('、')}${latin.length > 8 ? '…' : ''}。缩写会被当成一个整体，卡点不能落在它中间；想让它按中文读就写成中文`);
+  const cut = (xs: string[], n = 6) => `${xs.slice(0, n).join('、')}${xs.length > n ? '…' : ''}`;
+  if (digits.length) out.push(`稿子里有阿拉伯数字：${cut(digits, 8)}。平台会把一串数字当成一个词，时间不准，读法也可能不是你想的。按读法写成汉字（2026 年写“二零二六年”，53% 写“百分之五十三”）`);
+  if (latin.length) out.push(`稿子里有英文：${cut(latin, 8)}。缩写会被当成一个整体，卡点不能落在它中间；想让它按中文读就写成中文`);
+  // 单个字母（A股、K线、T+1）：中文音色常把它读成一个汉字音节，句首或标点后最容易错
+  const single = [...new Set([...text.matchAll(/(?<![A-Za-z])[A-Za-z](?![A-Za-z])[^\s，。？！、；：,.?!;:“”"]{0,3}/g)].map(m => m[0]))];
+  if (single.length) out.push(`稿子里有单个字母：${cut(single)}。中文音色常把单个字母读成一个汉字音（“A股”读成“恶股”），在句首或标点后面最容易错。前面补一个词（“在A股”“沪深A股”），或者写成中文；配完抽查 voice/runs/<序号>/p*.json 的 words`);
+  // 引号挨着引号、中间没有停顿：几句口诀会被一口气连读
+  const quotes = [...new Set([...text.matchAll(/[^“”\s]{0,6}”\s*“[^“”\s]{0,6}/g)].map(m => m[0].replace(/\s/g, '')))];
+  if (quotes.length) out.push(`有 ${quotes.length} 处引号紧挨着引号：${cut(quotes, 3)}。中间没有标点就会连读、不停顿：在 ” 和 “ 之间加逗号或顿号`);
+  // 太长的段、太长的句：合成到后半段语调和断词会变差；一口气读不完的句子听着赶
+  const paras = text.trim().split(/\n\s*\n/).map(p => p.replace(/\s+/g, ''));
+  const longP = paras.map((p, i) => [i + 1, p.replace(/\p{P}/gu, '').length] as const).filter(([, n]) => n > 150);
+  if (longP.length) out.push(`有 ${longP.length} 段超过 150 字（${longP.slice(0, 4).map(([i, n]) => `第 ${i} 段 ${n} 字`).join('、')}）。整段送去合成，后半段的语调和断词会变差：在换话题的地方空一行，拆成两段`);
+  const longS = paras.flatMap(p => p.split(/[，。？！；：,?!;:]/)).map(s => s.replace(/\p{P}/gu, '')).filter(s => s.length > 35);
+  if (longS.length) out.push(`有 ${longS.length} 句中间没有一个标点、超过 35 个字：${cut(longS.map(s => s.slice(0, 12) + '…'), 3)}。念不出停顿，听着赶，字幕也只能硬切：在意群之间加逗号（一句 12–22 个字最好）`);
+  // 段落里换了行、上一行末尾却没有标点：合成时两行会直接粘在一起
+  const glued = text.split('\n').map(l => l.trim()).flatMap((l, i, ls) => (l && ls[i + 1] && !/[\p{P}]$/u.test(l) && !/^\p{P}/u.test(ls[i + 1]) ? [`${l.slice(-6)}⏎${ls[i + 1].slice(0, 6)}`] : []));
+  if (glued.length) out.push(`有 ${glued.length} 处换行时上一行末尾没有标点：${cut(glued, 3)}。换行不是停顿，读的时候会直接接上。edge 引擎会在这里自动补一个逗号；想停得更久，自己补句号或空一行`);
   if (!/[。？！?!]\s*$/.test(text.trim())) out.push('稿子最后没有句号：字幕断句靠标点');
   return out;
+}
+
+/** 一段稿子在送去合成之前的整理：段内换行处上一行没有标点就补逗号，”“ 之间补顿号。只加停顿，不改字 */
+export function speakable(para: string): string {
+  const lines = para.split('\n').map(l => l.trim()).filter(Boolean);
+  let s = '';
+  for (const l of lines) s += s && !/\p{P}$/u.test(s) && !/^\p{P}/u.test(l) ? '，' + l : l;
+  return s.replace(/”\s*“/g, '”、“');
 }
 
 export interface TtsOptions { text: string; key: string; outDir: string; speaker?: string; resource?: string; sampleRate?: number; speechRate?: number; context?: string; endpoint?: string; idleTimeout?: number; totalTimeout?: number }
@@ -147,10 +171,11 @@ export async function synthesize(o: TtsOptions): Promise<TtsResult> {
 // 只能调语速、音高、音量三个全局参数，不支持停顿和情绪标签。下面的默认值是实测出来的（2026-11，见技能里的 voice.md）。
 
 export interface EdgeVoice { name: string; rate: string; pitch: string; note: string }
-/** 每个音色的默认语速：让成片落在每秒 4.1–4.3 个字（画得过来的速度）。原速实测：云希 4.25、晓伊 4.23、晓晓 4.10、云健 4.07、Brian 3.59、Andrew 3.20 字/秒 */
+/** 每个音色的默认语速：让成片落在每秒 4.0–4.3 个字（画得过来的速度）。原速实测：云希 4.25、晓伊 4.23、晓晓 4.10、云健 4.07、Brian 3.59、Andrew 3.20 字/秒。
+ *  云健原来提速 4%，实战里连续的百分数和术语听着赶、词尾被吞（2026-11 复盘），改回原速 */
 export const EDGE_VOICES: Record<string, EdgeVoice> = {
   'zh-CN-YunxiNeural': { name: '云希', rate: '+0%', pitch: '-4Hz', note: '男，年轻、口语感最好' },
-  'zh-CN-YunjianNeural': { name: '云健', rate: '+4%', pitch: '-4Hz', note: '男，厚实、起伏大。默认' },
+  'zh-CN-YunjianNeural': { name: '云健', rate: '+0%', pitch: '-4Hz', note: '男，厚实、起伏大。默认' },
   'zh-CN-XiaoxiaoNeural': { name: '晓晓', rate: '+4%', pitch: '-2Hz', note: '女，清亮、吐字最稳。通用' },
   'zh-CN-XiaoyiNeural': { name: '晓伊', rate: '+0%', pitch: '-2Hz', note: '女，低一点、温和。慢节奏内容' },
   'en-US-BrianMultilingualNeural': { name: 'Brian（多语言，说中文）', rate: '+16%', pitch: '-3Hz', note: '男，松弛的播客腔，原速偏慢所以提速' },
@@ -191,30 +216,45 @@ function edgePython(args: string[]): { ok: boolean; err: string } {
   return { ok: false, err: last === 'NO_EDGE_TTS' ? 'NO_EDGE_TTS' : 'NO_PYTHON' };
 }
 
+/** 合成一段：base.txt → base.mp3 + base.json（逐词时间）。免费接口偶尔 403 或超时：重试不花钱，隔一会儿再试 */
+async function edgeOne(base: string, voice: string, rate: string, pitch: string, what: string): Promise<void> {
+  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || '';
+  let res = { ok: false, err: '' };
+  for (let n = 0; n < 4 && !res.ok; n++) {
+    if (n) await new Promise(r => setTimeout(r, 1500 * n));
+    res = edgePython(['--text', base + '.txt', '--voice', voice, `--rate=${rate}`, `--pitch=${pitch}`, '--media', base + '.mp3', '--words', base + '.json', ...(proxy ? ['--proxy', proxy] : [])]);
+    if (res.err === 'NO_EDGE_TTS' || res.err === 'NO_PYTHON') break;
+  }
+  if (res.err === 'NO_PYTHON') throw new Error('找不到 Python。edge-tts 是一个 Python 包：安装 Python 3 后运行 pip install edge-tts（或安装 uv，hj 会自动用它临时装）');
+  if (res.err === 'NO_EDGE_TTS') throw new Error('没有安装 edge-tts。运行 pip install edge-tts（或安装 uv，hj 会自动用它临时装），再重试');
+  if (!res.ok) throw new Error(`edge-tts ${what}合成失败：${res.err}${/NoAudioReceived/.test(res.err) ? `。多半是音色 ${voice} 在免费接口上不可用（edge-tts --list-voices 查看）` : '。这是微软的免费接口，偶尔不稳，过一会儿再试'}`);
+}
+
+/** 试读：只合成一小段，返回平台怎么切词。改稿时用来查“A股”“闭着眼”这种读法，不用重配整条 */
+export async function edgeProbe(o: { text: string; outDir: string; voice?: string; rate?: string; pitch?: string }): Promise<{ mp3: string; words: { text: string; start: number; end: number }[] }> {
+  const voice = o.voice ?? DEFAULT_EDGE_VOICE, preset = EDGE_VOICES[voice], text = speakable(o.text.trim());
+  if (!text) throw new Error('试读的文字是空的');
+  mkdirSync(o.outDir, { recursive: true });
+  const base = join(o.outDir, 'probe');
+  writeFileSync(base + '.txt', text);
+  await edgeOne(base, voice, o.rate ?? preset?.rate ?? '+0%', o.pitch ?? preset?.pitch ?? '+0Hz', '试读');
+  return { mp3: base + '.mp3', words: JSON.parse(readFileSync(base + '.json', 'utf8')).words ?? [] };
+}
+
 export interface EdgeOptions { text: string; outDir: string; voice?: string; rate?: string; pitch?: string; /** 段落之间（空行）至少停多久 */ paragraphGap?: number }
 /** 免费合成。按空行分段各合成一次、接成一条音轨（段间补足停顿），时间表跟着平移，所以不需要、也不允许事后再剪 */
 export async function synthesizeEdge(o: EdgeOptions): Promise<TtsResult> {
   const voice = o.voice ?? DEFAULT_EDGE_VOICE, preset = EDGE_VOICES[voice], rate = o.rate ?? preset?.rate ?? '+0%', pitch = o.pitch ?? preset?.pitch ?? '+0Hz', gap = o.paragraphGap ?? 1.0, SR = 48000;
-  const paras = o.text.trim().split(/\n\s*\n/).map(s => s.replace(/\s*\n\s*/g, '').trim()).filter(Boolean);
+  const paras = o.text.trim().split(/\n\s*\n/).map(s => speakable(s.trim())).filter(Boolean);
   if (!paras.length) throw new Error('朗读稿是空的');
   if (spawnSync('ffmpeg', ['-version']).status !== 0) throw new Error('需要 ffmpeg（把 MP3 转成 WAV、统一响度）。先安装 ffmpeg');
   mkdirSync(o.outDir, { recursive: true });
-  const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || '';
   const pcm: Buffer[] = [], units: any[] = [];
   let t = 0;
   for (let i = 0; i < paras.length; i++) {
     const base = join(o.outDir, `p${String(i + 1).padStart(2, '0')}`);
     writeFileSync(base + '.txt', paras[i]);
-    let res = { ok: false, err: '' };
-    // 免费接口偶尔 403 或超时：重试不花钱，隔一会儿再试
-    for (let n = 0; n < 4 && !res.ok; n++) {
-      if (n) await new Promise(r => setTimeout(r, 1500 * n));
-      res = edgePython(['--text', base + '.txt', '--voice', voice, `--rate=${rate}`, `--pitch=${pitch}`, '--media', base + '.mp3', '--words', base + '.json', ...(proxy ? ['--proxy', proxy] : [])]);
-      if (res.err === 'NO_EDGE_TTS' || res.err === 'NO_PYTHON') break;
-    }
-    if (res.err === 'NO_PYTHON') throw new Error('找不到 Python。edge-tts 是一个 Python 包：安装 Python 3 后运行 pip install edge-tts（或安装 uv，hj 会自动用它临时装）');
-    if (res.err === 'NO_EDGE_TTS') throw new Error('没有安装 edge-tts。运行 pip install edge-tts（或安装 uv，hj 会自动用它临时装），再重试');
-    if (!res.ok) throw new Error(`edge-tts 第 ${i + 1} 段合成失败：${res.err}${/NoAudioReceived/.test(res.err) ? `。多半是音色 ${voice} 在免费接口上不可用（edge-tts --list-voices 查看）` : '。这是微软的免费接口，偶尔不稳，过一会儿再试'}`);
+    await edgeOne(base, voice, rate, pitch, `第 ${i + 1} 段`);
     const cv = spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', base + '.mp3', '-ar', String(SR), '-ac', '1', '-f', 's16le', base + '.pcm']);
     if (cv.status !== 0) throw new Error(`ffmpeg 转码失败：${String(cv.stderr).trim()}`);
     const buf = readFileSync(base + '.pcm'), words = JSON.parse(readFileSync(base + '.json', 'utf8')).words as { text: string; start: number; end: number }[];

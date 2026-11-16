@@ -19,9 +19,9 @@ import { textStrokes } from '../core/text';
 import { layoutSketch, drawSketch, sketchEnv, badge } from './sketch';
 import { layoutAppendix, loadAppendix, wrapText, type AppendixLayout } from '../core/appendix';
 import { PATTERNS } from '../core/patterns';
-import { loadPlan, checkPlan, planStoryboard, scaffold, segmentTimes, LAYOUTS, type Plan } from '../core/plan';
+import { loadPlan, checkPlan, planStoryboard, scaffold, segmentTimes, boardSizes, LAYOUTS, type Plan } from '../core/plan';
 import type { Issue } from '../core/compile';
-import { synthesize, synthesizeEdge, scriptHash, scriptWarnings, DEFAULT_SPEAKER, DEFAULT_EDGE_VOICE, EDGE_VOICES, KEY_ENV } from '../core/tts';
+import { synthesize, synthesizeEdge, edgeProbe, scriptHash, scriptWarnings, DEFAULT_SPEAKER, DEFAULT_EDGE_VOICE, EDGE_VOICES, KEY_ENV } from '../core/tts';
 import { THEME, FORMATS } from '../core/theme';
 
 const penOpt = (c: Compiled): false | 'marker' | 'hand' => (c.meta.pen === 'hand' ? 'hand' : c.meta.pen ? 'marker' : false);
@@ -125,7 +125,8 @@ function lookHash(c: Compiled): string {
     const b = t.el.box, cx = b.x + b.w / 2, cy = b.y + b.h / 2, rg = sc.regions?.find(r => cx >= r.box.x && cx <= r.box.x + r.box.w && cy >= r.box.y && cy <= r.box.y + r.box.h)?.name ?? '';
     return [t.el.id, t.el.kind, rg, t.el.kind === 'text' ? Math.round(+(t.el.src.size ?? 72) / 14) : Math.round(Math.max(b.w, b.h) / 70)].join(':');
   }).sort());
-  return createHash('sha256').update(c.planHash + JSON.stringify(rows)).digest('hex').slice(0, 16);
+  // 板的大小算在这里（不算在计划里）：放大缩小板只需要重看全景，不用退回去重新确认计划
+  return createHash('sha256').update(c.planHash + JSON.stringify(c.plan ? boardSizes(c.plan) : []) + JSON.stringify(rows)).digest('hex').slice(0, 16);
 }
 const hashOf = (c: Compiled, stage: Stage) => (stage === 'plan' ? c.planHash : stage === 'look' ? lookHash(c) : c.keyHash);
 const STEPS = ['朗读稿', '分镜计划', '全景定稿', '关键帧', '成片'];
@@ -133,10 +134,10 @@ function gate(c: Compiled, stage: Stage) {
   const a = approvals(c.dir);
   const label = stage === 'plan' ? (c.plan ? '分镜计划' : '文字分镜') : STAGE_NAME[stage], now = hashOf(c, stage);
   const how = stage === 'plan'
-    ? `先运行 hj plan ${c.dir} 生成 storyboard.md${c.plan ? ' 和审片页（out/review/plan.html、plan.png）' : ''}，交给用户看；用户明确同意后运行 hj approve ${c.dir} plan --by "<用户的确认原话>"\n  想在交给用户之前自己先看看画面：hj stills ${c.dir} --draft（带水印的草稿，不需要确认）`
+    ? `先运行 hj plan ${c.dir} 生成 storyboard.md${c.plan ? ' 和审片页（out/review/plan-<版本>.html、.png）' : ''}，交给用户看；用户明确同意后运行 hj approve ${c.dir} plan --by "<用户的确认原话>"\n  想在交给用户之前自己先看看画面：hj stills ${c.dir} --draft（带水印的草稿，不需要确认）`
     : stage === 'look'
-      ? `先运行 hj look ${c.dir} 出全景定稿的审片页（out/review/look.html、look.png），把图发给用户看；用户看图后回复确认码，再运行 hj approve ${c.dir} look --by "<用户的确认原话>"`
-      : `先运行 hj stills ${c.dir} 出关键帧和审片页（out/review/keyframes.html、keyframes.png），把图发给用户看；用户看图后回复确认码，再运行 hj approve ${c.dir} keyframes --by "<用户的确认原话>"`;
+      ? `先运行 hj look ${c.dir} 出全景定稿的审片页（out/review/look-<版本>.html、.png），把图发给用户看；用户看图后回复确认码，再运行 hj approve ${c.dir} look --by "<用户的确认原话>"`
+      : `先运行 hj stills ${c.dir} 出关键帧和审片页（out/review/keyframes-<版本>.html、.png），把图发给用户看；用户看图后回复确认码，再运行 hj approve ${c.dir} keyframes --by "<用户的确认原话>"`;
   if (!a[stage]) die(`${label}还没有得到用户确认，不能继续。\n  ${how}`);
   const what = stage === 'plan' ? (c.plan ? '计划（plan.yaml）' : '分镜内容（场景划分 / 每拍画什么）') : stage === 'look' ? '板上的东西（增删了东西、换了分区，或换了大小的档位）' : '分镜内容（场景划分 / 每拍画什么）';
   if (a[stage].planHash !== now) die(`${label}确认之后，${what}又改过了（确认的是 ${a[stage].planHash}，现在是 ${now}），需要用户重新确认。\n  ${how}\n  只调位置、颜色、时长这类细节不会触发重新确认。`);
@@ -169,10 +170,13 @@ async function stackSheet(title: string, code: string, parts: any[]): Promise<Bu
 }
 async function writeReview(dir: string, page: ReviewPage, sheet: Buffer) {
   const out = join(dir, 'out', 'review'); mkdirSync(out, { recursive: true });
-  writeFileSync(join(out, `${page.stage}.html`), reviewHtml(page));
-  writeFileSync(join(out, `${page.stage}.png`), sheet);
+  // 文件名带上版本号：聊天软件按文件名缓存图片，同名的新图发过去，用户看到的可能还是上一版（连同作废的确认码）
+  const tag = `${page.stage}-${page.hash.slice(0, 8)}`;
+  for (const f of readdirSync(out)) if (new RegExp(`^${page.stage}-[0-9a-f]{8}\\.(png|html)$`).test(f) && !f.startsWith(tag)) rmSync(join(out, f));
+  const html = reviewHtml(page);
+  for (const name of [page.stage, tag]) { writeFileSync(join(out, `${name}.html`), html); writeFileSync(join(out, `${name}.png`), sheet); }
   writeFileSync(join(out, `${page.stage}.json`), JSON.stringify({ stage: page.stage, hash: page.hash, at: new Date().toISOString() }) + '\n');
-  console.log(`\n■ 交给用户审（${STAGE_NAME[page.stage]}）：\n  长图   ${resolve(out, page.stage + '.png')}\n  审片页 ${resolve(out, page.stage + '.html')}（图都嵌在里面，一个文件）\n  必须让用户看到图：把长图（或审片页）作为文件 / 图片发出来。只贴路径、只用文字描述，都不算给用户看过。\n  同时用两三句话说清楚这一步要用户决定什么，问题不超过三个，每个给出你的建议。\n  图上印着四位确认码。用户看图后回复“确认 <码>”，你再运行：hj approve ${dir} ${page.stage} --by "<用户原话>"\n  不要自己把码读出来替用户填；用户只说“可以”没带码，就请他看图上的码。`);
+  console.log(`\n■ 交给用户审（${STAGE_NAME[page.stage]}）：\n  长图   ${resolve(out, tag + '.png')}\n  审片页 ${resolve(out, tag + '.html')}（图都嵌在里面，一个文件）\n  文件名带着版本号，发这两个（不带版本号的 ${page.stage}.png / ${page.stage}.html 内容一样，但聊天软件可能缓存着上一版）\n  必须让用户看到图：把长图（或审片页）作为文件 / 图片发出来。只贴路径、只用文字描述，都不算给用户看过。\n  同时用两三句话说清楚这一步要用户决定什么，问题不超过三个，每个给出你的建议。\n  图上印着四位确认码。用户看图后回复“确认 <码>”，你再运行：hj approve ${dir} ${page.stage} --by "<用户原话>"\n  不要自己把码读出来替用户填；用户只说“可以”没带码，就请他看图上的码。`);
 }
 /** 一块板讲完时的全景：镜头固定在全景，画到最后一刻 */
 async function fullView(c: Compiled, sc: CScene, ctx: any, scale: number, bare = false) {
@@ -514,7 +518,20 @@ const commands: Record<string, () => Promise<void> | void> = {
   // 配音：火山引擎豆包语音合成。付费接口：用户确认过这一版朗读稿才调用，不自动重试
   async voice() {
     if (flags.voices) { console.log('edge-tts 的音色（免费）。语速和音高不写时用表里的默认值：按这个语速，成片大约每秒 4.1–4.3 个字，画得过来\n'); for (const [id, v] of Object.entries(EDGE_VOICES)) console.log(`  ${id.padEnd(34)} ${v.name}　默认 ${v.rate} ${v.pitch}　${v.note}`); console.log(`\n火山引擎（付费）默认音色：${DEFAULT_SPEAKER}`); return; }
-    const dir = args[0] ?? die('用法：hj voice <项目目录> [--engine volc|edge] [--speaker 音色id] [--rate 语速] [--pitch 音高] [--redo]\n  volc：火山引擎豆包语音（付费，默认）。--rate 是 -50..100 的整数\n  edge：edge-tts（免费）。--rate 形如 +8%，--pitch 形如 -4Hz；hj voice --voices 列出音色');
+    // 试读：免费引擎只读一小段，列出平台怎么切词。查“A股”“闭着眼”这种读法，不用重配整条
+    if (typeof flags.probe === 'string') {
+      const voice = typeof flags.speaker === 'string' ? flags.speaker : DEFAULT_EDGE_VOICE, out = join(args[0] && existsSync(args[0]) ? join(args[0], 'voice') : '.', 'probe');
+      if (typeof flags.rate === 'string' && !/^[+-]\d+%$/.test(flags.rate)) die('--rate 写成 +8% 这样（带正负号和百分号）');
+      let r;
+      try { r = await edgeProbe({ text: flags.probe, outDir: out, voice, ...(typeof flags.rate === 'string' ? { rate: flags.rate } : {}), ...(typeof flags.pitch === 'string' ? { pitch: flags.pitch } : {}) }); } catch (e: any) { return die(`试读失败：${e.message}`); }
+      const cjkWord = (w: string) => /^[\u3400-\u9fff]+$/.test(w);
+      console.log(`试读（edge-tts，${voice}）：${flags.probe}\n  平台的切词：${r.words.map(w => w.text).join(' / ')}\n  音频：${resolve(r.mp3)}`);
+      const odd = r.words.filter((w, i) => /^[A-Za-z]$/.test(w.text) || (cjkWord(w.text) && w.text.length === 2 && /^[着了过得地]/.test(w.text)) || (i > 0 && /^[A-Za-z]$/.test(r.words[i - 1].text) && cjkWord(w.text) && w.text.length >= 3));
+      if (odd.length) console.log(`  ! 留意这几处：${odd.map(w => w.text).join('、')}。单个字母、“着眼”这类把助词和后一个字粘在一起的切法，常常就是读错的地方：去听一下音频；读错了就加逗号、补字（“闭着眼睛”）或在字母前补一个词（“在A股”）`);
+      console.log('  切词看着不对，读音多半也不对。改稿之后再试读，满意了再 hj voice 配整条');
+      return;
+    }
+    const dir = args[0] ?? die('用法：hj voice <项目目录> [--engine volc|edge] [--speaker 音色id] [--rate 语速] [--pitch 音高] [--redo]\n  volc：火山引擎豆包语音（付费，默认）。--rate 是 -50..100 的整数\n  edge：edge-tts（免费）。--rate 形如 +8%，--pitch 形如 -4Hz；hj voice --voices 列出音色\n  试读一小段（免费，看平台怎么切词）：hj voice [<项目目录>] --probe "在A股主板，闭着眼随便买" [--speaker 音色id]');
     const sf = join(dir, 'script.txt'), pf = join(dir, 'project.yaml');
     if (!existsSync(pf)) die(`${dir} 还不是一个项目。先运行 hj init ${dir} --script <朗读稿.txt>`);
     if (!existsSync(sf)) die(`没有朗读稿 ${sf}。把要读出来的字（不是屏幕上显示的字）写进去，UTF-8`);
@@ -582,7 +599,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     try { plan = loadPlan(dir); } catch (e: any) { return say('规划者', `${e.message}\n  先运行 hj brief ${dir} 通读口播。`); }
     const pc = planCtx(dir)!, a = approvals(dir), pe = pc.issues.filter(i => i.level === 'error').length, pw = pc.issues.filter(i => i.level === 'warn').length;
     if (pe) return say('规划者', `计划有 ${pe} 个错误。运行 hj check ${dir} 看是哪些，修掉。`);
-    if (!a.plan || a.plan.planHash !== plan!.hash) return say('规划者', `${a.plan ? '计划在用户确认之后又改过，需要重新确认。' : ''}${pw ? `计划还有 ${pw} 个警告（hj check ${dir}），先修掉或准备好向用户说明。` : ''}运行 hj plan ${dir}，把审片页（out/review/plan.png 或 plan.html）发给用户看；用户看图回复确认码后运行 hj approve ${dir} plan --by "<用户原话>"。`);
+    if (!a.plan || a.plan.planHash !== plan!.hash) return say('规划者', `${a.plan ? '计划在用户确认之后又改过，需要重新确认。' : ''}${pw ? `计划还有 ${pw} 个警告（hj check ${dir}），先修掉或准备好向用户说明。` : ''}运行 hj plan ${dir}，把审片页（out/review/plan-<版本>.png 或 .html）发给用户看；用户看图回复确认码后运行 hj approve ${dir} plan --by "<用户原话>"。`);
     if (!hasScenes(dir)) return say('执行者', `计划已确认。运行 hj scaffold ${dir} 生成场景骨架，然后照 executor.md 把每块板画完。`);
     const c = load(dir, false), ce = c.issues.filter(i => i.level === 'error').length, cw = c.issues.filter(i => i.level === 'warn').length;
     if (ce) return say('执行者', `场景有 ${ce} 个错误。运行 hj check ${dir} 看是哪些，修掉。`);
@@ -662,7 +679,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     const sheets: string[] = [], sheetCvs: any[] = [], rblocks: ReviewBlock[] = [];
     for (const sc of c.scenes) {
       if (only && sc !== only) continue;
-      const tiles: { t: number; label: string; file: string }[] = [];
+      const tiles: { t: number; label: string; file: string; long?: boolean }[] = [];
       for (let bi = 0; bi < sc.beats.length; bi++) {
         const b = sc.beats[bi];
         const end = Math.max(b.t + 0.05, ...b.actions.map(a => a.t1));
@@ -671,7 +688,8 @@ const commands: Record<string, () => Promise<void> | void> = {
         const t = Math.min(Math.max(b.t + 0.05, cap, Math.min(end + 0.03, sc.t1 - 0.7)), c.duration - 0.01);
         const file = `${String(sc.index + 1).padStart(2, '0')}-${sc.id}-${String(bi + 1).padStart(2, '0')}.png`;
         await shot(t, file);
-        tiles.push({ t, label: `${sc.index + 1}.${bi + 1}  ${fmtT(t)}`, file });
+        const done = Math.max(b.t, ...b.actions.filter(x => x.verb !== 'wait').map(x => x.t1)), bEnd = Math.min(b.tEnd, sc.t1), idle = bEnd - done;
+        tiles.push({ t, label: `${sc.index + 1}.${bi + 1}  ${fmtT(b.t)} ${(bEnd - b.t).toFixed(1)}秒${idle > 4 ? `  停${idle.toFixed(0)}秒` : ''}`, file, ...(idle > 4 ? { long: true } : {}) });
       }
       if (!tiles.length) continue;
       // 联系表：一个场景一张，方便一眼看完
@@ -684,7 +702,8 @@ const commands: Record<string, () => Promise<void> | void> = {
         await frame(tiles[i].t, { pen: false });
         sx.drawImage(cv, x, y + cap, tw, th);
         sx.strokeStyle = '#adb5bd'; sx.lineWidth = 1; sx.strokeRect(x + 0.5, y + cap + 0.5, tw, th);
-        const lab = textStrokes(tiles[i].label, { size: 28, color: '#212529' });
+        if (tiles[i].long) { sx.strokeStyle = '#d9433a'; sx.lineWidth = 4; sx.strokeRect(x - 1, y + cap - 1, tw + 2, th + 2); }
+        const lab = textStrokes(tiles[i].label, { size: 28, color: tiles[i].long ? '#d9433a' : '#212529' });
         sx.save(); sx.translate(x + 4, y + 6);
         drawStrokes(sx, env, lab.strokes);
         sx.restore();
@@ -698,7 +717,12 @@ const commands: Record<string, () => Promise<void> | void> = {
         console.log(`  ${sc.id}：一眼最重的三样是 ${heaviest(c, sc).join('、')}${b?.hero ? `；计划的主角是 ${c.plan!.cast[b.hero]?.name ?? `“${b.hero}”`}` : ''}。眯眼图 squint-${String(sc.index + 1).padStart(2, '0')}-${sc.id}.png：字都糊掉后最显眼的那一团，应该就是主角`);
       } else if (!only && flags.at == null) {
         const small = createCanvas(Math.round(cv.width * 0.4), Math.round(cv.height * 0.4)), smx = small.getContext('2d'), imgs = [];
-        for (let i = 0; i < tiles.length; i++) { await frame(tiles[i].t, { pen: false }); smx.drawImage(cv, 0, 0, small.width, small.height); const be = sc.beats[i]; imgs.push({ src: await jpeg(small, 78), caption: `${tiles[i].label}　${be.intent}`, sub: be.say ? `口播：${be.say}` : '' }); }
+        for (let i = 0; i < tiles.length; i++) {
+          await frame(tiles[i].t, { pen: false }); smx.drawImage(cv, 0, 0, small.width, small.height);
+          // 这一拍从几秒到几秒、画完之后干等了多久：静态图看不出节奏，把时长写在卡片上
+          const be = sc.beats[i], done = Math.max(be.t, ...be.actions.filter(a => a.verb !== 'wait').map(a => a.t1)), end = Math.min(be.tEnd, sc.t1), idle = end - done;
+          imgs.push({ src: await jpeg(small, 78), caption: `${sc.index + 1}.${i + 1}  ${fmtT(be.t)}–${fmtT(end)}（${(end - be.t).toFixed(1)} 秒）　${be.intent}`, sub: be.say ? `口播：${be.say}` : '', ...(idle > 4 ? { alert: `画完之后停了 ${idle.toFixed(1)} 秒没有新东西` } : {}) });
+        }
         rblocks.push({ heading: `${c.scenes.length > 1 ? `第 ${sc.index + 1} 块板：` : ''}${sc.id}（${tiles.length} 拍）`, note: '每张图是这一拍画完之后的样子。图下面是编号、这一拍画什么、这时候口播在说什么。', images: imgs, grid: true });
       }
     }
@@ -730,44 +754,16 @@ const commands: Record<string, () => Promise<void> | void> = {
     const dir = args[0] ?? die('用法：hj render <项目目录> [--scene 场景 | --from 秒 --to 秒] [--draft] [--out 文件]');
     const c = load(dir); await preload(c);
     gate(c, 'plan'); if (c.plan) gate(c, 'look'); gate(c, 'keyframes');
-    const only = sceneArg(c);
-    const from = only ? Math.max(0, only.t0 - 0.6) : +(flags.from ?? 0), to = only ? only.t1 : +(flags.to ?? c.total);
-    const draft = !!flags.draft, scale = draft ? 0.5 : 1, fps = draft ? Math.min(15, c.fps) : c.fps;
-    const outDir = join(dir, 'out'); mkdirSync(outDir, { recursive: true });
-    const name = String(flags.out ?? join(outDir, `${only ? only.id : flags.from || flags.to ? `${from.toFixed(0)}-${to.toFixed(0)}` : 'video'}${draft ? '.draft' : ''}.mp4`));
-    const { cv, ctx } = canvasFor(c, scale);
-    const inputs: string[] = ['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${cv.width}x${cv.height}`, '-r', String(fps), '-i', '-'];
-    const audio = c.meta.audio ? join(dir, c.meta.audio) : '';
-    const hasVoice = !!audio && existsSync(audio), dur = to - from;
-    let n = 0, voiceIn = -1, sfxIn = -1, musicIn = -1;
-    if (hasVoice) { inputs.push('-ss', String(from), '-t', String(dur), '-i', audio); voiceIn = ++n; }
-    else console.log('  （没有配音文件，成片只有落笔音效' + (c.meta.music ? '和背景音乐' : '') + '）');
-    if (c.meta.sfx !== false) { const sfx = join(outDir, 'sfx.wav'); const r = writeSfx(c, sfx); console.log(`  音效：${r.mode === 'sparse' ? '稀疏' : '密集'}模式，全片 ${r.count} 声（平均每分钟 ${((r.count / c.duration) * 60).toFixed(0)} 声）`); inputs.push('-ss', String(from), '-t', String(dur), '-i', sfx); sfxIn = ++n; }
-    // 背景音乐：循环铺满全片，淡入淡出；有配音时人一开口音乐自动压低（侧链压缩），停顿时再浮上来
-    if (c.meta.music) {
-      const music = join(dir, String(c.meta.music));
-      if (!existsSync(music)) die(`project.yaml 里的 music 指向 ${c.meta.music}，但文件不存在`);
-      inputs.push('-stream_loop', '-1', '-t', String(dur), '-i', music); musicIn = ++n;
-      console.log(`  背景音乐：${c.meta.music}（音量 ${c.meta.musicVolume ?? 0.16}${hasVoice && c.meta.musicDuck !== false ? '，说话时自动压低' : ''}）`);
-    }
-    const ff = ['-y', '-loglevel', 'error', ...inputs];
-    const g = audioGraph({ voiceIn, sfxIn, musicIn, dur, volume: +(c.meta.musicVolume ?? 0.16), duck: c.meta.musicDuck !== false });
-    if (g.filter) ff.push('-filter_complex', g.filter);
-    if (g.map) ff.push('-map', '0:v', '-map', g.map);
-    ff.push('-c:v', 'libx264', '-preset', draft ? 'veryfast' : 'medium', '-crf', draft ? '26' : '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', name);
-    const p = spawn('ffmpeg', ff, { stdio: ['pipe', 'inherit', 'inherit'] });
-    p.on('error', () => die('没有找到 ffmpeg，请先安装'));
-    const done = new Promise<number>(r => p.on('close', code => r(code ?? 1)));
-    const total = Math.round((to - from) * fps), started = Date.now();
-    for (let i = 0; i < total; i++) {
-      await prepare(c, from + i / fps);
-      drawFrame(ctx, c, from + i / fps, env, { scale, subtitles: true, pen: penOpt(c) });
-      if (!p.stdin.write(cv.data())) await new Promise(r => p.stdin.once('drain', r));
-      if (i % (fps * 10) === 0 && i) console.log(`  ${fmtT(from + i / fps)} / ${fmtT(to)}  （${((i / total) * 100).toFixed(0)}%，已用 ${((Date.now() - started) / 1000).toFixed(0)}s）`);
-    }
-    p.stdin.end();
-    if ((await done) !== 0) die('ffmpeg 合成失败');
-    console.log(`✓ ${name}  （${fmtT(from)}–${fmtT(to)}，${total} 帧，${((Date.now() - started) / 1000).toFixed(0)}s）\n把这个视频文件发给用户看（发文件，不是路径）。用户提了修改意见，按 revising.md 判断该谁改。`);
+    await encodeVideo(c, dir, { draft: !!flags.draft });
+  },
+
+  // 有声预览：低帧率、小尺寸、带配音，几十秒出片。给作者自己听着配音看卡点，不需要确认，也不能当成片交付
+  async preview() {
+    const dir = args[0] ?? die('用法：hj preview <项目目录> [--scene 场景 | --from 秒 --to 秒] [--fps 10] [--scale 0.4] [--out 文件]');
+    const c = load(dir); await preload(c);
+    const fps = +(flags.fps ?? 10), scale = +(flags.scale ?? 0.4);
+    if (!(fps >= 2 && fps <= 30) || !(scale >= 0.2 && scale <= 1)) die('--fps 写 2 到 30，--scale 写 0.2 到 1');
+    await encodeVideo(c, dir, { preview: true, fps, scale });
   },
 
   // 封面：整块板的全景缩到下半张，上面是手写的大标题。平台的封面图 / 视频的第一眼
@@ -925,6 +921,51 @@ const commands: Record<string, () => Promise<void> | void> = {
 };
 
 /** 素材一览图：所有姿势、表情、手绘件画在一张图上，供挑选。--dir 只画某个目录里的手绘件 */
+/** 出视频：成片（render）、半分辨率草稿（--draft）、有声预览（preview）共用 */
+async function encodeVideo(c: Compiled, dir: string, o: { draft?: boolean; preview?: boolean; fps?: number; scale?: number }) {
+  const only = sceneArg(c);
+  const from = only ? Math.max(0, only.t0 - 0.6) : +(flags.from ?? 0), to = only ? only.t1 : +(flags.to ?? c.total);
+  const draft = !!o.draft, preview = !!o.preview, scale = o.scale ?? (draft ? 0.5 : 1), fps = o.fps ?? (draft ? Math.min(15, c.fps) : c.fps);
+  const outDir = join(dir, 'out'); mkdirSync(outDir, { recursive: true });
+  const name = String(flags.out ?? join(outDir, `${only ? only.id : flags.from || flags.to ? `${from.toFixed(0)}-${to.toFixed(0)}` : 'video'}${preview ? '.preview' : draft ? '.draft' : ''}.mp4`));
+  // 宽高取偶数（yuv420p 的要求）
+  const cv = createCanvas(2 * Math.round((c.fmt.W * scale) / 2), 2 * Math.round((c.fmt.H * scale) / 2)), ctx = cv.getContext('2d');
+  const stamp = preview ? textStrokes('预览 · 未确认', { size: 54, color: '#d9433a' }) : null;
+  const inputs: string[] = ['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${cv.width}x${cv.height}`, '-r', String(fps), '-i', '-'];
+  const audio = c.meta.audio ? join(dir, c.meta.audio) : '';
+  const hasVoice = !!audio && existsSync(audio), dur = to - from;
+  let n = 0, voiceIn = -1, sfxIn = -1, musicIn = -1;
+  if (hasVoice) { inputs.push('-ss', String(from), '-t', String(dur), '-i', audio); voiceIn = ++n; }
+  else console.log('  （没有配音文件，成片只有落笔音效' + (c.meta.music ? '和背景音乐' : '') + '）');
+  if (c.meta.sfx !== false) { const sfx = join(outDir, 'sfx.wav'); const r = writeSfx(c, sfx); console.log(`  音效：${r.mode === 'sparse' ? '稀疏' : '密集'}模式，全片 ${r.count} 声（平均每分钟 ${((r.count / c.duration) * 60).toFixed(0)} 声）`); inputs.push('-ss', String(from), '-t', String(dur), '-i', sfx); sfxIn = ++n; }
+  // 背景音乐：循环铺满全片，淡入淡出；有配音时人一开口音乐自动压低（侧链压缩），停顿时再浮上来
+  if (c.meta.music) {
+    const music = join(dir, String(c.meta.music));
+    if (!existsSync(music)) die(`project.yaml 里的 music 指向 ${c.meta.music}，但文件不存在`);
+    inputs.push('-stream_loop', '-1', '-t', String(dur), '-i', music); musicIn = ++n;
+    console.log(`  背景音乐：${c.meta.music}（音量 ${c.meta.musicVolume ?? 0.16}${hasVoice && c.meta.musicDuck !== false ? '，说话时自动压低' : ''}）`);
+  }
+  const ff = ['-y', '-loglevel', 'error', ...inputs];
+  const g = audioGraph({ voiceIn, sfxIn, musicIn, dur, volume: +(c.meta.musicVolume ?? 0.16), duck: c.meta.musicDuck !== false });
+  if (g.filter) ff.push('-filter_complex', g.filter);
+  if (g.map) ff.push('-map', '0:v', '-map', g.map);
+  ff.push('-c:v', 'libx264', '-preset', draft || preview ? 'veryfast' : 'medium', '-crf', preview ? '30' : draft ? '26' : '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', name);
+  const p = spawn('ffmpeg', ff, { stdio: ['pipe', 'inherit', 'inherit'] });
+  p.on('error', () => die('没有找到 ffmpeg，请先安装'));
+  const done = new Promise<number>(r => p.on('close', code => r(code ?? 1)));
+  const total = Math.round((to - from) * fps), started = Date.now();
+  for (let i = 0; i < total; i++) {
+    await prepare(c, from + i / fps);
+    drawFrame(ctx, c, from + i / fps, env, { scale, subtitles: true, pen: penOpt(c) });
+    if (stamp) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 0.55; ctx.translate(cv.width / 2 - (stamp.w * scale) / 2, cv.height * 0.04); ctx.scale(scale, scale); drawStrokes(ctx, env, stamp.strokes); ctx.restore(); }
+    if (!p.stdin.write(cv.data())) await new Promise(r => p.stdin.once('drain', r));
+    if (i % (fps * 10) === 0 && i) console.log(`  ${fmtT(from + i / fps)} / ${fmtT(to)}  （${((i / total) * 100).toFixed(0)}%，已用 ${((Date.now() - started) / 1000).toFixed(0)}s）`);
+  }
+  p.stdin.end();
+  if ((await done) !== 0) die('ffmpeg 合成失败');
+  console.log(preview ? `✓ ${name}  （有声预览，${fps} 帧/秒，${fmtT(from)}–${fmtT(to)}，${((Date.now() - started) / 1000).toFixed(0)}s）\n这是给你自己听着配音看卡点的：画早了、画晚了、空等太久，在这里能听出来。它不是交付物，交给用户确认的仍是审片页。` : `✓ ${name}  （${fmtT(from)}–${fmtT(to)}，${total} 帧，${((Date.now() - started) / 1000).toFixed(0)}s）\n把这个视频文件发给用户看（发文件，不是路径）。用户提了修改意见，按 revising.md 判断该谁改。`);
+}
+
 async function assetSheet() {
   const items: { src: any; label: string }[] = [];
   const only = flags.dir ? String(flags.dir) : null;
@@ -974,6 +1015,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj init <目录> --script <稿.txt>    建项目，只有稿子（之后用 hj voice 配音）
   hj voice <目录>                     配音（火山引擎，付费）：先列出朗读稿给用户确认，确认后才合成
   hj voice <目录> --engine edge       配音（edge-tts，免费）；hj voice --voices 列出音色和默认参数
+  hj voice [<目录>] --probe "一小段"  试读（edge-tts，免费）：列出平台怎么切词，查读法不用重配整条
   hj brief <目录>                     口播逐句时间简报（写计划前先读）
 
   规划者：
@@ -988,6 +1030,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj stills <目录> --draft            草稿关键帧：带水印、半分辨率，自查用（不需要确认）
   hj look <目录>                      全景定稿：每块板讲完时的全景（需先确认计划）→ 交用户确认
   hj stills <目录> [--scene x]        出逐拍的关键帧（需先确认全景定稿）→ 交用户确认
+  hj preview <目录> [--scene x]       有声预览：10 帧/秒、小尺寸、带配音，听着配音看卡点（不需要确认，不交付）
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
   hj cover <目录> [--draft]                封面图：全景 + 手写大标题（标题写在 project.yaml 的 cover 里）
 

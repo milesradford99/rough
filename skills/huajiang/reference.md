@@ -243,6 +243,7 @@ lp:  { doodle: laptop, size: 90, at: dk.surface, anchor: bottom }
 | 形状 | `{ shape: rect, w: 300, h: 180 }` | `rect ellipse circle diamond triangle cloud` |
 | 批注 | `{ note: 写进州宪法, target: safe, side: right }` | 一行小字贴在目标旁边，用细线牵过去。`side`: `right`（默认）`left top bottom`；`gap` 距离；`size` 默认 46；默认灰色。用来补数字、名字、出处 |
 | 数轴 | `{ axis: [0, 4], length: 800, at: [80, 600], unit: 年 }` | 一根带刻度的线，也是一把比例尺。`at` 是起点（第一个数值的位置）；`dir: up` 竖着从下往上；`step` 刻度间隔或 `ticks: [0, 1, 3]` 直接列出；`labels: false` 不写数字。**不画它（不在任何 draw 里），它就只当比例尺**，不会报“定义了没画”。画出来时，横轴的刻度数字写在线的下方约 60px 以内（竖轴写在左侧），这一带别再放别的东西 |
+| 带字的框 | `{ shape: rect, w: 360, h: 140, inside: "只进货基" }` | 框和框里的字是一样东西：一起画完，不会空着框等下一拍。`insideSize` 写字号或档位（不写按框的大小取，放不下自动缩）；`shape` 也可以是 ellipse、cloud 等。字比框还大时报错 |
 | 区间条 | `{ span: [0, 3], on: t, color: blue, inside: 3年 }` | 沿数轴从一个数值画到另一个数值，长度和对齐由数轴算。`at: [0, 400]` 给出它在哪一行：横轴看 y（条的中线），竖轴看 x，另一个数随便写，不写就贴在数轴上方；`h` 粗细（默认 50）；`inside` 写在条里面的字。锚点 `from` / `to` 是两端 |
 | 箭头 | `{ arrow: [a, b], curve: 0.2, label: 交税 }` | 起终点可以是元素 id（自动停在边缘外）、`"id.锚点"` 或 `[x, y]`。`curve` 弯曲程度（正数往箭头前进方向的右手边鼓：从左往右的箭头向下弯，从上往下的向左弯；负数相反）、`both: true` 双向、`head` 箭头大小、`pad` 离元素的距离、`label` 写在箭头中段的小字（`labelSize` 默认 46） |
 | 连线 | `{ line: [a, b] }` | 同箭头，没有箭头尖 |
@@ -349,17 +350,18 @@ seconds: 30                        # 可选：总共滚多少秒；不写按每�
 |---|---|
 | `hj status <目录>` | 现在轮到谁（配音 / 规划者 / 执行者）、下一步做什么 |
 | `hj init <目录> --script <稿.txt>` 或 `--voice <材料>` `[--format portrait\|landscape] [--title 标题]` | 建项目 |
-| `hj voice <目录> [--engine volc\|edge] [--speaker 音色] [--rate 语速] [--pitch 音高] [--redo]` | 配音，见 voice.md。`hj voice --voices` 列出免费音色 |
+| `hj voice <目录> [--engine volc\|edge] [--speaker 音色] [--rate 语速] [--pitch 音高] [--redo]` | 配音，见 voice.md。`hj voice --voices` 列出免费音色；`hj voice [<目录>] --probe "一小段"` 免费试读，列出平台怎么切词 |
 | `hj brief <目录>` | 口播逐句时间简报 |
 | `hj check <目录> [--strict]` | 查计划；有场景后连画面一起查。有错误时退出码为 1；`--strict` 时有警告也算失败 |
-| `hj plan <目录>` | 由 `plan.yaml` 排出分镜计划 `storyboard.md` 和审片页 `out/review/plan.png`、`plan.html`（结构草图） |
+| `hj plan <目录>` | 由 `plan.yaml` 排出分镜计划 `storyboard.md` 和审片页 `out/review/plan-<版本>.png`、`.html`（结构草图） |
 | `hj layouts [名字]` | 版式：现成的分区方案 |
 | `hj approve <目录> script\|plan\|look\|keyframes --by "<用户原话>"` | 记录用户确认。后三道要求这一版的审片页已经生成，且原话里带着图上的四位确认码 |
-| `hj look <目录>` | 全景定稿的审片页 `out/review/look.png`、`look.html`：每块板讲完时的全景和眯眼图（需先确认计划） |
+| `hj look <目录>` | 全景定稿的审片页 `out/review/look-<版本>.png`、`.html`：每块板讲完时的全景和眯眼图（需先确认计划） |
 | `hj scaffold <目录> [--force]` | 照计划生成场景骨架。已有的场景文件不动，`--force` 覆盖 |
 | `hj layout <目录> [--scene 板]` | 布局线框：每个元素最后落在哪儿（坐标表、占用图、线框 PNG）。不需要确认，随时跑 |
 | `hj stills <目录> --draft [--scene 板] [--guides]` | 草稿关键帧：半分辨率、带水印，输出到 `out/draft/`。自查用，不需要确认。`--guides` 画出画板边界。场景有错误时不出图，目录里留着的是旧图 |
-| `hj stills <目录> [--scene 板] [--at 秒数或口播片段]` | 正式关键帧和审片页 `out/review/keyframes.png`、`keyframes.html`（需先确认计划和全景定稿）。`--scene`、`--at` 只出图，不更新审片页 |
+| `hj stills <目录> [--scene 板] [--at 秒数或口播片段]` | 正式关键帧和审片页 `out/review/keyframes-<版本>.png`、`.html`（需先确认计划和全景定稿）。每张卡片写着这一拍的起止和时长，画完之后干等超过 4 秒的标红。`--scene`、`--at` 只出图，不更新审片页 |
+| `hj preview <目录> [--scene 板 \| --from 秒 --to 秒] [--fps 10] [--scale 0.4]` | 有声预览：低帧率、小尺寸、带配音，几十秒出片，输出 `out/video.preview.mp4`。听着配音看卡点，不需要确认，也不交付 |
 | `hj render <目录> [--scene 板 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染（需先确认全景定稿和关键帧）。`--draft` 为半分辨率、15 帧 |
 | `hj cover <目录> [--draft] [--out 文件]` | 封面图 `out/cover.png`。标题写在 project.yaml 的 `cover` 里 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |

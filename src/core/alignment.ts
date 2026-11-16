@@ -161,16 +161,58 @@ export function resolveAnchor(al: Alignment, anchor: string | number, span?: [nu
 
 export interface SubLine { text: string; start: number; end: number }
 
-/** 把口播切成字幕行：按标点断句，过长再对半拆，过短并入相邻行。 */
+/** 断句的标点：字后面挂着的标点里有一个就能断（“吸”，“”这种引号夹着逗号的也算）；”“ 两个引号挨着也算 */
+const BREAK = /[，。？！、；：?!;:]|,(?!\d)|”\s*“/;
+/** 一个字后面不该断开的字：结构助词、语气词 */
+const CLING = /^[的了着过地得吗呢吧啊么]/;
+const OPENERS = /[“‘（(《「『【]+$/;
+
+/** 把口播切成字幕行：按标点断句，过长再拆，过短并入相邻行。
+ *  过长的拆法：在接近均分的位置里挑一个好断的地方——不切在引号里面、不切在“的了着”前面，能落在标点后就落在标点后 */
 export function buildSubtitles(al: Alignment, maxChars: number): SubLine[] {
   const lines: { from: number; to: number }[] = [];
+  const L = (a: number, b: number) => { let n = 0; for (let i = a; i < b; i++) n += al.units[i].text.length; return n; };
+  // 每个字之后还在几层引号 / 括号里
+  const depth: number[] = [];
+  { let d = 0; for (const u of al.units) { for (const ch of u.display) { if ('“‘（(《「『【'.includes(ch)) d++; else if ('”’）)》」』】'.includes(ch)) d = Math.max(0, d - 1); } depth.push(d); } }
+  const splitLong = (from: number, to: number): { from: number; to: number }[] => {
+    const n0 = Math.ceil(L(from, to) / maxChars), a = splitInto(from, to, n0);
+    // 均分的几个位置都不好断（只能切在引号里、“的”前面），就多切一行
+    if (!a.bad) return a.out;
+    const b = splitInto(from, to, n0 + 1);
+    return b.bad ? a.out : b.out;
+  };
+  const splitInto = (from: number, to: number, n: number): { out: { from: number; to: number }[]; bad: boolean } => {
+    const total = L(from, to), out: { from: number; to: number }[] = [];
+    let start = from, bad = false;
+    for (let k = 1; k < n; k++) {
+      const target = (total * k) / n;
+      let best = -1, bestCost = Infinity;
+      for (let i = start + 1; i < to; i++) { // 切在第 i 个字之前
+        const head = L(start, i);
+        if (head > maxChars) break;
+        if (L(i, to) > maxChars * (n - k)) continue;
+        const prev = al.units[i - 1];
+        let cost = Math.abs(L(from, i) - target);
+        if (depth[i - 1] > 0) cost += 6;                      // 切在引号里面
+        if (CLING.test(al.units[i].text)) cost += 5;           // 切在“的了着”前面
+        if (/\p{P}/u.test(prev.display) && depth[i - 1] === 0) cost -= 3; // 落在标点后面
+        if (cost < bestCost) { bestCost = cost; best = i; }
+      }
+      if (best < 0) best = Math.min(to - 1, start + Math.ceil((to - start) / (n - k + 1)));
+      if (depth[best - 1] > 0 || CLING.test(al.units[best].text)) bad = true;
+      out.push({ from: start, to: best }); start = best;
+    }
+    out.push({ from: start, to });
+    return { out, bad };
+  };
   for (const s of al.sentences) {
     let segs: { from: number; to: number }[] = [];
     let from = s.from;
     for (let i = s.from; i < s.to; i++) {
-      if (/[，。？！、；：,?!;:]$/.test(al.units[i].display) || i === s.to - 1) { segs.push({ from, to: i + 1 }); from = i + 1; }
+      if (BREAK.test(al.units[i].display) || i === s.to - 1) { segs.push({ from, to: i + 1 }); from = i + 1; }
     }
-    const len = (g: { from: number; to: number }) => al.units.slice(g.from, g.to).reduce((n, u) => n + u.text.length, 0);
+    const len = (g: { from: number; to: number }) => L(g.from, g.to);
     // 合并过短片段
     const merged: typeof segs = [];
     for (const g of segs) {
@@ -178,17 +220,15 @@ export function buildSubtitles(al: Alignment, maxChars: number): SubLine[] {
       if (last && len(last) + len(g) <= maxChars && (len(g) < 5 || len(last) < 5)) last.to = g.to; else merged.push({ ...g });
     }
     // 拆分过长片段
-    for (const g of merged) {
-      const n = Math.ceil(len(g) / maxChars);
-      if (n <= 1) { lines.push(g); continue; }
-      const per = Math.ceil((g.to - g.from) / n);
-      for (let a = g.from; a < g.to; a += per) lines.push({ from: a, to: Math.min(g.to, a + per) });
-    }
+    for (const g of merged) { if (len(g) <= maxChars) lines.push(g); else lines.push(...splitLong(g.from, g.to)); }
   }
+  // 开引号挂在上一行的末尾（标点跟着前一个字走）：挪到下一行的开头
+  const texts = lines.map(g => al.units.slice(g.from, g.to).map(u => u.display).join(''));
+  for (let i = 0; i < texts.length - 1; i++) { const m = texts[i].match(OPENERS); if (m) { texts[i] = texts[i].slice(0, -m[0].length); texts[i + 1] = m[0] + texts[i + 1]; } }
   return lines.map((g, i) => {
     const us = al.units.slice(g.from, g.to);
     const next = lines[i + 1] ? al.units[lines[i + 1].from].start : Infinity;
-    const text = us.map(u => u.display).join('').replace(/[，。、；：,;:]+$/g, '').replace(/[，、；：]/g, ' ');
+    const text = texts[i].replace(/[，。、；：,;:]+$/g, '').replace(/[，、；：]/g, ' ').replace(/\s+$/, '');
     return { text, start: us[0].start, end: Math.min(us[us.length - 1].end + 0.35, next) };
   });
 }
