@@ -63,16 +63,25 @@ export const LAYOUTS: Record<string, Layout> = {
 /** 板该放大多少：估这块板要放的东西各占多少地方，凑到“全景不挤”的密度。
  *  全景是缩小的整块板，推近才是原大——东西多的板自动变大，全景里每样东西就小一点、空隙多一点。 */
 export function autoBoardSize(b: Pick<PlanBoard, 'segments' | 'hero'>, fmtName: string): number {
+  return Math.min(AUTO_MAX, Math.max(1, Math.round(boardNeed(b, fmtName) * 20) / 20)); // 再大，全景里的小字就看不清了：更多的内容该分板
+}
+/** 按内容量估出来的板该有多大（不封顶） */
+export function boardNeed(b: Pick<PlanBoard, 'segments' | 'hero'>, fmtName: string): number {
   const fb = FORMATS[fmtName] ?? FORMATS.portrait;
   const cast = new Set(b.segments.flatMap(s => s.show)).size, links = new Set(b.segments.flatMap(s => s.link)).size;
   const words = [...new Set(b.segments.flatMap(s => s.words))];
   const need = cast * 48000 + links * 26000 + b.segments.filter(s => s.diagram || s.pattern).length * 90000
     + b.segments.reduce((n, s) => n + s.revisit.length * 12000 + s.joins.length * 15000, 0)
     + words.reduce((n, w) => n + (w === b.hero ? wordLen(w) * 108 * 150 : wordLen(w) * 56 * 90), 0);
-  const k = Math.sqrt(need / (AUTO_FILL * fb.board.w * fb.board.h));
-  return Math.min(1.4, Math.max(1, Math.round(k * 20) / 20)); // 再大，全景里的小字就看不清了：更多的内容该分板
+  return Math.sqrt(need / (AUTO_FILL * fb.board.w * fb.board.h));
 }
 const AUTO_FILL = 0.46;
+/** 自动定的板最大几屏。超过 1.6 屏，全景里的小字已经偏小（检查会提醒） */
+export const AUTO_MAX = 2.0;
+/** 一块板放得下多少字的板书：和 hj check 对画面的检查用同一个数（每一屏的面积 110 字） */
+export const WORDS_PER_SCREEN = 110;
+/** 每块板的大小。它不算在计划的版本号里：调大小是构图的事，由全景定稿那一道确认 */
+export const boardSizes = (plan: Pick<Plan, 'boards'>) => plan.boards.map(b => [b.id, b.size ?? 1]);
 
 export const ACTS = ['设问', '说法', '理由', '例子', '算账', '数据', '对比', '转折', '推翻', '结论', '补充'];
 /** 角色的长相只能是“画出来的东西”，不能是一行字或一个框 */
@@ -125,7 +134,8 @@ export function loadPlan(dir: string): Plan | null {
   for (const b of boards) if (b.size == null && b.recall) { const o = boards.find(x => x.id === b.recall); if (o?.size != null) { b.size = o.size; b.autoSize = true; } }
   const ap = loadAppendix(dir);
   const plan = { thesis: String(raw.thesis ?? ''), cast, relations, boards, ...(ap.appendix ? { appendix: ap.appendix } : {}) };
-  const hash = createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16);
+  // 板的大小不算进计划的版本号：放大缩小只改构图，不改讲什么。它算在全景定稿和关键帧的版本号里
+  const hash = createHash('sha256').update(JSON.stringify({ ...plan, boards: boards.map(({ size: _s, autoSize: _a, ...rest }) => rest) })).digest('hex').slice(0, 16);
   // 记下原始字段，检查时报“不认识的字段”（不参与版本号）
   return Object.assign({ ...plan, hash }, { __raw: raw });
 }
@@ -250,6 +260,13 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
       if (ud && rows < 2) warn(where, `picture 或 intent 里写了“${ud[0]}”，但这块板的分区只有一行，是左右排的。照实际的分区改写成“左边、右边”，或者自己写 grid 分成上下两行`);
     }
     if (wordLen(b.picture) < 10) err(where, 'picture 没有写清楚：这块板讲完是一张什么图（有哪几块、什么形状、怎么连）。这句话会原样给用户看');
+    // 容量：在规划时就估一下这块板装不装得下，别等画完一百多样东西才发现挤
+    { const k = Array.isArray(b.size) ? b.size.map(Number) : [+(b.size ?? 1), +(b.size ?? 1)], area = (k[0] || 1) * (k[1] ?? k[0] ?? 1);
+      const chars = [...new Set(b.segments.flatMap(s => s.words))].reduce((n, w) => n + wordLen(w), 0), need = boardNeed(b, fmt.name);
+      if (b.autoSize && need > AUTO_MAX + 0.05) warn(where, `这块板的内容按量算要 ${need.toFixed(1)} 屏大，自动定的大小最多 ${AUTO_MAX} 屏，装不下会很挤。把它拆成两块板（后一块 recall 前一块），或者删掉次要的板书和角色；确实要一块板就写 size: ${Math.min(5, Math.ceil(need * 10) / 10)}（全景里的字会更小）`);
+      else if (chars > WORDS_PER_SCREEN * area * 0.85) warn(where, `这块板的板书一共 ${chars} 个字，${+area.toFixed(2)} 屏的板放 ${Math.round(WORDS_PER_SCREEN * area)} 个字就满了。画完会显得挤：删掉一些板书（留给字幕），${b.autoSize ? '或者写 size 把板放大' : '或者把 size 调大'}`);
+      else if (b.autoSize && +(b.size ?? 1) > 1.6) warn(where, `这块板的内容多，引擎把它放到了 ${b.size} 屏大：全景里每样东西只有原大的 ${Math.round(100 / +(b.size ?? 1))}%，小字会看不清。能拆就拆成两块板（后一块 recall 前一块）；不拆就让主角和关键数字用大字`);
+    }
     if (b.recall && !plan.boards.slice(0, bi).some(p => p.id === b.recall)) err(where, `recall 要写前面某块板的 id，没有找到 "${b.recall}"`);
     const { regions, errors: ge } = planRegions(b, fmt);
     for (const m of ge) err(where, m);
@@ -358,6 +375,26 @@ function sceneAnchor(al: Alignment, at: string, boardStart: number, time: number
   return n > 1 ? `${m[1]}#${n}${m[3]}` : `${m[1]}${m[3]}`;
 }
 
+/** 一段里的板书各在什么时候说到：板书和口播共有的最长一截（至少两个字），在这一段里第一次说出来的时刻。
+ *  离段首超过 1.5 秒的，返回成单独的一拍（同一时刻说到的几处合成一拍） */
+export function spokenLater(al: Alignment, words: { id: string; w: string }[], t0: number, t1: number): { at: string; time: number; ids: string[] }[] {
+  const idx = al.units.map((u, i) => [u, i] as const).filter(([u]) => u.start >= t0 - 1e-6 && u.start < t1 - 1e-6).map(([, i]) => i);
+  if (!idx.length) return [];
+  const f0 = al.flatUnit.indexOf(idx[0]), f1 = al.flatUnit.lastIndexOf(idx[idx.length - 1]) + 1, seg = al.flat.slice(f0, f1);
+  const out: { at: string; time: number; ids: string[] }[] = [];
+  for (const { id, w } of words) {
+    const p = stripPunct(w);
+    let hit: { sub: string; k: number } | null = null;
+    for (let n = Math.min(p.length, 8); n >= 2 && !hit; n--) for (let a = 0; a + n <= p.length; a++) { const sub = p.slice(a, a + n), k = seg.indexOf(sub); if (k >= 0 && (!hit || k < hit.k)) hit = { sub, k }; }
+    if (!hit) continue;
+    const time = al.units[al.flatUnit[f0 + hit.k]].start;
+    if (time - t0 < 1.5 || time >= t1 - 0.3) continue;
+    const same = out.find(x => Math.abs(x.time - time) < 0.6);
+    if (same) same.ids.push(id); else out.push({ at: hit.sub, time, ids: [id] });
+  }
+  return out.sort((a, b) => a.time - b.time);
+}
+
 export function scaffold(plan: Plan, b: PlanBoard, fmt: Format, al: Alignment, duration: number): string {
   const B = boardBox(b, fmt), { regions } = planRegions(b, fmt), L: string[] = [];
   const bi = plan.boards.indexOf(b), ts = segmentTimes(plan, al, duration).times.filter(t => t.board === bi), boardStart = bi === 0 ? 0 : ts[0]?.anchor ?? 0;
@@ -385,10 +422,14 @@ export function scaffold(plan: Plan, b: PlanBoard, fmt: Format, al: Alignment, d
     for (const j of s.joins) L.push(`  # 要你画一条线，把分区 ${j} 和 ${s.in} 连起来（箭头、括号、连线：两头分别落在两个分区里）`);
     if (s.diagram) L.push(`  # 要你画的图：${s.diagram}${s.pattern ? `（可以用手法 ${s.pattern}：hj patterns ${s.pattern}）` : ''}`);
     else if (s.pattern) L.push(`  # 可以用手法 ${s.pattern}：hj patterns ${s.pattern}`);
+    // 板书说到才写：这一段口播里过一会儿才说到的板书，单独起一拍卡在说到它的那几个字上
+    const later = Number.isFinite(ts[si]?.anchor) ? spokenLater(al, texts.filter(t => t.seg === si).map(t => ({ id: t.id, w: t.w })), ts[si].anchor, ts[si].t1) : [];
+    const lateIds = new Set(later.flatMap(x => x.ids)), first = draw.filter(id => !lateIds.has(id));
     L.push(`  - at: ${q(Number.isFinite(ts[si]?.anchor) ? sceneAnchor(al, s.at, boardStart, ts[si].anchor) : s.at)}`, `    intent: ${q(s.intent)}`, '    do:');
-    if (draw.length) L.push(`      - draw: [${draw.join(', ')}]`);
+    if (first.length) L.push(`      - draw: [${first.join(', ')}]`);
     for (const id of s.revisit) L.push(`      - draw: { mark: circle, target: ${id} }    # 回头改 ${plan.cast[id]?.name ?? id}：换成更贴切的动作（打叉、划掉、改数字、换表情、再连一条线）`);
-    if (!draw.length && !s.revisit.length) L.push('      - wait: 0.1    # 这一段的图还没画：在 elements 里定义它，然后在这里 draw');
+    if (!first.length && !s.revisit.length) L.push(later.length ? '      - wait: 0.1    # 这一段先说的话还没有画面：把这一段要画的东西放到这一拍' : '      - wait: 0.1    # 这一段的图还没画：在 elements 里定义它，然后在这里 draw');
+    for (const x of later) L.push(`  - at: ${q(sceneAnchor(al, x.at, boardStart, x.time))}    # 说到“${x.at}”才写（${fmtT(x.time)}）`, `    intent: ${q(`写下${x.ids.map(id => `“${texts.find(t => t.id === id)!.w}”`).join('、')}`)}`, '    do:', `      - draw: [${x.ids.join(', ')}]`);
   });
   return L.join('\n') + '\n';
 }
@@ -459,7 +500,7 @@ export function conform(c: Compiled): Issue[] {
     b.segments.forEach((s, si) => {
       const tm = times.find(t => t.board === bi && t.seg === si)!; if (!Number.isFinite(tm.t0)) return;
       const where = `${sc.file} / 第 ${si + 1} 段（${s.at}）`, t0 = tm.t0, t1 = tm.t1;
-      if (!sc.beats.some(be => Math.abs(be.t - tm.anchor) < 0.08)) { const want = sceneAnchor(c.al, s.at, bi === 0 ? 0 : sc.t0, tm.anchor); err(where, `计划里这一段从 "${s.at}"（${fmtT(tm.anchor)}）开始，场景里没有卡在这一刻的节拍。加一拍 at: "${want}"（一段里可以再加别的拍，但段的起点不能丢）`); }
+      if (!sc.beats.some(be => Math.abs(be.anchor - tm.anchor) < 0.08)) { const want = sceneAnchor(c.al, s.at, bi === 0 ? 0 : sc.t0, tm.anchor); err(where, `计划里这一段从 "${s.at}"（${fmtT(tm.anchor)}）开始，场景里没有卡在这一刻的节拍。加一拍 at: "${want}"（一段里可以再加别的拍，但段的起点不能丢）`); }
       for (const id of s.show) {
         if (introduced.has(id)) continue; introduced.add(id);
         const ft = firstShown(id);
@@ -485,7 +526,7 @@ export function conform(c: Compiled): Issue[] {
       }
       // 这一段有没有真的画东西（不是只写字）
       const news = tls.filter(t => { const st = shownAt(t); return st >= t0 - 1.2 && st < t1; });
-      const nonText = news.some(t => !['text', 'note'].includes(t.el.kind)) || acts.some(a => a.t0 >= t0 - 0.6 && a.t0 < t1 && !['draw', 'camera', 'wait', 'pop', 'fade'].includes(a.verb));
+      const nonText = news.some(t => !['text', 'note'].includes(t.el.kind) && !(t.el.kind === 'shape' && t.el.src?.inside != null)) /* 框里写字还是字 */ || acts.some(a => a.t0 >= t0 - 0.6 && a.t0 < t1 && !['draw', 'camera', 'wait', 'pop', 'fade'].includes(a.verb));
       const hit = (bx: { x: number; y: number; w: number; h: number }, rn: string) => { const r = sc.regions?.find(x => x.name === rn)?.box; return !!r && bx.x < r.x + r.w && bx.x + bx.w > r.x && bx.y < r.y + r.h && bx.y + bx.h > r.y; };
       for (const j of s.joins) if (s.in && !news.some(t => ['arrow', 'line', 'mark', 'span', 'shape'].includes(t.el.kind) && hit(t.el.box, j) && hit(t.el.box, s.in!))) err(where, `计划要在这一段画一条线，把分区 "${j}" 和 "${s.in}" 连起来，这一段新画的东西里没有哪一条线同时碰到这两个分区。画一条箭头、连线或括号，两头分别落在两个分区里`);
       if (!nonText && !revisited) err(where, news.length ? '这一段只写了字，没有画任何东西。计划里这一段是有画面的：把它画出来（手绘件、小人、箭头、横条、图表、标记）' : '这一段什么都没画。照计划的 intent 把它画出来');

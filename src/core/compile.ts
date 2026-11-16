@@ -9,7 +9,7 @@ import { POSES, FACES, type Pose } from './figure';
 import { FORMATS, THEME, type Format } from './theme';
 import { type Pt, type Box, unionBox } from './strokes';
 import { PATTERNS } from './patterns';
-import { loadPlan, planRegions, checkPlan, type Plan } from './plan';
+import { loadPlan, planRegions, checkPlan, boardSizes, type Plan } from './plan';
 import { loadAppendix, layoutAppendix, appendixTiming, type AppendixLayout } from './appendix';
 
 export interface Issue { level: 'error' | 'warn' | 'info'; where: string; msg: string }
@@ -32,7 +32,7 @@ export interface EraseGroup { t0: number; t1: number; style: 'wipe' | 'fade'; pa
 export interface CamSeg { t0: number; t1: number; to: Cam; cut?: boolean; /** 对准的是一个分区（一块地盘），不是具体的东西 */ region?: boolean }
 export interface Cam { cx: number; cy: number; zoom: number }
 export interface CAction { verb: string; ids: string[]; t0: number; t1: number; natural: number; desc: string }
-export interface CBeat { at: string | number; t: number; tEnd: number; intent: string; actions: CAction[]; say: string; shaky: boolean; compress: number }
+export interface CBeat { at: string | number; t: number; /** 卡点那几个字开口的时刻（t 是减去 lead 之后的起笔时刻） */ anchor: number; tEnd: number; intent: string; actions: CAction[]; say: string; shaky: boolean; compress: number }
 export interface CScene { recall?: string; id: string; file: string; index: number; t0: number; t1: number; origin: Pt; intent: string; enter: string; beats: CBeat[]; els: string[]; say: string; home: Cam; regions?: { name: string; box: Box }[]; /** 这块板的画板（可能比屏幕大） */ board: Box; /** 这块板在世界里占的宽度 */ span: number }
 export interface Compiled {
   dir: string; meta: any; fmt: Format; fps: number; al: Alignment; duration: number;
@@ -331,16 +331,16 @@ export function compile(dir: string): Compiled {
     // ── 节拍 ──
     const beats: any[] = Array.isArray(src.beats) ? src.beats : [];
     if (!beats.length) warn(file, '这个场景没有任何节拍（beats），画面会是空的');
-    const beatTimes: { t: number; shaky: boolean }[] = beats.map((b, bi) => {
+    const beatTimes: { t: number; shaky: boolean; anchor: number }[] = beats.map((b, bi) => {
       const where = `${file} / 节拍 ${bi + 1}`;
-      if (b?.at == null) { err(where, '缺少 at：写上触发这个节拍的口播原文片段'); return { t: NaN, shaky: false }; }
+      if (b?.at == null) { err(where, '缺少 at：写上触发这个节拍的口播原文片段'); return { t: NaN, shaky: false, anchor: NaN }; }
       try {
         const r = resolveAnchor(al, b.at, [t0, t1]);
         if (typeof b.at === 'number') warn(where, `at 用了写死的秒数 ${b.at}，换配音后不会跟着变；尽量改成口播原文`);
         if (r.ambiguous) warn(where, `"${b.at}" 在本场景口播里出现了 ${r.ambiguous + 1} 次，现在取的是第 1 次；用 "…#2" 指明，或把片段写长一点`);
         if (r.shaky) warn(where, `"${b.at}" 落在时间不可靠的字上（低置信度/待复核），卡点可能偏；可以换成相邻的字，或渲染后听审微调`);
-        return { t: r.time - (b.lead ?? 0), shaky: r.shaky };
-      } catch (e: any) { err(where, e.message); return { t: NaN, shaky: false }; }
+        return { t: r.time - (b.lead ?? 0), shaky: r.shaky, anchor: r.time };
+      } catch (e: any) { err(where, e.message); return { t: NaN, shaky: false, anchor: NaN }; }
     });
     // 把 {step: 名字} 换成手法给出的那组动作；写在 step 上的 at/with/delay 作用于这组动作的第一个
     const expand = (list: any, where?: string): any[] => {
@@ -398,7 +398,7 @@ export function compile(dir: string): Compiled {
       if (bi > 0 && !Number.isNaN(beatTimes[bi - 1].t) && bt < beatTimes[bi - 1].t) err(where, `节拍时间（${bt.toFixed(2)}s）比上一个节拍还早，节拍要按口播顺序写`);
       const nextAnchor = Math.min(next, t1);
       const endUnit = al.units.filter(u => u.start >= bt + (b.lead ?? 0) - 1e-6 && u.start < nextAnchor - 1e-6);
-      const beat: CBeat = { at: b.at, t: bt, tEnd: next, intent: String(b.intent ?? ''), actions: [], say: endUnit.map(u => u.display).join(''), shaky: beatTimes[bi].shaky, compress: 1 };
+      const beat: CBeat = { at: b.at, t: bt, anchor: beatTimes[bi].anchor, tEnd: next, intent: String(b.intent ?? ''), actions: [], say: endUnit.map(u => u.display).join(''), shaky: beatTimes[bi].shaky, compress: 1 };
       scene.beats.push(beat);
       if (!beat.intent) err(where, '缺少 intent：用一句人话说明这一拍画面上发生什么');
       const acts = expand(b.do, where);
@@ -674,7 +674,9 @@ export function compile(dir: string): Compiled {
         const fset = new Set(p.items.map(it => it.id));
         const beat = [...local.values()].filter(tl => !fset.has(tl.el.id) && !['axis', 'arrow', 'line', 'mark'].includes(tl.el.kind) && bornOf(tl.el.id) >= p.ev.t0 - 0.1 && bornOf(tl.el.id) <= p.ev.t1 + 1.2).map(tl => (tl.el.kind === 'note' ? tl.el.solid : tl.el.box));
         if (beat.length && camFor(unionBox([...boxes, ...beat]), p.pad, p.maxZoom).zoom >= z0 * 0.75) boxes = [...boxes, ...beat];
-        { const first = unionBox(boxes), cam = whole(first, b => camFor(b, p.pad, p.maxZoom), p.ev.t1 + 1.2); p.ev.to = cam; }
+        { const first = unionBox(boxes), zf = camFor(first, p.pad, p.maxZoom).zoom, cam = whole(first, b => camFor(b, p.pad, p.maxZoom), p.ev.t1 + 1.2); p.ev.to = cam;
+          // 自己写的近景被引擎拉远了：说出来，不然作者只看到“推近变成了全景”却不知道为什么
+          if (cam === home || cam.zoom < zf * 0.7) issues.push({ level: 'info', where: `${file} / ${fmtTime(p.ev.t0)} 的 camera`, msg: `这个近景${cam === home ? '被换成了全景' : `只推到了 ${(cam.zoom / (home.zoom || 1)).toFixed(2)} 倍（想要的是 ${(zf / (home.zoom || 1)).toFixed(2)} 倍）`}：画面边会从板上已经画好的东西中间切过去，引擎就拉开了。focus 里少放几样，或者把挨着的东西挪开一点` }); }
         let lastT = p.ev.t1, lastCam = p.ev.to;
         for (const it of later) {
           boxes = [...boxes, it.box]; CB = sofar(it.born + 0.5);
@@ -741,20 +743,21 @@ export function compile(dir: string): Compiled {
     // 这里把每一段近景过一遍：这样的变化发生时，镜头先拉开到装得下它（箭头连同它的两头），画完再推回去。
     // 这是引擎保证的，不靠分镜自觉；meta.seeWhole: false 关掉
     if (meta.seeWhole !== false) {
-      const FB = fmt.board, hz = home.zoom || 1;
+      const FB = fmt.board, hz = home.zoom || 1, explicitEvs = new Set(pendingCams.map(p => p.ev));
       const sceneEnd = (tl: TL) => tl.erase != null && erases[tl.erase].t0 >= t1 - 0.7;
       const endsOf = (el: El): Box[] => (el.kind !== 'arrow' && el.kind !== 'line' ? [] : [].concat(el.src.arrow ?? el.src.line ?? []).flatMap((r: any) => { const tl = typeof r === 'string' ? local.get(r.split('.')[0].split('@')[0]) : undefined; return tl && tl.el.kind !== 'axis' && (tl.drawT0 != null || tl.appear) ? [tl.el.box] : []; }));
-      const needs: { t0: number; t1: number; box: Box }[] = [];
+      const needs: { t0: number; t1: number; box: Box; id: string }[] = [];
       for (const tl of local.values()) {
-        if (tl.el.kind === 'axis' || tl.recalled) continue;
+        if (tl.el.kind === 'axis' || tl.recalled || isDivider(tl.el)) continue; // 不连着任何东西、没有小字的线（分隔线）只是装饰：画它不拉远镜头
         const box = unionBox([tl.el.box, ...endsOf(tl.el)]);
         if (box.w <= 0 && box.h <= 0) continue;
-        if (tl.drawT0 != null) needs.push({ t0: tl.drawT0, t1: tl.drawT1 ?? tl.drawT0, box });
-        if (tl.appear) needs.push({ t0: tl.appear.t, t1: tl.appear.t + tl.appear.dur, box });
-        for (const k of tl.shakes) needs.push({ t0: k.t0, t1: k.t1, box });
-        for (const k of tl.poses) needs.push({ t0: k.t0, t1: k.t1, box });
-        for (const m of tl.moves) needs.push({ t0: m.t0, t1: m.t1, box: unionBox([shifted(tl.el.box, m.from), shifted(tl.el.box, m.to)]) });
-        if (tl.erase != null && !sceneEnd(tl)) needs.push({ t0: erases[tl.erase].t0, t1: erases[tl.erase].t1, box });
+        const id = tl.el.id;
+        if (tl.drawT0 != null) needs.push({ t0: tl.drawT0, t1: tl.drawT1 ?? tl.drawT0, box, id });
+        if (tl.appear) needs.push({ t0: tl.appear.t, t1: tl.appear.t + tl.appear.dur, box, id });
+        for (const k of tl.shakes) needs.push({ t0: k.t0, t1: k.t1, box, id });
+        for (const k of tl.poses) needs.push({ t0: k.t0, t1: k.t1, box, id });
+        for (const m of tl.moves) needs.push({ t0: m.t0, t1: m.t1, box: unionBox([shifted(tl.el.box, m.from), shifted(tl.el.box, m.to)]), id });
+        if (tl.erase != null && !sceneEnd(tl)) needs.push({ t0: erases[tl.erase].t0, t1: erases[tl.erase].t1, box, id });
       }
       needs.sort((a, b) => a.t0 - b.t0);
       const fits = (b: Box, v: Box, m = 6) => b.x >= v.x + m && b.y >= v.y + m && b.x + b.w <= v.x + v.w - m && b.y + b.h <= v.y + v.h - m;
@@ -776,6 +779,8 @@ export function compile(dir: string): Compiled {
         // 拉开的那一段里要变的东西全框进来；不是一开头就拉开时，原来看着的那一块也留在画面里
         const W = fit(unionBox([...mine.filter(n => n.t0 <= uEnd && (early || n.t0 >= uStart - 0.05)).map(n => n.box), ...(early ? [] : [viewBox(C)])]), C.zoom, uStart);
         const wT0 = early ? ev.t0 : Math.max(ev.t1 + 0.1, uStart - 1);
+        // 自己写的近景被拉远了三成以上：指名是哪样东西伸出了画面
+        if (explicitEvs.has(ev) && (W === home || W.zoom < C.zoom * 0.7)) issues.push({ level: 'info', where: `${file} / ${fmtTime(ev.t0)} 的 camera`, msg: `这个近景${early ? '' : `在 ${fmtTime(wT0)} `}被拉${W === home ? '回全景' : `远到 ${(W.zoom / hz).toFixed(2)} 倍（原来 ${(C.zoom / hz).toFixed(2)} 倍）`}：${[...new Set(out.map(n => `"${n.id}"`))].slice(0, 4).join('、')} 在这期间画出来（或变化）时伸出了画面，观众得看到它整个。想保住这个近景，就把它挪到全景的那一拍去画，或者画短一点` });
         if (early) ev.to = W;
         else added.push({ t0: wT0, t1: uStart, to: W });
         // 画完之后推回原来的近景：和拉开那一下至少隔三秒半（镜头不来回晃），推回去之后还得有三秒可看
@@ -807,7 +812,7 @@ export function compile(dir: string): Compiled {
   const sceneHash = createHash('sha256').update(JSON.stringify({ format: fmt.name, scenes: srcScenes.map(s => [s.src.from, s.src.intent, s.src.enter, ...(s.src.recall != null ? [s.src.recall] : []), [].concat(s.src.pattern ?? []).map((x: any) => (typeof x === 'string' ? x : x?.kind)), (s.src.beats ?? []).map((b: any) => [b?.at, b?.intent])]) })).digest('hex').slice(0, 16);
   tls.sort((a, b) => a.order - b.order);
   // 有计划时，第一道确认认的是计划本身：执行者怎么画不会让它失效
-  const planHash = plan ? plan.hash : sceneHash, keyHash = plan ? createHash('sha256').update(plan.hash + sceneHash).digest('hex').slice(0, 16) : sceneHash;
+  const planHash = plan ? plan.hash : sceneHash, keyHash = plan ? createHash('sha256').update(plan.hash + JSON.stringify(boardSizes(plan)) + sceneHash).digest('hex').slice(0, 16) : sceneHash;
   if (plan) issues.push(...checkPlan(plan, al, fmt, duration, dir));
   // 附录：排在最后一块板全景的正下方。镜头从全景出发，放到原大（附录按一屏的字号排），一路往下滚到最后一条停在画面中间偏上
   const apx = loadAppendix(dir);
@@ -828,6 +833,10 @@ export function compile(dir: string): Compiled {
   }
   return { dir, meta, fmt, fps, al, duration, total, ...(appendix ? { appendix } : {}), scenes, tls, erases, cams: camEvents, subs, issues, planHash: apx.appendix && !plan ? createHash('sha256').update(planHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : planHash, keyHash: apx.appendix && !plan ? createHash('sha256').update(keyHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : keyHash, ...(plan ? { plan } : {}), castUse };
 }
+
+const fmtTime = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+/** 分隔线：两头都是坐标（不连着任何东西）、也没有小字的线。它只是装饰，画它时镜头不必拉开看全 */
+export const isDivider = (el: El) => el.kind === 'line' && !el.src?.label && [].concat(el.src?.line ?? []).every((q: any) => Array.isArray(q));
 
 function describe(el: El): string {
   const s = el.src;
