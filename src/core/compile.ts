@@ -4,11 +4,11 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { loadAlignment, resolveAnchor, buildSubtitles, type Alignment, type SubLine } from './alignment';
-import { buildElement, SrcError, KINDS, THING_TIERS, depsOf, decimalsOf, type El, type BuildCtx } from './elements';
+import { buildElement, SrcError, KINDS, THING_TIERS, depsOf, decimalsOf, loadDoodle, type El, type BuildCtx } from './elements';
 import { EASES, numberIn, remade, type Morph } from './live';
 import { POSES, FACES, type Pose } from './figure';
 import { FORMATS, THEME, color, type Format } from './theme';
-import { type Pt, type Box, unionBox } from './strokes';
+import { type Pt, type Box, type Stroke, unionBox, cloneStrokes } from './strokes';
 import { PATTERNS } from './patterns';
 import { loadPlan, planRegions, checkPlan, boardSizes, type Plan } from './plan';
 import { loadAppendix, layoutAppendix, appendixTiming, type AppendixLayout } from './appendix';
@@ -32,9 +32,15 @@ export interface TL {
   morphs: Morph[];
   /** 它引用的、会挪动或变化的元素：它们一变，它就照新的样子重新生成（箭头跟着两头走、标签跟着横条走） */
   live?: string[];
+  /** become 时从原地走过去、变成另一样东西的那个替身 */
+  ghost?: boolean;
   /** 换一组参数、按另一组周围元素重新生成自己（不再避让） */
   remake?: (patch: Record<string, any>, els: Map<string, El>) => El;
 }
+/** 流动：小记号沿着一条或几条首尾相接的线走（钱在转、货在送、消息在传） */
+export interface FlowFx { scene: number; t0: number; t1: number; ids: string[]; token: Stroke[]; n: number; loop: number }
+/** 点亮：顺着一条线用荧光笔描一遍，until 之后淡掉 */
+export interface TraceFx { scene: number; id: string; t0: number; t1: number; color: string; w: number; until: number }
 export interface EraseGroup { t0: number; t1: number; style: 'wipe' | 'fade'; path: number[]; width: number; scene: number }
 export interface CamSeg { t0: number; t1: number; to: Cam; cut?: boolean; /** 对准的是一个分区（一块地盘），不是具体的东西 */ region?: boolean }
 export interface Cam { cx: number; cy: number; zoom: number }
@@ -55,11 +61,14 @@ export interface Compiled {
   /** 片尾的滚动附录：排在最后一块板的正下方，t0 起镜头往下走 */
   appendix?: { layout: AppendixLayout; x: number; y: number; t0: number; t1: number; from: Cam; dist: number; speed: number };
   castUse?: Map<string, CastUse>;
+  /** 画在元素之上的效果：流动的小记号、点亮的路线 */
+  fx: { flows: FlowFx[]; traces: TraceFx[]; /** become 时走过去的替身：只画，不进元素清单 */ ghosts: TL[] };
 }
 
-const NATURAL: Record<string, number> = { change: 0.8, grow: 0.9, count: 1.1, move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
-const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'change', 'grow', 'count', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
-const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'from', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay', 'ease'];
+const NATURAL: Record<string, number> = { become: 1.4, change: 0.8, grow: 0.9, count: 1.1, move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
+const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'change', 'grow', 'count', 'flow', 'become', 'trace', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
+const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'from', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay', 'ease', 'token', 'n', 'loop', 'keep', 'color', 'size'];
+const pathLen = (p?: number[]) => { let L = 0; if (p) for (let i = 2; i < p.length; i += 2) L += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]); return L; };
 /** change 能改哪些参数：每种元素只开放几样，改的是“量”，不是换一样东西 */
 const CHANGE_KEYS: Record<string, string[]> = { span: ['span', 'h', 'color'], chart: ['data', 'color'], shape: ['w', 'h', 'size', 'color'], text: ['color'], note: ['color'], arrow: ['color'], line: ['color'], mark: ['color'], doodle: ['color'], icon: ['color'], parts: ['color'] };
 /** 让元素出现的动作 */
@@ -163,7 +172,7 @@ export function compile(dir: string): Compiled {
     starts.push(t);
   });
 
-  const scenes: CScene[] = [], tls: TL[] = [], erases: EraseGroup[] = [], camEvents: CamSeg[] = [];
+  const scenes: CScene[] = [], tls: TL[] = [], erases: EraseGroup[] = [], camEvents: CamSeg[] = [], flows: FlowFx[] = [], traces: TraceFx[] = [], ghosts: TL[] = [];
   const framed = new Map<string, Box>();
   let nextX = 0;
   const screenC: Pt = [fmt.W / 2, fmt.H / 2], boardC: Pt = [fmt.board.x + fmt.board.w / 2, fmt.board.y + fmt.board.h / 2];
@@ -231,7 +240,7 @@ export function compile(dir: string): Compiled {
       return [v];
     };
     const idsOf = (v: any): any => (typeof v === 'string' ? (ids1(v).length === 1 && ids1(v)[0] === v ? v : ids1(v)) : Array.isArray(v) ? v.flatMap(x => (typeof x === 'string' ? ids1(x) : [x])) : v);
-    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale', 'change', 'grow', 'count'];
+    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale', 'change', 'grow', 'count', 'flow', 'trace', 'become'];
     const withGroups = (a: any): any => {
       if (!a || typeof a !== 'object') return a;
       const o = { ...a };
@@ -373,6 +382,7 @@ export function compile(dir: string): Compiled {
       if (Number.isNaN(bt)) return;
       expand(b?.do).forEach((a, ai) => {
         if (!a || typeof a !== 'object') return;
+        if (Array.isArray(a.become) && a.become.length === 2 && typeof a.become[1] === 'string' && !life.has(a.become[1])) life.set(a.become[1], [bt, Infinity]);
         const verb = [...APPEAR, 'erase', 'hide'].find(v => v in a);
         if (!verb) return;
         const tgs: any[] = Array.isArray(a[verb]) ? a[verb] : [a[verb]];
@@ -446,6 +456,8 @@ export function compile(dir: string): Compiled {
         if (verb === 'draw') {
           ids.forEach((eid, k) => { const x = mk([eid], a.dur != null ? a.dur / ids.length : naturalDraw(local.get(eid)!.el), k === 0 ? !!a.with : false); if (k > 0) x.atTime = undefined; list.push(x); });
         } else if (verb === 'wait') list.push(mk([], +a.wait || 0));
+        else if (verb === 'flow') { const L = ids.reduce((n, i) => n + pathLen(local.get(i)?.el.path), 0), nn = +(a.n ?? 1); list.push(mk(ids, a.dur ?? Math.min(2.6, Math.max(0.8, L / 480)) * (+(a.loop ?? 1) + (nn - 1) / nn))); }
+        else if (verb === 'trace') list.push(mk(ids, a.dur ?? ids.reduce((n, i) => n + (local.get(i)?.el.path ? Math.max(0.35, pathLen(local.get(i)!.el.path) / 800) : 0.25), 0)));
         else if (verb === 'camera' || ids.length) list.push(mk(ids, a.dur ?? NATURAL[verb] ?? 0.4));
       });
 
@@ -609,6 +621,69 @@ export function compile(dir: string): Compiled {
             if (shown) morphNow.set(el.id, toFull);
           }
           desc = `数字滚动 ${ids.join('、')}${o.to != null ? ` 到 ${o.to}` : ''}`;
+        } else if (a.verb === 'flow') {
+          // 流动：小记号沿着线走。几条线首尾相接就是一圈（钱借出去、付出去、存回来）
+          const ok = tlsOf.filter(need), bad = ok.find(tl => !tl.el.path);
+          const n = +(o.n ?? 1), loop = +(o.loop ?? 1);
+          if (bad) err(aw, `flow 沿着箭头或连线流动，"${bad.el.id}" 是 ${bad.el.kind}。写一条线，或几条首尾相接的线：{ flow: [lend, pay, back] }`);
+          else if (!(Number.isInteger(n) && n >= 1 && n <= 8)) err(aw, 'flow 的 n 写同时有几个记号在走，1 到 8');
+          else if (!(Number.isInteger(loop) && loop >= 1 && loop <= 10)) err(aw, 'flow 的 loop 写走几趟，1 到 10');
+          else if (ok.length) {
+            for (let i = 1; i < ok.length; i++) {
+              const p = ok[i - 1].el.path!, q = ok[i].el.path!, gap = Math.hypot(q[0] - p[p.length - 2], q[1] - p[p.length - 1]);
+              if (gap > 260) warn(aw, `flow 的 "${ok[i - 1].el.id}" 和 "${ok[i].el.id}" 首尾没接上（隔了 ${gap.toFixed(0)} 像素），记号会从一头跳到另一头。按顺序写首尾相接的线：前一条指向谁，后一条就从谁出发`);
+            }
+            const col = o.color ?? 'blue', tk = o.token ?? 'dot';
+            let tsrc: any = null;
+            if (tk === 'dot') tsrc = { shape: 'circle', size: o.size ?? 24, color: col, fill: col, fillStyle: 'solid', fillAlpha: 1, shade: false };
+            else if (typeof tk === 'string' && /^[\w-]+$/.test(tk) && loadDoodle(tk, dir)) tsrc = { doodle: tk, size: o.size ?? 60, shade: false };
+            else if ((typeof tk === 'string' || typeof tk === 'number') && String(tk).length <= 6) tsrc = { text: String(tk), size: o.size ?? 42, color: col, weight: 'bold' };
+            if (!tsrc) err(aw, 'flow 的 token 写在线上走的是什么：dot（圆点，默认）、一个手绘件的名字（coin、banknote、document…）、或不超过 6 个字的字（"¥"、"90"）');
+            else {
+              try {
+                const te = buildElement({ ...ctx, els: new Map(), life: undefined, note: undefined }, '_token', { ...tsrc, at: [0, 0] }), tc = te.anchors.center;
+                flows.push({ scene: si, t0: a.t0, t1: a.t1, ids: ok.map(tl => tl.el.id), token: cloneStrokes(te.strokes, -tc[0], -tc[1]), n, loop });
+              } catch (e: any) { if (e instanceof SrcError) err(aw, e.message.replace(/^.*?: /, '')); else throw e; }
+            }
+          }
+          desc = `沿 ${ids.join(' → ')} 流动`;
+        } else if (a.verb === 'trace') {
+          // 点亮：顺着一条路，线用荧光笔描一遍，经过的东西跳一下。讲“结论是从哪儿连过来的”
+          const ok = tlsOf.filter(need);
+          const w8 = ok.map(tl => (tl.el.path ? Math.max(0.35, pathLen(tl.el.path) / 800) : 0.25)), sum = w8.reduce((x, y) => x + y, 0) || 1;
+          const until = o.keep === true ? Infinity : Math.max(a.t1 + 1.5, next + 1.2);
+          let tt = a.t0;
+          ok.forEach((tl, i) => {
+            const d = ((a.t1 - a.t0) * w8[i]) / sum;
+            if (tl.el.path) traces.push({ scene: si, id: tl.el.id, t0: tt, t1: tt + d, color: color(o.color ?? 'yellow'), w: +(o.size ?? 28), until });
+            else tl.shakes.push({ t0: tt, t1: tt + Math.max(0.35, d), kind: 'pulse' });
+            tt += d;
+          });
+          if (!ok.some(tl => tl.el.path)) warn(aw, 'trace 里没有一条线：点亮是顺着箭头、连线描一遍。把这条路上的箭头按顺序写进去，如 [me, dep, bank, lend, shop]');
+          desc = `点亮 ${ids.join(' → ')}`;
+        } else if (a.verb === 'become') {
+          // 变成：一样东西（或它的替身）走过去，到了变成另一样。“存回的 90 变成第二条”
+          const [A, B] = ids.map(i => local.get(i));
+          if (ids.length !== 2 || !A || !B) err(aw, 'become 写成 [从哪样, 变成哪样]，例如 { become: [backT, n2], along: back }');
+          else if (!need(A)) { /* need 已经报错 */ }
+          else if (B.drawT0 != null || B.appear) err(aw, `"${B.el.id}" 已经在板上了。become 是让它第一次出现：从 "${A.el.id}" 变过来`);
+          else {
+            const d = a.t1 - a.t0, tTravel = a.t0 + d * 0.75, ta = a.t0 + d * 0.55;
+            const ca = A.el.anchors.center, cb = B.el.anchors.center, from = pos.get(A.el.id) ?? [0, 0];
+            const sa = Math.max(A.el.box.w, A.el.box.h, 1), sb = Math.max(B.el.box.w, B.el.box.h, 1), r = Math.min(3, Math.max(0.3, sb / sa));
+            const ghost: TL = { el: A.el, order: order++, scene: si, moves: [], alpha: [{ t0: ta, t1: a.t1, from: 1, to: 0 }], scale: [{ t0: a.t0, t1: tTravel, from: 1, to: r }], shakes: [], poses: [], morphs: [], appear: { t: a.t0, kind: 'fade', dur: 0.01 }, gone: a.t1, ghost: true };
+            if (o.along != null) {
+              const ar = els.get(String(o.along));
+              if (!ar?.path) { err(aw, `along 要写一条箭头或连线的 id，"${o.along}" 不是`); }
+              else ghost.moves.push({ t0: a.t0, t1: tTravel, from, to: [cb[0] - ca[0], cb[1] - ca[1]], path: [...ar.path, cb[0], cb[1]], base: ca, ease: o.ease });
+            } else ghost.moves.push({ t0: a.t0, t1: tTravel, from, to: [cb[0] - ca[0], cb[1] - ca[1]], ease: o.ease });
+            local.set(`${A.el.id}~${B.el.id}`, ghost);
+            if (o.keep !== true) { A.alpha.push({ t0: a.t0, t1: a.t0 + 0.05, from: 1, to: 0 }); A.gone = a.t0 + 0.05; }
+            B.order = order++;
+            B.appear = { t: ta, kind: 'fade', dur: Math.max(0.1, a.t1 - ta) };
+            B.scale.push({ t0: ta, t1: a.t1 + 0.15, from: 1 / r, to: 1, ease: o.ease ?? 'spring' });
+          }
+          desc = ids.length === 2 ? `${ids[0]} ${o.keep === true ? '的替身' : ''}走过去变成 ${ids[1]}` : '';
         } else if (a.verb === 'pose' || a.verb === 'face') {
           for (const tl of tlsOf.filter(need)) {
             if (!tl.el.figure) { err(aw, `"${tl.el.id}" 不是火柴人，不能 ${a.verb}`); continue; }
@@ -693,7 +768,7 @@ export function compile(dir: string): Compiled {
         for (const tl of live) { tl.erase = erases.length - 1; tl.gone = g.t1; }
       }
     }
-    boards.set(id, { srcs: [...local.values()].map(tl => [tl.el.id, { ...tl.el.src, __seed: tl.el.src.__seed ?? id }] as [string, any]), left: [...local.values()].filter(tl => (tl.drawT0 != null || tl.appear) && (tl.gone == null || tl.gone >= t1 - 0.7) && !tl.moves.length).map(tl => tl.el.id), groups: new Map(groups) });
+    boards.set(id, { srcs: [...local.values()].filter(tl => !tl.ghost).map(tl => [tl.el.id, { ...tl.el.src, __seed: tl.el.src.__seed ?? id }] as [string, any]), left: [...local.values()].filter(tl => (tl.drawT0 != null || tl.appear) && (tl.gone == null || tl.gone >= t1 - 0.7) && !tl.moves.length).map(tl => tl.el.id), groups: new Map(groups) });
     // 自动取景：这块板上所有东西（含它们移动到过的位置）没铺满画板时，镜头推近到刚好装满。
     // 位置关系一点不变，只是整体放大；东西和字在手机上都更大，板面不再空一截。home 是同一个对象，前面排好的镜头跟着变
     let contentBox: Box | null = null;
@@ -821,7 +896,7 @@ export function compile(dir: string): Compiled {
       for (const b of scene.beats) {
         const own = mine.filter(k => k.t0 >= b.t - 1e-6 && k.t0 < b.tEnd);
         if (own.length) { cur = own[own.length - 1].to; lastMove = own[own.length - 1].t0; held = true; if (cur === home) lastHome = lastMove; continue; } // 自己写的镜头：照写的走
-        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => [...APPEAR, 'change'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
+        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => [...APPEAR, 'change', 'become'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
         const tgt = boxOfBeat(b);
         if (!tgt) continue;
         // 往后看一小段：接下来几秒要画的东西一起框进去，免得刚推近就得拉开
@@ -870,6 +945,12 @@ export function compile(dir: string): Compiled {
         for (const m of tl.morphs) needs.push({ t0: m.t0, t1: m.t1, box: unionBox([box, ...(extents.get(id) ?? [])]), id });
         if (tl.erase != null && !sceneEnd(tl)) needs.push({ t0: erases[tl.erase].t0, t1: erases[tl.erase].t1, box, id });
       }
+      // 流动、点亮、变成：整条路都要在画面里
+      for (const bb of scene.beats) for (const ac of bb.actions) {
+        if (!['flow', 'trace', 'become'].includes(ac.verb)) continue;
+        const bs = ac.ids.map(i => local.get(i)?.el.box).filter((x): x is Box => !!x);
+        if (bs.length) needs.push({ t0: ac.t0, t1: ac.t1, box: unionBox(bs), id: ac.ids[0] });
+      }
       needs.sort((a, b) => a.t0 - b.t0);
       const fits = (b: Box, v: Box, m = 6) => b.x >= v.x + m && b.y >= v.y + m && b.x + b.w <= v.x + v.w - m && b.y + b.h <= v.y + v.h - m;
       const fit = (b: Box, maxZoom: number, t: number): Cam => {
@@ -912,6 +993,7 @@ export function compile(dir: string): Compiled {
       });
     }
     for (const tl of local.values()) {
+      if (tl.ghost) { ghosts.push(tl); continue; } // 替身只出现在画面上，不进元素清单，不参与检查
       if (tl.drawT0 == null && !tl.appear && !fromPattern.has(tl.el.id) && tl.el.kind !== 'axis') warn(`${file} / 元素 ${tl.el.id}`, '定义了但从没画出来（没有任何 draw / pop / fade 用到它）');
       tls.push(tl);
     }
@@ -942,7 +1024,7 @@ export function compile(dir: string): Compiled {
     if (tm.total > 45) warn('appendix.yaml', `附录要滚 ${Math.round(tm.total)} 秒（${apx.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）。片尾太长观众会划走：删掉次要的几条，或者写 seconds: 30 滚快一点（太快就读不清了）`);
     if (speed > 330) warn('appendix.yaml', `附录滚得太快（每秒 ${Math.round(speed)} 像素），字读不清。把 seconds 调大，或者删几条`);
   }
-  return { dir, meta, fmt, fps, al, duration, total, ...(appendix ? { appendix } : {}), scenes, tls, erases, cams: camEvents, subs, issues, planHash: apx.appendix && !plan ? createHash('sha256').update(planHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : planHash, keyHash: apx.appendix && !plan ? createHash('sha256').update(keyHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : keyHash, ...(plan ? { plan } : {}), castUse };
+  return { dir, meta, fmt, fps, al, duration, total, ...(appendix ? { appendix } : {}), scenes, tls, erases, cams: camEvents, subs, issues, fx: { flows, traces, ghosts }, planHash: apx.appendix && !plan ? createHash('sha256').update(planHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : planHash, keyHash: apx.appendix && !plan ? createHash('sha256').update(keyHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : keyHash, ...(plan ? { plan } : {}), castUse };
 }
 
 const fmtTime = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;

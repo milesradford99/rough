@@ -159,6 +159,9 @@ beats:
 | 缩放 | `scale: id, to: 1.6` | 相对原始大小的倍数 |
 | 长出来 | `grow: id` | 区间条（span）从起点伸到定义的长度（`from: end` 从终点那头长），柱状图（`chart: bar`）的柱子从零长高。和 `draw` 一样是让它**第一次出现**；默认 0.9 秒 |
 | 数字滚动 | `count: id` | 文字里的那个数滚动。还没出现的：从 `from`（默认 0）滚到 text 写的数；已经在板上的：写 `to: 12000` 滚到新值。默认 1.1 秒 |
+| 流动 | `flow: 线id` 或 `flow: [线1, 线2, 线3]` | 小记号沿着箭头、连线走；几条首尾相接的线就是一圈。`token`：`dot`（圆点，默认）、手绘件名（`coin`、`banknote`、`document`…）或不超过 6 个字（`"¥"`、`"90"`）；`n` 同时走几个（1–8），`loop` 走几趟（1–10），`color`、`size` |
+| 变成 | `become: [a, b]` | a 走过去变成 b（b 第一次出现）。`along: 线id` 顺着那条线走；`keep: true` 时 a 留在原地，走过去的是它的替身 |
+| 点亮 | `trace: [a, 线1, b, 线2, c]` | 顺着一条路，线用荧光笔描一遍，经过的东西跳一下，讲完下一拍后淡掉（`keep: true` 一直亮着）。`color` 默认 yellow |
 | 改一个量 | `change: id, to: { … }` | 已经在板上的东西变长、变短、变色。能改的：区间条 `span` `h` `color`；柱状图 `data`（个数不变）；形状 `w` `h`；其余元素只能改 `color`。默认 0.8 秒 |
 | 换姿势 | `pose: 小人id, to: shrug` | 可同时 `face: surprised` |
 | 换表情 | `face: 小人id, to: worried` | |

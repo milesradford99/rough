@@ -283,7 +283,7 @@ export function lint(c: Compiled): Issue[] {
     }
     // 小动作撑不起一长段：晃一下、换个表情不算往板上加东西
     if (sc.t1 - sc.t0 >= WINDOW) {
-      const ink = acts.filter(a => ['draw', 'pop', 'fade', 'grow', 'count', 'change', 'erase', 'move', 'walk', 'scale', 'camera'].includes(a.verb));
+      const ink = acts.filter(a => ['draw', 'pop', 'fade', 'grow', 'count', 'change', 'flow', 'trace', 'become', 'erase', 'move', 'walk', 'scale', 'camera'].includes(a.verb));
       let worst = -1, worstInk = Infinity;
       for (let w0 = sc.t0; w0 + WINDOW <= sc.t1 + 1e-6; w0 += 0.5) {
         const sum = ink.reduce((n, a) => n + Math.max(0, Math.min(a.t1, w0 + WINDOW) - Math.max(a.t0, w0)), 0);
@@ -366,7 +366,7 @@ export function lint(c: Compiled): Issue[] {
   // 片尾：最后一笔要在配音说完之前落定
   const lastSc = c.scenes[c.scenes.length - 1], voiceEnd = c.al.units.length ? c.al.units[c.al.units.length - 1].end : c.duration;
   if (lastSc) {
-    const la = lastSc.beats.flatMap(b => b.actions).filter(a => ['draw', 'pop', 'fade', 'grow', 'count', 'change', 'erase', 'move', 'walk'].includes(a.verb));
+    const la = lastSc.beats.flatMap(b => b.actions).filter(a => ['draw', 'pop', 'fade', 'grow', 'count', 'change', 'flow', 'trace', 'become', 'erase', 'move', 'walk'].includes(a.verb));
     const last = la.length ? Math.max(...la.map(a => a.t1)) : 0;
     if (last > Math.max(voiceEnd + 0.15, c.al.duration + 0.05)) add('warn', lastSc.file, `最后一个动作 ${fmtT(last)} 才做完，配音 ${fmtT(voiceEnd)} 就说完了：片子会在画到一半、或刚画完的那一下结束。最后一拍只留一件事，并用 lead 提前，让它在最后一个字之前落定`);
   }

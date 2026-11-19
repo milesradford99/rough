@@ -2,7 +2,7 @@
 // 连着它的箭头、批注、标签跟着重新生成。某一时刻一个元素长什么样，由它的参数在这一刻的值算出来。
 import type { TL, Compiled } from './compile';
 import type { El } from './elements';
-import { translateStrokes, type Pt, type Stroke } from './strokes';
+import { translateStrokes, type Pt } from './strokes';
 import { color } from './theme';
 
 // ── 缓动：动作的手感 ──
@@ -102,13 +102,13 @@ export function remade(tl: TL, patch: Record<string, any>, els: Map<string, El>,
 }
 
 /**
- * t 时刻这块板上要换掉笔画的元素：元素 → 这一刻的笔画。
+ * t 时刻这块板上样子和定义时不一样的元素：元素 → 这一刻的它（笔画、外框、箭头的走向）。
  * moveAt 给出挪动的元素此刻的位移（不含晃动），连着它的东西据此重新生成
  */
-export function liveStrokes(c: Compiled, si: number, t: number, moveAt: (tl: TL, t: number) => Pt): Map<TL, Stroke[]> | null {
+export function liveEls(c: Compiled, si: number, t: number, moveAt: (tl: TL, t: number) => Pt): Map<TL, El> | null {
   const S = sceneLive(c, si);
   if (!S) return null;
-  const out = new Map<TL, Stroke[]>();
+  const out = new Map<TL, El>();
   let cur: Map<string, El> | null = null;
   const keys = new Map<string, string>();
   for (const tl of S.order) {
@@ -134,7 +134,7 @@ export function liveStrokes(c: Compiled, si: number, t: number, moveAt: (tl: TL,
     }
     (cur ??= new Map(S.base)).set(id, el);
     keys.set(id, key);
-    out.set(tl, el.strokes);
+    out.set(tl, el);
   }
   return out.size ? out : null;
 }
