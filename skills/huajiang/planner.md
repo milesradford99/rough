@@ -145,7 +145,7 @@ boards:
 | `boards[].layout` | 版式名（`hj layouts`）。和 `grid` 二选一；分区名由版式定，`regions` 可以不写 |
 | `boards[].grid` | `areas` 是几行几列的分区名；`rows`、`cols` 是比例；不放东西的格子写 `.` |
 | `segments[].at` | 口播原文片段。从上一段的起点往后找：之后第一次出现就不用加 `#`，要之后的第二次才写 `#2` |
-| `segments[].in` | 这一段画在哪个分区 |
+| `segments[].in` | 这一段画在哪个分区。一件事同时落在几个分区上（链条的每一环一起变），写成列表 `in: [s, d, w]`，第一个是主要的 |
 | `show` / `link` | 第一次写到某个角色 / 关系的那一段，就是它出场的时刻 |
 | `diagram` | 用一句话描述要画的图：横条、时间轴、柱子、走势线、括号、表。写清楚它和前面的图怎么对齐、怎么连 |
 | `pattern` | 可省：提示执行者用哪种现成的手法（`hj patterns`：cycle chain versus bars trend timeline thought equation split） |

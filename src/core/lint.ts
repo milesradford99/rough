@@ -68,7 +68,9 @@ export function lint(c: Compiled): Issue[] {
     const sig = new Map<string, number>();
     for (const t of shown) if (t.el.kind !== 'mark') { const k = t.el.kind + JSON.stringify(Object.fromEntries(Object.entries(t.el.src).filter(([key]) => !POS.has(key)))); sig.set(k, (sig.get(k) ?? 0) + 1); }
     // 一模一样的东西画十遍（一排小人）是一组，不是十样：第一个算 1，其余每个只算四分之一
-    const dur = sc.t1 - sc.t0, things = Math.floor([...sig.values()].reduce((n, c) => n + 1 + (c - 1) * 0.25, 0)), want = Math.max(6, Math.round(dur / 2.4));
+    // 板上的东西在眼前变了（change、count、grow 一个已有的量）也是新信息：每变一次算半样
+    const morphs = c.tls.filter(t => t.scene === sc.index).reduce((n, t) => n + t.morphs.filter(m => m.t0 > (t.drawT0 ?? t.appear?.t ?? 0) + 0.3).length, 0);
+    const dur = sc.t1 - sc.t0, things = Math.floor([...sig.values()].reduce((n, c) => n + 1 + (c - 1) * 0.25, 0) + morphs * 0.5), want = Math.max(6, Math.round(dur / 2.4));
     if (dur >= 8 && things < want) add('warn', sc.file, `信息密度偏低：这个场景讲了 ${dur.toFixed(0)} 秒，板上一共只出现了 ${things} 样东西（这个时长建议不少于 ${want} 样）。画面稀疏会显得内容单薄。往上加“第二层信息”：给箭头写小字（label）、给关键元素加批注（note：数字、名字、出处）、补一个小图表或再放一种手法（pattern 写成列表、各占一块 area）`);
     for (const tl of shown) if (tl.el.kind === 'text' && (tl.el.src.size ?? 72) < 34) add('warn', `${sc.file} / 元素 ${tl.el.id}`, `字号 ${tl.el.src.size} 太小，手机上看不清，至少 36`);
     const visual = shown.filter(t => !['text', 'mark'].includes(t.el.kind));

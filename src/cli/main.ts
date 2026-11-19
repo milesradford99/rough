@@ -321,7 +321,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     }
     const fmt = String(flags.format ?? 'portrait');
     if (!FORMATS[fmt]) die('format 只能是 portrait 或 landscape');
-    if (!existsSync(join(dir, 'project.yaml'))) writeFileSync(join(dir, 'project.yaml'), `title: ${JSON.stringify(String(flags.title ?? basename(resolve(dir))))}\nformat: ${fmt}        # portrait 竖屏 1080×1920 / landscape 横屏 1920×1080\nfps: 30\nvoice: voice/${alName}\n${audio ? `audio: ${audio}` : '# audio: voice/narration.wav   # 配音文件放进 voice/ 后取消注释'}\nstory: story.yaml      # 创意简报（导演的产物，配音之前确认）\nsubtitles: true\nsfx: true              # 落笔音效\npen: false             # 笔：false 不显示 / marker 一支马克笔 / hand 握着笔的手\nfocus: true            # 讲到哪儿、别处淡下去；false 关掉\n`);
+    if (!existsSync(join(dir, 'project.yaml'))) writeFileSync(join(dir, 'project.yaml'), `title: ${JSON.stringify(String(flags.title ?? basename(resolve(dir))))}\nformat: ${fmt}        # portrait 竖屏 1080×1920 / landscape 横屏 1920×1080\nstyle: ink             # 画风：ink 克制墨线（墨线、一个朱砂红、淡彩）/ color 彩色（马克笔涂色、带阴影）\nfps: 30\nvoice: voice/${alName}\n${audio ? `audio: ${audio}` : '# audio: voice/narration.wav   # 配音文件放进 voice/ 后取消注释'}\nstory: story.yaml      # 创意简报（导演的产物，配音之前确认）\nsubtitles: true\nsfx: true              # 落笔音效\npen: false             # 笔：false 不显示 / marker 一支马克笔 / hand 握着笔的手\nfocus: true            # 讲到哪儿、别处淡下去；false 关掉\n`);
     if (!existsSync(join(dir, 'plan.yaml'))) writeFileSync(join(dir, 'plan.yaml'), PLAN_TEMPLATE);
     if (!existsSync(join(dir, 'story.yaml'))) writeFileSync(join(dir, 'story.yaml'), STORY_TEMPLATE);
     if (!voice) { console.log(`✓ 项目已创建：${dir}（还没有配音）\n  朗读稿：script.txt\n下一步（导演）：照 director.md 写创意简报 ${join(dir, 'story.yaml')}，需要时改稿子；hj story ${dir} 查过之后交给用户确认。简报确认了才配音`); return; }

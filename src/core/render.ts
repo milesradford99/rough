@@ -162,7 +162,7 @@ export function drawStrokes(ctx: any, env: Env, strokes: Stroke[], alpha = 1) {
 // ── 纸面 ──
 const papers = new Map<string, any>();
 function paperTexture(env: Env, W: number, H: number): any {
-  const key = `${W}x${H}`;
+  const key = `${W}x${H}${THEME.paper}`;
   let cv = papers.get(key);
   if (cv) return cv;
   cv = env.createCanvas(W, H);

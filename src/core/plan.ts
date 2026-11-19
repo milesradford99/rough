@@ -19,6 +19,8 @@ export interface PlanCast { name: string; look: any }
 export interface PlanRelation { from: string; to: string; label?: string }
 export interface PlanSegment {
   at: string; act?: string; in?: string; intent: string;
+  /** 这一段还横跨哪些分区（in 写成列表时，第一个是 in，其余在这里）：一件事同时落在链条的几环上 */
+  across?: string[];
   show: string[]; link: string[]; revisit: string[]; words: string[];
   /** 这一段画一条线，把本分区和这些分区连起来（括号、斜线、汇总的箭头：不是角色之间的关系，但把板连成一张图） */
   joins: string[];
@@ -125,7 +127,7 @@ export function loadPlan(dir: string): Plan | null {
     // 用了版式又没写 regions 的分区，用版式自带的说明
     regions: { ...(b?.layout != null && !b?.grid && LAYOUTS[String(b.layout)] ? LAYOUTS[String(b.layout)].regions : {}), ...Object.fromEntries(Object.entries(b?.regions ?? {}).map(([k, v]) => [k, String(v ?? '')])) },
     segments: (Array.isArray(b?.segments) ? b.segments : []).map((s: any) => ({
-      at: String(s?.at ?? ''), ...(s?.act != null ? { act: String(s.act) } : {}), ...(s?.in != null ? { in: String(s.in) } : {}), intent: String(s?.intent ?? ''),
+      at: String(s?.at ?? ''), ...(s?.act != null ? { act: String(s.act) } : {}), ...(s?.in != null ? (Array.isArray(s.in) ? { in: String(s.in[0] ?? ''), across: s.in.slice(1).map(String) } : { in: String(s.in) }) : {}), intent: String(s?.intent ?? ''),
       show: arr(s?.show), link: arr(s?.link), revisit: arr(s?.revisit), words: arr(s?.words), joins: arr(s?.joins),
       ...(s?.diagram != null ? { diagram: String(s.diagram) } : {}), ...(s?.pattern != null ? { pattern: String(s.pattern) } : {}),
     })),
@@ -289,6 +291,7 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
       if (!s.in) err(sw, `缺少 in：这一段画在哪个分区（${rnames.join(' ')}）`);
       else if (!regions[s.in] && !ge.length) err(sw, `in 写了 "${s.in}"，但这块板没有这个分区。有：${rnames.join(' ')}`);
       else usedRegions.add(s.in);
+      for (const a of s.across ?? []) { if (!regions[a] && !ge.length) err(sw, `in 的列表里写了 "${a}"，但这块板没有这个分区。有：${rnames.join(' ')}`); else usedRegions.add(a); }
       for (const id of s.show) { if (!plan.cast[id]) err(sw, `show 里的 "${id}" 不是 cast 里的角色。要画的图不是角色时写进 diagram`); else { shownAnywhere.add(id); ids.add(id); if (!home.has(id) && s.in) home.set(id, s.in); } }
       for (const id of s.link) {
         const r = plan.relations[id];
@@ -554,11 +557,12 @@ export function conform(c: Compiled): Issue[] {
       for (const j of s.joins) if (s.in && !news.some(t => ['arrow', 'line', 'mark', 'span', 'shape'].includes(t.el.kind) && hit(t.el.box, j) && hit(t.el.box, s.in!))) err(where, `计划要在这一段画一条线，把分区 "${j}" 和 "${s.in}" 连起来，这一段新画的东西里没有哪一条线同时碰到这两个分区。画一条箭头、连线或括号，两头分别落在两个分区里`);
       if (!nonText && !revisited) err(where, news.length ? '这一段只写了字，没有画任何东西。计划里这一段是有画面的：把它画出来（手绘件、小人、箭头、横条、图表、标记）' : '这一段什么都没画。照计划的 intent 把它画出来');
       // 画在计划指定的分区里
-      const rg = sc.regions?.find(r => r.name === s.in);
-      if (rg) {
+      const rgs = [s.in, ...(s.across ?? [])].map(n => sc.regions?.find(r => r.name === n)).filter(Boolean) as { name: string; box: { x: number; y: number; w: number; h: number } }[];
+      if (rgs.length) {
         const body = news.filter(t => !['arrow', 'line', 'mark', 'note', 'axis'].includes(t.el.kind));
-        const inside = body.filter(t => { const bx = t.el.box, cx = bx.x + bx.w / 2, cy = bx.y + bx.h / 2; return cx >= rg.box.x - 20 && cx <= rg.box.x + rg.box.w + 20 && cy >= rg.box.y - 20 && cy <= rg.box.y + rg.box.h + 20; });
-        if (body.length >= 2 && inside.length < body.length / 2) warn(where, `计划把这一段放在分区 "${s.in}"，但这一段新画的 ${body.length} 样东西里只有 ${inside.length} 样在里面。给它们写 in: ${s.in}`);
+        const inside = body.filter(t => { const bx = t.el.box, cx = bx.x + bx.w / 2, cy = bx.y + bx.h / 2; return rgs.some(rg => cx >= rg.box.x - 20 && cx <= rg.box.x + rg.box.w + 20 && cy >= rg.box.y - 20 && cy <= rg.box.y + rg.box.h + 20); });
+        const names = rgs.map(r => `"${r.name}"`).join('、');
+        if (body.length >= 2 && inside.length < body.length / 2) warn(where, `计划把这一段放在分区 ${names}，但这一段新画的 ${body.length} 样东西里只有 ${inside.length} 样在里面。给它们写 in: ${s.in}${rgs.length > 1 ? '（或列表里的别的分区）' : ''}`);
       }
     });
     // 计划之外的东西

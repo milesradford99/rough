@@ -7,7 +7,7 @@ import { loadAlignment, resolveAnchor, buildSubtitles, type Alignment, type SubL
 import { buildElement, SrcError, KINDS, THING_TIERS, depsOf, decimalsOf, loadDoodle, type El, type BuildCtx } from './elements';
 import { EASES, numberIn, remade, type Morph } from './live';
 import { POSES, FACES, type Pose } from './figure';
-import { FORMATS, THEME, color, type Format } from './theme';
+import { FORMATS, THEME, color, setStyle, isInk, type Format } from './theme';
 import { type Pt, type Box, type Stroke, unionBox, cloneStrokes } from './strokes';
 import { PATTERNS } from './patterns';
 import { loadPlan, planRegions, checkPlan, boardSizes, type Plan } from './plan';
@@ -92,6 +92,7 @@ export function loadProject(dir: string): { meta: any; scenes: { file: string; s
   const pf = join(dir, 'project.yaml');
   if (!existsSync(pf)) throw new Error(`${dir} 里没有 project.yaml，这不是一个画讲项目（用 hj init 创建）`);
   const meta = YAML.parse(readFileSync(pf, 'utf8')) ?? {};
+  setStyle(meta.style === 'ink' ? 'ink' : 'color');
   const sd = join(dir, 'scenes');
   const files = existsSync(sd) ? readdirSync(sd).filter(f => /\.ya?ml$/.test(f)).sort() : [];
   let scenes = files.map(f => {
@@ -217,7 +218,7 @@ export function compile(dir: string): Compiled {
     const local = new Map<string, TL>();
     const life = new Map<string, [number, number]>();
     const pending: [string, any][] = [];
-    const ctx: BuildCtx = { scene: id, fmt: sfmt, els, projectDir: dir, life, shade: meta.shade, note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
+    const ctx: BuildCtx = { scene: id, fmt: sfmt, els, projectDir: dir, life, shade: meta.shade ?? !isInk(), note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
     const addEl = (eid: string, esrc: any): TL | null => {
       if (els.has(eid)) { err(`${file} / 元素 ${eid}`, 'id 重复了'); return local.get(eid)!; }
       try {

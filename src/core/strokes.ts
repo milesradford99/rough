@@ -1,6 +1,7 @@
 // 笔画层：把 rough.js 生成的手绘路径压成可按时间重放的折线笔画。
 import { RoughGenerator } from '../rough/generator';
 import type { Drawable, Options } from '../rough/core';
+import { isInk } from './theme';
 
 export type Pt = [number, number];
 export type Box = { x: number; y: number; w: number; h: number };
@@ -180,14 +181,14 @@ const gen = new RoughGenerator();
 
 export interface Style { color: string; w: number; rough: number; seed: number; fill?: string; /** marker（默认，马克笔宽笔道涂色）/ hachure（细排线）/ solid / zigzag / cross-hatch / dots */ fillStyle?: string; fillGap?: number; fillAlpha?: number; double?: boolean; bow?: number; /** 画完后在背光一侧扫一道灰色阴影（只对闭合图形有效） */ shade?: boolean }
 
-const isMarker = (st: Style) => !!st.fill && (!st.fillStyle || st.fillStyle === 'marker');
+const isMarker = (st: Style) => !!st.fill && (!st.fillStyle || st.fillStyle === 'marker') && !isInk();
 
 function opts(st: Style, fillStyle = st.fillStyle): Options {
   const marker = isMarker(st);
   return {
     seed: st.seed, roughness: st.rough, bowing: st.bow ?? 1, stroke: st.color, strokeWidth: st.w,
     disableMultiStroke: !st.double, disableMultiStrokeFill: true,
-    fill: st.fill, fillStyle: marker ? fillStyle ?? 'solid' : st.fillStyle, hachureGap: marker ? st.fillGap ?? 15 : st.fillGap ?? Math.max(9, st.w * 2.4), fillWeight: Math.max(2, st.w * 0.6),
+    fill: st.fill, fillStyle: marker ? fillStyle ?? 'solid' : st.fillStyle ?? (st.fill && isInk() ? 'solid' : undefined), hachureGap: marker ? st.fillGap ?? 15 : st.fillGap ?? Math.max(9, st.w * 2.4), fillWeight: Math.max(2, st.w * 0.6),
     hachureAngle: marker ? -33 : -41, preserveVertices: st.rough < 0.5, curveStepCount: 12, fillShapeRoughnessGain: marker ? 0.4 : 0.8,
   };
 }
@@ -222,7 +223,7 @@ export function toStrokes(d: Drawable, st: Style): Stroke[] {
       else {
         const marker = isMarker(st);
         if (marker) for (let i = 0; i < pts.length; i += 2) { pts[i] += 4; pts[i + 1] += 3; } // 涂色故意和轮廓错开一点
-        fills.push({ kind: 'fill', pts, color: st.fill!, alpha: st.fillAlpha ?? (marker ? 0.42 : 0.35), len: Math.sqrt(len) * 16, under: true });
+        fills.push({ kind: 'fill', pts, color: st.fill!, alpha: st.fillAlpha ?? (marker ? 0.42 : isInk() ? 0.8 : 0.35), len: Math.sqrt(len) * 16, under: true });
       }
     }
   }
