@@ -23,6 +23,7 @@ import { loadPlan, checkPlan, planStoryboard, scaffold, segmentTimes, boardSizes
 import type { Issue } from '../core/compile';
 import { synthesize, synthesizeEdge, edgeProbe, scriptHash, scriptWarnings, DEFAULT_SPEAKER, DEFAULT_EDGE_VOICE, EDGE_VOICES, KEY_ENV } from '../core/tts';
 import { THEME, FORMATS } from '../core/theme';
+import { loadStory, checkStory, storyMarkdown, STORY_TEMPLATE } from '../core/story';
 
 const penOpt = (c: Compiled): false | 'marker' | 'hand' => (c.meta.pen === 'hand' ? 'hand' : c.meta.pen ? 'marker' : false);
 const images = new Map<string, any>();
@@ -106,6 +107,27 @@ function load(dir: string, strict = true): Compiled {
 }
 const approvalsFile = (dir: string) => join(dir, 'approvals.json');
 const approvals = (dir: string): any => (existsSync(approvalsFile(dir)) ? JSON.parse(readFileSync(approvalsFile(dir), 'utf8')) : {});
+/** 创意简报：读进来，对照稿子（和时间表，如果已经配了音）查一遍 */
+function storyCtx(dir: string) {
+  const { story, issues } = loadStory(dir);
+  const meta = existsSync(join(dir, 'project.yaml')) ? YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {} : {};
+  // hj init 建的项目在 project.yaml 里记着 story: story.yaml：简报文件不见了也要拦住，不能删掉它绕过这道闸
+  if (!story) { const exists = existsSync(join(dir, 'story.yaml')) || !!meta.story; if (exists && !existsSync(join(dir, 'story.yaml'))) issues.push({ level: 'error', where: 'story.yaml', msg: `创意简报不见了（project.yaml 里写着这个项目有简报）。运行 hj story ${dir} 重新生成模板，照 director.md 写好` }); return { story, issues, exists }; }
+  const sf = join(dir, 'script.txt');
+  const alf = join(dir, meta.voice ?? 'voice/alignment.json'), al = existsSync(alf) ? loadAlignment(alf) : undefined;
+  const script = existsSync(sf) ? readFileSync(sf, 'utf8') : al ? al.units.map(u => u.display).join('') : '';
+  if (!script) issues.push({ level: 'error', where: 'story.yaml', msg: '没有稿子（script.txt）可以对照：简报里的每一句都要是稿子的原文' });
+  else issues.push(...checkStory(story, script, al));
+  return { story, issues, exists: true };
+}
+/** 有简报的项目：简报要先得到用户确认，才能配音、才能确认计划 */
+function storyGate(dir: string, what: string) {
+  const sc = storyCtx(dir);
+  if (!sc.exists) return;
+  if (sc.issues.some(i => i.level === 'error')) { printIssues(sc.issues); die(`创意简报（story.yaml）还有错误，${what}之前先由导演改好：hj story ${dir}`); }
+  if (approvals(dir).story?.planHash !== sc.story!.hash) die(`创意简报${approvals(dir).story ? '在用户确认之后又改过，' : '还没有得到用户确认，'}${what}之前要先确认它：hj story ${dir} 生成简报，交给用户看；用户明确同意后运行 hj approve ${dir} story --by "<用户的确认原话>"。
+简报会决定稿子怎么写、惊叹点放在哪儿，所以它排在配音和计划前面`);
+}
 /** 只看计划、不编译场景：规划者写计划、交用户确认时用（这时候还没有场景文件） */
 function planCtx(dir: string): { meta: any; fmt: (typeof FORMATS)[string]; al: ReturnType<typeof loadAlignment>; duration: number; plan: Plan; issues: Issue[] } | null {
   let plan: Plan | null;
@@ -300,9 +322,10 @@ const commands: Record<string, () => Promise<void> | void> = {
     }
     const fmt = String(flags.format ?? 'portrait');
     if (!FORMATS[fmt]) die('format 只能是 portrait 或 landscape');
-    if (!existsSync(join(dir, 'project.yaml'))) writeFileSync(join(dir, 'project.yaml'), `title: ${JSON.stringify(String(flags.title ?? basename(resolve(dir))))}\nformat: ${fmt}        # portrait 竖屏 1080×1920 / landscape 横屏 1920×1080\nfps: 30\nvoice: voice/${alName}\n${audio ? `audio: ${audio}` : '# audio: voice/narration.wav   # 配音文件放进 voice/ 后取消注释'}\nsubtitles: true\nsfx: true              # 落笔音效\npen: false             # 笔：false 不显示 / marker 一支马克笔 / hand 握着笔的手\nfocus: true            # 讲到哪儿、别处淡下去；false 关掉\n`);
+    if (!existsSync(join(dir, 'project.yaml'))) writeFileSync(join(dir, 'project.yaml'), `title: ${JSON.stringify(String(flags.title ?? basename(resolve(dir))))}\nformat: ${fmt}        # portrait 竖屏 1080×1920 / landscape 横屏 1920×1080\nfps: 30\nvoice: voice/${alName}\n${audio ? `audio: ${audio}` : '# audio: voice/narration.wav   # 配音文件放进 voice/ 后取消注释'}\nstory: story.yaml      # 创意简报（导演的产物，配音之前确认）\nsubtitles: true\nsfx: true              # 落笔音效\npen: false             # 笔：false 不显示 / marker 一支马克笔 / hand 握着笔的手\nfocus: true            # 讲到哪儿、别处淡下去；false 关掉\n`);
     if (!existsSync(join(dir, 'plan.yaml'))) writeFileSync(join(dir, 'plan.yaml'), PLAN_TEMPLATE);
-    if (!voice) { console.log(`✓ 项目已创建：${dir}（还没有配音）\n  朗读稿：script.txt\n下一步：hj voice ${dir} 会列出朗读稿、音色和要注意的读法。把它们给用户看，用户确认稿子后才能配音（付费接口）`); return; }
+    if (!existsSync(join(dir, 'story.yaml'))) writeFileSync(join(dir, 'story.yaml'), STORY_TEMPLATE);
+    if (!voice) { console.log(`✓ 项目已创建：${dir}（还没有配音）\n  朗读稿：script.txt\n下一步（导演）：照 director.md 写创意简报 ${join(dir, 'story.yaml')}，需要时改稿子；hj story ${dir} 查过之后交给用户确认。简报确认了才配音`); return; }
     console.log(`✓ 项目已创建：${dir}\n  时间表：voice/${alName}${audio ? `\n  配音：${audio}` : '\n  （没找到配音文件，渲染出来只有落笔音效；把 narration.wav 放进 voice/ 并在 project.yaml 里填 audio）'}\n下一步（规划者）：hj brief ${dir} 通读口播和时间，然后写 ${join(dir, 'plan.yaml')}。随时运行 hj status ${dir} 看现在该谁做什么`);
   },
 
@@ -443,8 +466,8 @@ const commands: Record<string, () => Promise<void> | void> = {
   },
 
   approve() {
-    const dir = args[0], stage = args[1] as Stage | 'script';
-    if (!dir || !['script', 'plan', 'look', 'keyframes'].includes(stage) || typeof flags.by !== 'string') die('用法：hj approve <项目目录> script|plan|look|keyframes --by "<用户的确认原话>"\n只有在用户明确表示同意之后才能运行。plan、look、keyframes 三道要用户看过图：原话里要带着图上的四位确认码。');
+    const dir = args[0], stage = args[1] as Stage | 'script' | 'story';
+    if (!dir || !['story', 'script', 'plan', 'look', 'keyframes'].includes(stage) || typeof flags.by !== 'string') die('用法：hj approve <项目目录> story|script|plan|look|keyframes --by "<用户的确认原话>"\n只有在用户明确表示同意之后才能运行。plan、look、keyframes 三道要用户看过图：原话里要带着图上的四位确认码。');
     const by = String(flags.by);
     if (stage === 'script') {
       // 朗读稿：用户确认的是这一版稿子的每一个字。改一个字就要重新确认
@@ -455,6 +478,17 @@ const commands: Record<string, () => Promise<void> | void> = {
       console.log(`✓ 已记录用户对朗读稿的确认（稿子版本 ${h}）。下一步：hj voice ${dir}`);
       return;
     }
+    if (stage === 'story') {
+      const sc = storyCtx(dir);
+      if (!sc.exists) die(`没有创意简报 ${join(dir, 'story.yaml')}`);
+      if (sc.issues.some(i => i.level === 'error')) { printIssues(sc.issues); die('简报有错误，不能确认'); }
+      const a0 = approvals(dir);
+      a0.story = { planHash: sc.story!.hash, by, at: new Date().toISOString() };
+      writeFileSync(approvalsFile(dir), JSON.stringify(a0, null, 2) + '\n');
+      console.log(`✓ 已记录用户对创意简报的确认（版本 ${sc.story!.hash}）。下一步：${existsSync(join(dir, 'voice', 'alignment.json')) ? `规划者照简报写计划（hj status ${dir}）` : `确认朗读稿、配音：hj voice ${dir}`}`);
+      return;
+    }
+    if (stage === 'plan') storyGate(dir, '确认计划');
     const a = approvals(dir), pc = stage === 'plan' ? planCtx(dir) : null;
     let hash: string, planned = !!pc;
     if (pc) { if (pc.issues.some(i => i.level === 'error')) { printIssues(pc.issues); die('计划有错误，不能确认'); } hash = pc.plan.hash; }
@@ -537,6 +571,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     if (!existsSync(sf)) die(`没有朗读稿 ${sf}。把要读出来的字（不是屏幕上显示的字）写进去，UTF-8`);
     const engine = String(flags.engine ?? 'volc');
     if (!['volc', 'edge'].includes(engine)) die('--engine 只能是 volc（火山引擎，付费）或 edge（edge-tts，免费）');
+    storyGate(dir, '配音');
     const text = readFileSync(sf, 'utf8').trim(), h = scriptHash(text), a = approvals(dir), paid = engine === 'volc';
     const speaker = typeof flags.speaker === 'string' ? flags.speaker : paid ? DEFAULT_SPEAKER : DEFAULT_EDGE_VOICE;
     const rate = paid ? (flags.rate != null ? Number(flags.rate) : 0) : typeof flags.rate === 'string' ? flags.rate : EDGE_VOICES[speaker]?.rate ?? '+0%';
@@ -572,6 +607,19 @@ const commands: Record<string, () => Promise<void> | void> = {
     console.log(`✓ 配音完成：${join(dir, 'voice', 'narration.wav')}（${r.duration.toFixed(1)} 秒，每秒 ${cps.toFixed(1)} 个字，${r.units} 个字词${r.shaky ? `，其中 ${r.shaky} 个时间不可靠，hj brief 里用 ~波浪线~ 标出，卡点别落在它们上面` : ''}）${cps > 4.7 ? '\n  ! 语速偏快（每秒 4.7 个字以上，画面会被迫快进）：把语速调低一点重配' : ''}\n  先让用户听一遍。之后不要对音频做任何剪切、变速、去静音：时间表会失效。\n下一步：hj brief ${dir}`);
   },
 
+  // 导演：查创意简报，生成交给用户看的 story.md
+  story() {
+    const dir = args[0] ?? die('用法：hj story <项目目录>');
+    const sc = storyCtx(dir);
+    if (!sc.exists) { writeFileSync(join(dir, 'story.yaml'), STORY_TEMPLATE); die(`没有创意简报，已经写好模板：${join(dir, 'story.yaml')}。照 director.md 填上`); }
+    printIssues(sc.issues);
+    if (sc.issues.some(i => i.level === 'error')) die('简报有错误，改好再交给用户');
+    const md = storyMarkdown(sc.story!), f = join(dir, 'story.md');
+    writeFileSync(f, md);
+    console.log(md);
+    console.log(`✓ ${f}（简报版本 ${sc.story!.hash}）\n把简报连同稿子（script.txt）原文一起发给用户。用两三句话说清楚：这条片子靠哪一刻让人“原来如此”，为了它稿子改了什么。用户明确同意后运行 hj approve ${dir} story --by "<用户原话>"`);
+  },
+
   // 由计划生成场景骨架：每块板一个文件，角色、关系、板书和每一段的节拍都列好
   scaffold() {
     const dir = args[0] ?? die('用法：hj scaffold <项目目录> [--force]');
@@ -593,6 +641,12 @@ const commands: Record<string, () => Promise<void> | void> = {
     const dir = args[0] ?? die('用法：hj status <项目目录>');
     if (!existsSync(join(dir, 'project.yaml'))) die(`${dir} 还不是一个项目。先运行 hj init ${dir} --voice <配音材料目录>`);
     const say = (role: string, what: string) => console.log(`现在轮到：${role}\n下一步：${what}`);
+    { const sc = storyCtx(dir);
+      if (sc.exists) {
+        const se = sc.issues.filter(i => i.level === 'error').length;
+        if (se) return say('导演', `创意简报（story.yaml）有 ${se} 个错误${sc.story ? '' : '，或者还没写'}。照 director.md 写好、需要时改稿子，运行 hj story ${dir} 查到零错误。`);
+        if (approvals(dir).story?.planHash !== sc.story!.hash) return say('导演', `${approvals(dir).story ? '创意简报在用户确认之后又改过，需要重新确认。' : ''}运行 hj story ${dir}，把简报（story.md）和稿子一起交给用户；用户明确同意后运行 hj approve ${dir} story --by "<用户原话>"。`);
+      } }
     { const m = YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {}; if (!existsSync(join(dir, m.voice ?? 'voice/alignment.json'))) return say('配音', existsSync(join(dir, 'script.txt')) ? `还没有配音。运行 hj voice ${dir}：它会列出朗读稿和音色，给用户确认后再配（付费接口）。` : `还没有配音和时间表。把朗读稿写进 ${join(dir, 'script.txt')} 再运行 hj voice ${dir}；或把已有的配音材料（narration.wav + alignment.json）放进 ${join(dir, 'voice')}/。`); }
     if (!existsSync(join(dir, 'plan.yaml'))) { console.log('这个项目没有 plan.yaml（不走计划的老写法）。'); const c = load(dir, false), a = approvals(dir); printIssues(c.issues); console.log(`确认状态：文字分镜 ${a.plan?.planHash === c.planHash ? '✓' : '未确认'}；关键帧 ${a.keyframes?.planHash === c.keyHash ? '✓' : '未确认'}`); return; }
     let plan: Plan | null = null;
@@ -1013,6 +1067,9 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
 
   hj init <目录> --voice <配音材料>   建项目，导入已有的配音和时间表
   hj init <目录> --script <稿.txt>    建项目，只有稿子（之后用 hj voice 配音）
+  导演：
+  hj story <目录>                     查创意简报（story.yaml），生成 story.md → 交用户确认（配音之前）
+
   hj voice <目录>                     配音（火山引擎，付费）：先列出朗读稿给用户确认，确认后才合成
   hj voice <目录> --engine edge       配音（edge-tts，免费）；hj voice --voices 列出音色和默认参数
   hj voice [<目录>] --probe "一小段"  试读（edge-tts，免费）：列出平台怎么切词，查读法不用重配整条
@@ -1022,7 +1079,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj check <目录>                     查计划（还没有场景时）；有场景后连画面一起查
   hj plan <目录>                      由 plan.yaml 排出分镜计划 storyboard.md → 交用户确认
   hj layouts [名字]                   版式：现成的分区方案（plan.yaml 里写 layout: 名字）
-  hj approve <目录> script|plan|look|keyframes --by "<用户确认原话>"   后三道要带图上的确认码
+  hj approve <目录> story|script|plan|look|keyframes --by "<用户确认原话>"   后三道要带图上的确认码
 
   执行者：
   hj scaffold <目录>                  照计划生成场景骨架（每块板一个文件）

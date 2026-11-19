@@ -35,6 +35,7 @@ function project(): string {
   clickWav(join(voice, 'narration.wav'), al.duration_seconds);
   assert.equal(hj('init', dir, '--voice', voice, '--title', 'e2e').status, 0);
   rmSync(join(dir, 'plan.yaml')); // 这条测试走的是不带计划的老写法；带计划的流程在 plan.test.ts
+  rmSync(join(dir, 'story.yaml')); writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8').replace(/^story:.*\n/m, '')); // 这条测试不管导演那一步（在 story.test.ts）
   writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8').replace('sfx: true', 'sfx: false'));
   writeFileSync(join(dir, 'scenes/01-loop.yaml'), `intent: 钞票转一圈回到公司
 pattern:

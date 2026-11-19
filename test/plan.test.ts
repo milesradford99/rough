@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws';
 import { fakeAlignment, loadAlignment, resolveAnchor } from '../src/core/alignment';
 import { confirmCode, hasCode, type Stage } from '../src/core/review';
 import { cpSync, rmSync } from 'node:fs';
+import YAML from 'yaml';
 import { compile } from '../src/core/compile';
 import { lint } from '../src/core/lint';
 import { focusAlpha } from '../src/core/render';
@@ -51,6 +52,7 @@ function project(plan = PLAN): string {
   mkdirSync(voice, { recursive: true });
   writeFileSync(join(voice, 'alignment.json'), JSON.stringify(fakeAlignment(SCRIPT)));
   assert.equal(hj(['init', dir, '--voice', voice]).status, 0);
+  rmSync(join(dir, 'story.yaml')); writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8').replace(/^story:.*\n/m, '')); // 这条测试不管导演那一步（在 story.test.ts）
   if (plan) writeFileSync(join(dir, 'plan.yaml'), plan);
   return dir;
 }
@@ -331,6 +333,12 @@ test('配音：稿子没确认不调用；确认后合成一次，产物直接�
     const root = mkdtempSync(join(tmpdir(), 'hj-voice-')), dir = join(root, 'proj'), sf = join(root, 's.txt');
     writeFileSync(sf, SCRIPT);
     assert.equal((await run(['init', dir, '--script', sf])).status, 0);
+    // 先过导演那一道：简报没确认，不配音
+    assert.match((await run(['status', dir])).out, /现在轮到：导演/);
+    writeFileSync(join(dir, 'story.yaml'), YAML.stringify({ audience: '交过税、拿过补贴的人', myth: '政府发钱，大家就变富了', truth: '钱转了一圈，公司一分没多赚', motif: '一张钞票绕一圈', hook: { say: '公司交一百块税' }, predict: { say: '政府发给你' }, aha: { say: '没多赚', see: '钞票沿着圈走回公司', move: 'flow' }, land: { say: '谁也没有多出来', callback: '开头的公司' } }));
+    const r00 = await run(['voice', dir]);
+    assert.equal(r00.status, 1); assert.match(r00.out, /创意简报还没有得到用户确认/); assert.equal(calls, 0);
+    assert.equal((await run(['approve', dir, 'story', '--by', '简报可以'])).status, 0);
     assert.match((await run(['status', dir])).out, /现在轮到：配音/);
     // 没确认：列出稿子，不调用
     const r0 = await run(['voice', dir]);

@@ -13,6 +13,7 @@ import { loadDoodle } from './elements';
 import { iconExists } from './icons';
 import { loadAppendix, type Appendix } from './appendix';
 import { POSES, ACCESSORIES } from './figure';
+import { loadStory, MOVES, type Story } from './story';
 
 export interface PlanCast { name: string; look: any }
 export interface PlanRelation { from: string; to: string; label?: string }
@@ -358,6 +359,28 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
     const shared = plan.boards.some(o => o.id !== b.id && [...(boardIds.get(o.id) ?? [])].some(x => mine.has(x)));
     if (!shared && !b.recall && !plan.boards.some(o => o.recall === b.id)) warn(`${W} / ${b.id}`, '这块板和别的板没有任何共同的角色或关系，也没有沿用（recall）。分成几块板时，要有贯穿的东西把它们串起来：同一个角色再出场、一条关系从上一块板连过来，或者先画一张总图、后面每块板 recall 它');
   }
+  if (projectDir) { const { story } = loadStory(projectDir); if (story) out.push(...planVsStory(plan, story, al, duration)); }
+  return out;
+}
+
+/** 导演的简报落到计划里：惊叹那一句单独起一段，让观众猜的那一句也单独起一段 */
+function storySegment(plan: Plan, al: Alignment, duration: number, say: string): { seg: PlanSegment; t0: number; t1: number; time: number; board: PlanBoard } | null | undefined {
+  let time: number;
+  try { time = resolveAnchor(al, say).time; } catch { return undefined; }
+  const { times } = segmentTimes(plan, al, duration);
+  for (const tm of times) if (Math.abs(tm.anchor - time) < 0.35) { const board = plan.boards[tm.board]; return { seg: board.segments[tm.seg], t0: tm.t0, t1: tm.t1, time, board }; }
+  return null;
+}
+function planVsStory(plan: Plan, story: Story, al: Alignment, duration: number): Issue[] {
+  const out: Issue[] = [];
+  const aha = storySegment(plan, al, duration, story.aha.say), pre = storySegment(plan, al, duration, story.predict.say);
+  if (aha === null) out.push({ level: 'error', where: W, msg: `导演定的惊叹点是“${story.aha.say}”。计划里要有一段正好从这一句开始（at: "${story.aha.say}"）：这一段是全片的揭晓，act 写转折、推翻或结论，intent 写清楚画面怎么变——简报里写的是“${story.aha.see}”` });
+  else if (aha && !['转折', '推翻', '结论', '对比', '算账', '数据'].includes(aha.seg.act ?? '')) out.push({ level: 'warn', where: W, msg: `惊叹那一段（${aha.seg.at}）的 act 是“${aha.seg.act ?? '没写'}”。它是全片的揭晓：转折、推翻或结论` });
+  if (aha) {
+    if (!aha.board.hero) out.push({ level: 'warn', where: `${W} / ${aha.board.id}`, msg: `惊叹点在这块板上，板却没有主角（hero）。揭晓的那样东西就是主角` });
+    if (!/变|长|缩|滚|涨|跌|走|流|亮|打开|展开|收|放大|翻/.test(aha.seg.intent)) out.push({ level: 'warn', where: W, msg: `惊叹那一段的 intent“${aha.seg.intent}”没有说画面怎么变。照简报写：${story.aha.see}` });
+  }
+  if (pre === null) out.push({ level: 'warn', where: W, msg: `导演要观众在“${story.predict.say}”这里先猜一下。给它单独一段（act: 设问）：画面停在问题上，留个问号或空位，答案留到惊叹那一段` });
   return out;
 }
 
@@ -577,5 +600,18 @@ export function conform(c: Compiled): Issue[] {
     const planned = new Set(b.segments.flatMap(s => s.words)).size;
     if (extras.length > Math.max(6, planned)) warn(sc.file, `这块板上有 ${extras.length} 处计划之外的小字（计划里的板书一共 ${planned} 处）：${[...new Set(extras)].slice(0, 8).join('、')}…。小标签加多了，板就成了字堆`);
   });
+  // 惊叹那一段：画面上的东西要在观众眼前变，不能只是又画了一样新东西
+  const { story } = loadStory(c.dir);
+  if (story) {
+    const aha = storySegment(plan, c.al, c.duration, story.aha.say);
+    const sc = aha ? c.scenes.find(x => x.id === aha.board.id) : undefined;
+    if (aha && sc) {
+      const acts = sc.beats.flatMap(be => be.actions).filter(a => a.t0 >= aha.t0 - 0.6 && a.t0 < aha.t1);
+      const moved = acts.filter(a => (MOVES as readonly string[]).includes(a.verb));
+      const where = `${sc.file} / 惊叹那一段（${aha.seg.at}）`;
+      if (!moved.length) err(where, `这一段是全片的揭晓，导演要的是：${story.aha.see}。用一个“变”的动作做出来（${MOVES.join(' ')}），不要只是再画一样新东西。简报写的是 ${story.aha.move}`);
+      else if (!moved.some(a => a.verb === story.aha.move)) warn(where, `简报定的揭晓动作是 ${story.aha.move}，这一段用的是 ${[...new Set(moved.map(a => a.verb))].join('、')}。换了做法要有理由，向用户说明`);
+    }
+  }
   return out;
 }
