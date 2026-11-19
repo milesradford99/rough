@@ -368,7 +368,7 @@ seconds: 30                        # 可选：总共滚多少秒；不写按每�
 | `hj check <目录> [--strict]` | 查计划；有场景后连画面一起查。有错误时退出码为 1；`--strict` 时有警告也算失败 |
 | `hj plan <目录>` | 由 `plan.yaml` 排出分镜计划 `storyboard.md` 和审片页 `out/review/plan-<版本>.png`、`.html`（结构草图） |
 | `hj layouts [名字]` | 版式：现成的分区方案 |
-| `hj approve <目录> script\|plan\|look\|keyframes --by "<用户原话>"` | 记录用户确认。后三道要求这一版的审片页已经生成，且原话里带着图上的四位确认码 |
+| `hj approve <目录> script\|plan\|look\|keyframes --by "<用户原话>"` | 记录用户确认。后三道要求这一版的审片页已经生成（用户看的是现在这一版） |
 | `hj look <目录>` | 全景定稿的审片页 `out/review/look-<版本>.png`、`.html`：每块板讲完时的全景和眯眼图（需先确认计划） |
 | `hj scaffold <目录> [--force]` | 照计划生成场景骨架。已有的场景文件不动，`--force` 覆盖 |
 | `hj layout <目录> [--scene 板]` | 布局线框：每个元素最后落在哪儿（坐标表、占用图、线框 PNG）。不需要确认，随时跑 |

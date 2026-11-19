@@ -1,7 +1,6 @@
 // 端到端：真的去跑 hj 命令，验证流程闸门、出图、带音频渲染，以及音画对齐。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { confirmCode } from '../src/core/review';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -88,12 +87,9 @@ test('端到端：init → check → 两道确认闸 → 出图 → 带音频渲
   const noRender = hj('render', dir, '--draft');
   assert.notEqual(noRender.status, 0);
   assert.match(noRender.stderr, /关键帧还没有得到用户确认/);
-  // 关键帧这一道要用户看过图：原话里要带着审片图上的确认码
+  // 关键帧这一道要先生成审片页（用户看的是这一版），之后用户一句“可以”就够了
   assert.ok(existsSync(join(dir, 'out/review/keyframes.png')) && existsSync(join(dir, 'out/review/keyframes.html')), '正式关键帧要同时生成审片页');
-  const noCode = hj('approve', dir, 'keyframes', '--by', '可以');
-  assert.notEqual(noCode.status, 0); assert.match(noCode.stderr, /没有确认码/);
-  const kcode = confirmCode('keyframes', JSON.parse(readFileSync(join(dir, 'out/review/keyframes.json'), 'utf8')).hash);
-  assert.equal(hj('approve', dir, 'keyframes', '--by', `确认 ${kcode}`).status, 0);
+  assert.equal(hj('approve', dir, 'keyframes', '--by', '可以').status, 0);
 
   // 确认之后改了“画什么”，确认自动失效
   const scene = join(dir, 'scenes/01-loop.yaml'), orig = readFileSync(scene, 'utf8');

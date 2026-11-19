@@ -10,7 +10,7 @@ hj brief <项目>          # 通读口播：逐句时间、停顿、可以直接
 # 写 <项目>/plan.yaml
 hj check <项目>          # 查计划。改到零错误；警告要么修掉，要么准备好向用户说明
 hj plan <项目>           # 排出 storyboard.md 和审片页 out/review/plan-<版本>.png、.html（带结构草图）
-# 把审片页的图发给用户（SKILL.md 的“交给用户审”），等用户回复确认码
+# 把审片页的图发给用户（SKILL.md 的“交给用户审”），等用户确认
 hj approve <项目> plan --by "<用户原话>"
 ```
 

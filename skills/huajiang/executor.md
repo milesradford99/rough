@@ -14,9 +14,9 @@ hj check <项目>                   # 改到零错误；警告尽量修掉
 hj stills <项目> --draft          # 草稿关键帧（out/draft/，带水印）：逐张打开看，改到满意
 hj preview <项目>                 # 有声预览（10 帧/秒、小尺寸，几十秒出片）：听着配音看画得早了、晚了、空等太久
 # 满意之后，分两步交给用户（怎么交见 SKILL.md 的“交给用户审”）：
-hj look <项目>                    # 全景定稿：每块板讲完时的全景 → 把 out/review/look-<版本>.png 发给用户，等确认码
+hj look <项目>                    # 全景定稿：每块板讲完时的全景 → 把 out/review/look-<版本>.png 发给用户，等用户确认
 hj approve <项目> look --by "<用户原话>"
-hj stills <项目>                  # 逐拍的关键帧 → 把 out/review/keyframes-<版本>.png 发给用户，等确认码
+hj stills <项目>                  # 逐拍的关键帧 → 把 out/review/keyframes-<版本>.png 发给用户，等用户确认
 hj approve <项目> keyframes --by "<用户原话>"
 hj render <项目> --draft          # 半分辨率，先看动起来的样子
 hj render <项目>                  # 成片 out/video.mp4
