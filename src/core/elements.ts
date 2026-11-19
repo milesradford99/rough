@@ -52,7 +52,7 @@ const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
 const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier', '__frozen', '__dec', '__in'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame', 'style'], video: ['frame', 'style', 'from', 'to', 'loop'], doodle: ['vars'], parts: ['box', 'anchors'],
-  shape: ['inside', 'insideSize'], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
+  shape: ['inside', 'insideSize'], arrow: ['curve', 'head', 'both', 'pad', 'taper'], line: ['curve', 'pad', 'taper'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit', 'range', 'perUnit', 'axes', 'smooth', 'base'], note: ['target', 'side'],
   axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'], detail: ['shape'],
 };
@@ -99,7 +99,7 @@ export function buildParts(parts: any[], k: number, base: Style, vars: Record<st
     const opaque = p.fillAlpha != null && p.fillAlpha >= 0.9;
     const st: Style = { ...base, seed: base.seed + i * 7 + 1, color: ink && pc !== THEME.paper ? base.color : pc, w: p.pen ?? base.w, rough: p.rough ?? base.rough,
       fill: pf && ink && !opaque ? wash(pf) : pf, fillStyle: ink && pf && !opaque && (!p.fillStyle || p.fillStyle === 'marker') ? 'solid' : p.fillStyle,
-      fillAlpha: ink && pf && !opaque ? 0.85 : p.fillAlpha, fillGap: p.fillGap, shade };
+      fillAlpha: ink && pf && !opaque ? p.fillAlpha ?? 0.85 : p.fillAlpha, fillGap: p.fillGap, shade };
     const need = (key: string, n: number) => { if (!Array.isArray(p[key]) || p[key].length < n) throw new SrcError(w0, `${key} 需要 ${n} 个数字`); return p[key].map((x: number) => x * k); };
     if ('line' in p) { const a = need('line', 4); out.push(...R.line(a[0], a[1], a[2], a[3], st)); }
     else if ('rect' in p) { const a = need('rect', 4); out.push(...R.rect(a[0], a[1], a[2], a[3], st)); }
@@ -469,7 +469,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     placed = true;
   } else if (kind === 'arrow' || kind === 'line') {
     const refs = src[kind];
-    if (!Array.isArray(refs) || refs.length < 2 || refs.length > 9) throw new SrcError(where, `${kind} 要写成 [起点, 终点]，起终点可以是元素 id、"id.锚点" 或 [x, y]；中间可以再写几个途经点（最多 7 个），线顺滑地穿过它们`);
+    if (!Array.isArray(refs) || refs.length < 2 || refs.length > 18) throw new SrcError(where, `${kind} 要写成 [起点, 终点]，起终点可以是元素 id、"id.锚点" 或 [x, y]；中间可以再写几个途经点（最多 16 个），线顺滑地穿过它们`);
     const a = parseRef(ctx, refs[0], where), b = parseRef(ctx, refs[refs.length - 1], where);
     if (refs.length > 2) {
       // 途经点：一条顺滑的线依次穿过它们（贯穿几行的斜线、一根鞭子）。照写的走，不自动绕路
@@ -478,7 +478,11 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       const p0 = a.el && !a.explicit ? exitPoint(a.el.box, pad, a.pt, mids[0]) : a.pt;
       const p1 = b.el && !b.explicit ? exitPoint(b.el.box, pad, b.pt, mids[mids.length - 1]) : b.pt;
       const path = catmull([p0, ...mids, p1], 10);
-      el.strokes = R.poly(path, false, { ...st, rough: Math.min(st.rough, 0.45), bow: 0.2 });
+      // taper: [起笔, 收笔] 粗细倍数，一笔由粗到细（鞭子从手柄到鞭梢）：整条是连续的一笔，不切成小段
+      if (Array.isArray(src.taper) && src.taper.length === 2) {
+        const pts = path.flat();
+        el.strokes = [{ kind: 'line', pts, w: st.w, color: st.color, len: polyLen(pts), taper: [+src.taper[0], +src.taper[1]] }];
+      } else el.strokes = R.poly(path, false, { ...st, rough: Math.min(st.rough, 0.45), bow: 0.2 });
       el.path = path.flat();
       if (kind === 'arrow') {
         const hs = src.head ?? 26, tip = path[path.length - 1], from = path[Math.max(0, path.length - 4)], ang = Math.atan2(tip[1] - from[1], tip[0] - from[0]);

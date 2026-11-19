@@ -53,6 +53,45 @@ function lineUniform(ctx: any, s: LineStroke, frac: number) {
   ctx.strokeStyle = s.color; ctx.lineWidth = s.w; ctx.stroke();
 }
 
+/** 一笔由粗到细（鞭子、毛笔）：沿线两侧按粗细偏移出轮廓，整块填满，边缘是连续的，不会一节一节 */
+function lineRibbon(ctx: any, s: LineStroke, frac: number) {
+  const pts = s.pts, cum = cumLen(s), wm = widthProfile(s), n = cum.length, L = cum[n - 1];
+  const target = frac >= 1 ? L : frac * L;
+  // 顺滑的粗细：先把粗细沿线平均一下，去掉逐点的抖动
+  const sm = new Float32Array(n);
+  for (let i = 0, a = 0, b = 0, acc = 0; i < n; i++) {
+    while (b < n && cum[b] - cum[i] <= 10) acc += wm[b++];
+    while (cum[i] - cum[a] > 10) acc -= wm[a++];
+    sm[i] = acc / Math.max(1, b - a);
+  }
+  const left: number[] = [], right: number[] = [];
+  let last = 0;
+  for (let i = 0; i < n; i++) {
+    let x = pts[2 * i], y = pts[2 * i + 1], w = sm[i];
+    if (cum[i] > target) {
+      const k = (target - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
+      x = pts[2 * i - 2] + (x - pts[2 * i - 2]) * k; y = pts[2 * i - 1] + (y - pts[2 * i - 1]) * k; w = sm[i - 1];
+    }
+    const j0 = Math.max(0, i - 1), j1 = Math.min(n - 1, i + 1);
+    let tx = pts[2 * j1] - pts[2 * j0], ty = pts[2 * j1 + 1] - pts[2 * j0 + 1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    const h = (s.w * w) / 2;
+    left.push(x - ty * h, y + tx * h); right.push(x + ty * h, y - tx * h);
+    last = i;
+    if (cum[i] > target) break;
+  }
+  if (left.length < 4) return;
+  ctx.fillStyle = s.color; ctx.beginPath(); ctx.moveTo(left[0], left[1]);
+  for (let i = 2; i < left.length; i += 2) ctx.lineTo(left[i], left[i + 1]);
+  // 笔尖：圆头
+  const ex = (left[left.length - 2] + right[right.length - 2]) / 2, ey = (left[left.length - 1] + right[right.length - 1]) / 2;
+  const er = Math.hypot(left[left.length - 2] - ex, left[left.length - 1] - ey);
+  ctx.lineTo(right[right.length - 2], right[right.length - 1]);
+  for (let i = right.length - 4; i >= 0; i -= 2) ctx.lineTo(right[i], right[i + 1]);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex, ey, er, 0, 6.2832); ctx.arc(pts[0], pts[1], (s.w * sm[0]) / 2, 0, 6.2832); ctx.fill();
+  void last;
+}
+
 /** 墨线：一小段一小段画，每段粗细不同——落笔重、行笔有起伏、收笔出锋 */
 function lineBrush(ctx: any, s: LineStroke, frac: number) {
   const pts = s.pts, cum = cumLen(s), wm = widthProfile(s), n = cum.length;
@@ -84,6 +123,7 @@ export function drawStroke(ctx: any, env: Env, s: Stroke, frac: number, alpha: n
     ctx.globalAlpha = alpha * (s.alpha ?? 1);
     if (s.flat) { ctx.globalCompositeOperation = 'multiply'; lineUniform(ctx, s, frac); ctx.globalCompositeOperation = 'source-over'; }
     else if ((s.alpha ?? 1) < 1 || s.pts.length <= 4 && s.len < 3) lineUniform(ctx, s, frac);
+    else if (s.taper) lineRibbon(ctx, s, frac);
     else lineBrush(ctx, s, frac);
   } else if (s.kind === 'fill') {
     // 涂色：沿斜向一路涂过去，而不是整块淡入
