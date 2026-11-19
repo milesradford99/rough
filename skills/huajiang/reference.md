@@ -159,6 +159,8 @@ beats:
 | 缩放 | `scale: id, to: 1.6` | 相对原始大小的倍数 |
 | 长出来 | `grow: id` | 区间条（span）从起点伸到定义的长度（`from: end` 从终点那头长），柱状图（`chart: bar`）的柱子从零长高。和 `draw` 一样是让它**第一次出现**；默认 0.9 秒 |
 | 数字滚动 | `count: id` | 文字里的那个数滚动。还没出现的：从 `from`（默认 0）滚到 text 写的数；已经在板上的：写 `to: 12000` 滚到新值。默认 1.1 秒 |
+| 展开 | `expand: 框id` | 细节框从它要展开的那样东西里长出来（默认 `ease: spring`），到位后画出两条引线。框里的东西在这之后再画；镜头在框里画东西时对准整个框 |
+| 收起 | `collapse: 框id` | 引线先消失，框和框里的东西一起缩回那样东西，它跳一下。之后框里的东西都不在了，那块地方空出来 |
 | 流动 | `flow: 线id` 或 `flow: [线1, 线2, 线3]` | 小记号沿着箭头、连线走；几条首尾相接的线就是一圈。`token`：`dot`（圆点，默认）、手绘件名（`coin`、`banknote`、`document`…）或不超过 6 个字（`"¥"`、`"90"`）；`n` 同时走几个（1–8），`loop` 走几趟（1–10），`color`、`size` |
 | 变成 | `become: [a, b]` | a 走过去变成 b（b 第一次出现）。`along: 线id` 顺着那条线走；`keep: true` 时 a 留在原地，走过去的是它的替身 |
 | 点亮 | `trace: [a, 线1, b, 线2, c]` | 顺着一条路，线用荧光笔描一遍，经过的东西跳一下，讲完下一拍后淡掉（`keep: true` 一直亮着）。`color` 默认 yellow |
@@ -260,6 +262,7 @@ lp:  { doodle: laptop, size: 90, at: dk.surface, anchor: bottom }
 | 标记 | `{ mark: circle, target: x }` | `circle box underline strike cross highlight check burst`。`target` 可以是数组；`pad` 调松紧；默认红色 |
 | 图表 | `{ chart: bar, data: [3800, 1200], labels: [法定, 实发], values: true }` | `bar` / `line`。`highlight: 1` 或 `highlight: {1: red}` 标红某项；`unit` 数值后缀；`w`、`h` |
 | 自由图形 | `{ parts: [ … ], box: [w, h], size: 200 }` | 就地用基本图形拼一个，格式同手绘件 |
+| 细节框 | `{ detail: bank, at: [480, 860], w: 820, h: 520, label: 银行里面 }` | 像拿放大镜看一样东西的里面。`detail` 写要展开的那样东西（定义在它前面），`at` 是框的中心，放在板上空着的地方；`shape: circle` 是圆框（只看 `w`）。框里的东西写 `in: 框的名字`，坐标相对框的左上角，和分区一样；相对它们定位的标签（`below: rev`）也算框里的。框用 `expand` 打开、`collapse` 收起，不用 draw。两条引线自动生成，叫 `<框>_a`、`<框>_b` |
 | 人群 | `{ crowd: 10, cols: 5, of: { figure: stand, size: 140 }, at: [250, 800] }` | 一群一样的东西。`at` 是整群的中心，`cols` 每排几个，`gap: 110` 或 `gap: [横, 竖]` 调间距。成员自动叫 `<id>1`…`<id>N`；整群作为一个整体定位，不会有谁被单独挪走 |
 
 人群可以写 `in: 分区`；箭头和坐标可以把整群当一个东西：`{ arrow: [docs, pkg] }`、`at: [docs.right, 300]`。箭头、连线写了 `in: 分区` 时，直接写出的坐标点也相对这个分区。

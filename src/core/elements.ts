@@ -34,6 +34,8 @@ export interface El {
   nudged?: Pt;
   /** 被引擎吸附对齐的距离 */
   snapped?: Pt;
+  /** 细节框：从它要展开的那样东西连过来的两条引线（场景坐标） */
+  leaders?: [Pt, Pt][];
   /** 第一次排版时引擎替它做的选择（连线的弯度、小字在哪一侧、批注贴哪边、标记收紧几成）。
    *  元素随时间重新生成时照这些来，不会因为周围的东西变了就跳到另一侧 */
   frozen?: { curve?: number; flip?: boolean; side?: string; k?: number };
@@ -42,15 +44,15 @@ export interface El {
 /** 大小的档位：写名字不写数字，同一类东西全片一样大。字四档，东西三档 */
 export const TEXT_TIERS: Record<string, number> = { hero: 108, key: 64, label: 46, note: 40 };
 export const THING_TIERS: Record<string, number> = { big: 210, mid: 160, small: 120 };
-export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'video', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
+export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'video', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note', 'detail'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier', '__frozen', '__dec'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier', '__frozen', '__dec', '__in'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame', 'style'], video: ['frame', 'style', 'from', 'to', 'loop'], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: ['inside', 'insideSize'], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
   chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
-  axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'],
+  axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'], detail: ['shape'],
 };
 
 const DOODLE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '../../doodles');
@@ -302,6 +304,7 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen * wk * bySize, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
   const shade = (src.shade ?? ctx.shade) !== false;
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
+  if (src.__in) el.over.add(String(src.__in)); // 写在细节框里的东西本来就叠在框上
   let placed = false; // arrow/line/mark 直接画在场景坐标里
   let lineLabel: Box | null = null; // 箭头上小字的绝对位置，box 定下来之后换成相对的
 
@@ -592,6 +595,34 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     }
     el.frozen = { k: mk };
     if (!el.strokes.length) throw new SrcError(where, `没有标记 "${m}"。可用：circle box underline strike cross highlight check burst`);
+    placed = true;
+  } else if (kind === 'detail') {
+    // 细节框：像拿放大镜看一样东西的里面。框画在板上的空地方，两条引线从那样东西连到框；框里的东西写 in: 框的名字
+    const node = ctx.els.get(String(src.detail));
+    if (!node) throw new SrcError(where, `detail 写要展开的那样东西的 id（定义在它前面），如 detail: bank。现在是 ${JSON.stringify(src.detail)}`);
+    const shp = src.shape ?? 'rect', w = +(src.w ?? 480), h = shp === 'circle' ? w : +(src.h ?? 360);
+    if (!['rect', 'circle'].includes(shp)) throw new SrcError(where, 'detail 的 shape 只能是 rect（方框，默认）或 circle（圆，像放大镜）');
+    if (!(w >= 160 && h >= 120)) throw new SrcError(where, '细节框至少 160×120，里面要画得下一张小图：写大 w、h');
+    if (!Array.isArray(src.at)) throw new SrcError(where, 'detail 的 at 写框的中心 [x, y]（放在板上空着的地方，和要展开的东西隔开一点）');
+    const [cx, cy] = parseRef(ctx, src.at, where).pt;
+    const fst: Style = { ...st, color: color(src.color, THEME.colors.gray), w: src.pen ?? 5, rough: Math.min(st.rough, 0.7), fill: '#ece5d3', fillStyle: 'solid', fillAlpha: 0.5, shade: false };
+    el.strokes = shp === 'circle' ? R.ellipse(cx, cy, w, w, fst) : R.rect(cx - w / 2, cy - h / 2, w, h, fst);
+    // 引线：从那样东西朝框的两侧边缘，连到框离它近的那两个角（圆框就是两条切线方向上的点）
+    const N = node.body ? { x: node.box.x + node.body.x, y: node.box.y + node.body.y, w: node.body.w, h: node.body.h } : node.box;
+    const nc: Pt = [N.x + N.w / 2, N.y + N.h / 2], dx = cx - nc[0], dy = cy - nc[1], L = Math.hypot(dx, dy) || 1, gap = 10;
+    let pairs: [Pt, Pt][];
+    if (shp === 'circle') {
+      const px = -dy / L, py = dx / L, rn = Math.min(N.w, N.h) / 2 + gap, rf = w / 2;
+      pairs = [1, -1].map(sg => [[nc[0] + px * rn * sg, nc[1] + py * rn * sg], [cx + px * rf * sg - (dx / L) * rf * 0.25, cy + py * rf * sg - (dy / L) * rf * 0.25]] as [Pt, Pt]);
+    } else if (Math.abs(dx) / (N.w / 2 + w / 2) >= Math.abs(dy) / (N.h / 2 + h / 2)) {
+      const sx = Math.sign(dx) || 1, nx = sx > 0 ? N.x + N.w + gap : N.x - gap, fx = sx > 0 ? cx - w / 2 : cx + w / 2;
+      pairs = [[[nx, N.y], [fx, cy - h / 2]], [[nx, N.y + N.h], [fx, cy + h / 2]]];
+    } else {
+      const sy = Math.sign(dy) || 1, ny = sy > 0 ? N.y + N.h + gap : N.y - gap, fy = sy > 0 ? cy - h / 2 : cy + h / 2;
+      pairs = [[[N.x, ny], [cx - w / 2, fy]], [[N.x + N.w, ny], [cx + w / 2, fy]]];
+    }
+    el.leaders = pairs;
+    el.anchors.node = nc;
     placed = true;
   } else if (kind === 'chart') {
     const csrc = { ...src };

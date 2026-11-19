@@ -65,8 +65,8 @@ export interface Compiled {
   fx: { flows: FlowFx[]; traces: TraceFx[]; /** become 时走过去的替身：只画，不进元素清单 */ ghosts: TL[] };
 }
 
-const NATURAL: Record<string, number> = { become: 1.4, change: 0.8, grow: 0.9, count: 1.1, move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
-const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'change', 'grow', 'count', 'flow', 'become', 'trace', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
+const NATURAL: Record<string, number> = { expand: 1.0, collapse: 0.9, become: 1.4, change: 0.8, grow: 0.9, count: 1.1, move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
+const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'change', 'grow', 'count', 'flow', 'become', 'trace', 'expand', 'collapse', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
 const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'from', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay', 'ease', 'token', 'n', 'loop', 'keep', 'color', 'size'];
 const pathLen = (p?: number[]) => { let L = 0; if (p) for (let i = 2; i < p.length; i += 2) L += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]); return L; };
 /** change 能改哪些参数：每种元素只开放几样，改的是“量”，不是换一样东西 */
@@ -240,7 +240,7 @@ export function compile(dir: string): Compiled {
       return [v];
     };
     const idsOf = (v: any): any => (typeof v === 'string' ? (ids1(v).length === 1 && ids1(v)[0] === v ? v : ids1(v)) : Array.isArray(v) ? v.flatMap(x => (typeof x === 'string' ? ids1(x) : [x])) : v);
-    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale', 'change', 'grow', 'count', 'flow', 'trace', 'become'];
+    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale', 'change', 'grow', 'count', 'flow', 'trace', 'become', 'expand', 'collapse'];
     const withGroups = (a: any): any => {
       if (!a || typeof a !== 'object') return a;
       const o = { ...a };
@@ -314,10 +314,13 @@ export function compile(dir: string): Compiled {
         } catch (e: any) { if (e instanceof SrcError) err(file, e.message); else throw e; }
       });
     }
+    /** 细节框（detail）：框里的东西写 in: 框的名字，坐标相对框的左上角 */
+    const frames = new Map<string, Box>();
     const inRegion = (eid: string, esrc: any): any => {
       if (!esrc || typeof esrc !== 'object' || esrc.in == null) return esrc;
-      const rg = regions.get(String(esrc.in)), { in: _in, ...rest } = esrc;
-      if (!rg) { err(`${file} / 元素 ${eid}`, `没有叫 "${esrc.in}" 的分区。本场景的分区：${[...regions.keys()].join(' ') || '（还没有定义 regions）'}`); return rest; }
+      const fr = frames.get(String(esrc.in)), rg = regions.get(String(esrc.in)) ?? fr, { in: _in, ...rest } = esrc;
+      if (fr) rest.__in = String(esrc.in);
+      if (!rg) { err(`${file} / 元素 ${eid}`, `没有叫 "${esrc.in}" 的分区或细节框。本场景的分区：${[...regions.keys()].join(' ') || '（还没有定义 regions）'}${frames.size ? '；细节框：' + [...frames.keys()].join(' ') : ''}`); return rest; }
       if (Array.isArray(rest.at) && rest.at.length === 2) rest.at = rest.at.map((v: any, i: number) => (typeof v === 'number' ? (i ? rg.y : rg.x) + v : typeof v === 'string' && /^-?[\d.]+%$/.test(v) ? (i ? rg.y : rg.x) + (parseFloat(v) / 100) * (i ? rg.h : rg.w) : v));
       else if (rest.at == null && !['rightOf', 'leftOf', 'above', 'below'].some(k => k in rest) && !('arrow' in rest || 'line' in rest || 'mark' in rest || 'note' in rest)) rest.at = [rg.x + rg.w / 2, rg.y + rg.h / 2];
       // 箭头、连线里直接写的坐标点也相对分区（引用元素的端点不受影响）
@@ -325,6 +328,12 @@ export function compile(dir: string): Compiled {
       return rest;
     };
     if (src.elements && typeof src.elements !== 'object') err(file, 'elements 应该是 "id: 定义" 的映射');
+    for (const [eid, esrc] of Object.entries(src.elements ?? {}) as [string, any][]) {
+      if (!esrc || typeof esrc !== 'object' || !('detail' in esrc)) continue;
+      const r = inRegion(eid, esrc), w = +(r.w ?? 480), h = r.shape === 'circle' ? w : +(r.h ?? 360);
+      if (Array.isArray(r.at) && r.at.every((v: any) => typeof v === 'number')) frames.set(eid, { x: r.at[0] - w / 2, y: r.at[1] - h / 2, w, h });
+      else err(`${file} / 元素 ${eid}`, 'detail 的 at 写框中心的坐标 [x, y]（数字，可以配 in: 分区）');
+    }
     for (const [eid, esrc0] of Object.entries(src.elements ?? {}) as [string, any][]) {
       const esrc = esrc0 && typeof esrc0 === 'object' && 'crowd' in esrc0 ? inRegion(eid, esrc0) : esrc0; // 人群也可以写 in: 分区
       if (esrc && typeof esrc === 'object' && 'crowd' in esrc) {
@@ -375,6 +384,14 @@ export function compile(dir: string): Compiled {
       }
       return acts.map(withGroups);
     };
+    // 细节框里有哪些东西、两条引线叫什么
+    const membersOf = new Map<string, string[]>(), leadersOf = new Map<string, string[]>();
+    for (const f of frames.keys()) {
+      // 写了 in: 框的，加上相对它们定位的（below: rev 的标签），一层层找下去
+      const mem = new Set(pending.filter(([, e]) => e && typeof e === 'object' && e.in === f).map(([i]) => i));
+      for (let grew = true; grew;) { grew = false; for (const [i, e] of pending) if (!mem.has(i) && e && typeof e === 'object' && e.in == null && !('detail' in e) && ['below', 'above', 'rightOf', 'leftOf'].some(k => mem.has(String(e[k] ?? '').split('.')[0]))) { mem.add(i); grew = true; } }
+      membersOf.set(f, [...mem]); leadersOf.set(f, [`${f}_a`, `${f}_b`]);
+    }
     for (const eid of recalled) life.set(eid, [t0 - 1, Infinity]);
     // 预扫一遍节拍：每个元素什么时候出现、什么时候被擦掉。只有同时在板上的元素才需要互相避让
     beats.forEach((b, bi) => {
@@ -382,6 +399,8 @@ export function compile(dir: string): Compiled {
       if (Number.isNaN(bt)) return;
       expand(b?.do).forEach((a, ai) => {
         if (!a || typeof a !== 'object') return;
+        if (typeof a.expand === 'string' && frames.has(a.expand)) for (const i of [a.expand, ...leadersOf.get(a.expand)!]) if (!life.has(i)) life.set(i, [bt, Infinity]);
+        if (typeof a.collapse === 'string' && frames.has(a.collapse)) for (const i of [a.collapse, ...leadersOf.get(a.collapse)!, ...membersOf.get(a.collapse)!]) if (life.has(i) && life.get(i)![1] === Infinity) life.get(i)![1] = bt;
         if (Array.isArray(a.become) && a.become.length === 2 && typeof a.become[1] === 'string' && !life.has(a.become[1])) life.set(a.become[1], [bt, Infinity]);
         const verb = [...APPEAR, 'erase', 'hide'].find(v => v in a);
         if (!verb) return;
@@ -397,7 +416,11 @@ export function compile(dir: string): Compiled {
         });
       });
     });
-    for (const [eid, esrc] of pending) addEl(eid, inRegion(eid, esrc));
+    for (const [eid, esrc] of pending) {
+      const tl = addEl(eid, inRegion(eid, esrc));
+      // 细节框的两条引线：从那样东西连到框，expand 时框到位之后画出来
+      tl?.el.leaders?.forEach((pq, i) => addEl(leadersOf.get(eid)?.[i] ?? `${eid}_${i}`, { line: pq, color: tl.el.src.color ?? 'gray', pen: 3.5, rough: 0.6, pad: 0 }));
+    }
     // 写了 in: 的元素被引擎挪出了自己的分区：多半是这个分区太挤
     for (const [eid, esrc] of pending) {
       const rn = esrc && typeof esrc === 'object' ? esrc.in : null, rg = rn != null ? regions.get(String(rn)) : null, el = els.get(eid);
@@ -407,6 +430,14 @@ export function compile(dir: string): Compiled {
     }
     for (const rn of regions.keys()) if (els.has(rn)) err(file, `分区和元素都叫 "${rn}"，镜头不知道该推近哪个。给其中一个换个名字`);
     for (const eid of recalled) { const tl = local.get(eid); if (tl) { tl.appear = { t: t0 - 0.02, kind: 'fade', dur: 0.3 }; tl.order = order++; tl.recalled = true; } }
+    /** 一笔一笔画出来：按笔画的分量分配 [t0, t1] */
+    const schedDraw = (tl: TL, a0: number, a1: number) => {
+      tl.drawT0 = a0; tl.drawT1 = a1; tl.compress = 1;
+      const ws = tl.el.strokes.map(weight), sum = ws.reduce((x, y) => x + y, 0), sched = new Float64Array(ws.length * 2);
+      let acc = a0;
+      tl.el.strokes.forEach((s, i) => { const slot = ((a1 - a0) * ws[i]) / sum; sched[2 * i] = acc + slot * Math.min(0.6, penUp(s) / ws[i]) * 0.9; sched[2 * i + 1] = acc + slot; acc += slot; });
+      tl.sched = sched;
+    };
     let pos = new Map<string, Pt>(); // 元素当前位移
     const poseNow = new Map<string, { pose: Pose; face: string }>();
     /** 元素现在的参数和定义时差在哪儿（change / count 之后） */
@@ -511,11 +542,8 @@ export function compile(dir: string): Compiled {
             if (tl.drawT0 != null || tl.appear) { err(aw, `元素 "${tl.el.id}" 已经出现过了，不能重复 ${a.verb}（要再出现一次请定义一个新元素）`); continue; }
             tl.order = order++;
             if (a.verb === 'draw') {
-              tl.drawT0 = a.t0; tl.drawT1 = a.t1; tl.compress = a.fixed ? a.natural / naturalDraw(tl.el) : Math.min(1, (a.t1 - a.t0) / a.natural);
-              const ws = tl.el.strokes.map(weight), sum = ws.reduce((x, y) => x + y, 0), sched = new Float64Array(ws.length * 2);
-              let acc = a.t0;
-              tl.el.strokes.forEach((s, i) => { const slot = ((a.t1 - a.t0) * ws[i]) / sum; sched[2 * i] = acc + slot * Math.min(0.6, penUp(s) / ws[i]) * 0.9; sched[2 * i + 1] = acc + slot; acc += slot; });
-              tl.sched = sched;
+              if (tl.el.kind === 'detail') err(aw, `细节框 "${tl.el.id}" 用 { expand: ${tl.el.id} } 打开（框从 "${tl.el.src.detail}" 里长出来，再画引线），不要 draw`);
+              schedDraw(tl, a.t0, a.t1); tl.compress = a.fixed ? a.natural / naturalDraw(tl.el) : Math.min(1, (a.t1 - a.t0) / a.natural);
             } else tl.appear = { t: a.t0, kind: a.verb, dur: a.t1 - a.t0 };
           }
           desc = (a.verb === 'draw' ? '画 ' : a.verb === 'pop' ? '弹出 ' : '淡入 ') + tlsOf.map(tl => describe(tl.el)).join('、');
@@ -684,6 +712,41 @@ export function compile(dir: string): Compiled {
             B.scale.push({ t0: ta, t1: a.t1 + 0.15, from: 1 / r, to: 1, ease: o.ease ?? 'spring' });
           }
           desc = ids.length === 2 ? `${ids[0]} ${o.keep === true ? '的替身' : ''}走过去变成 ${ids[1]}` : '';
+        } else if (a.verb === 'expand' || a.verb === 'collapse') {
+          // 展开：细节框从那样东西里长出来，引线随后画出；收起：引线先消失，框和框里的东西一起缩回那样东西，它跳一下
+          for (const tl of tlsOf) {
+            const el = tl.el;
+            if (el.kind !== 'detail') { err(aw, `${a.verb} 的对象是细节框（detail），"${el.id}" 是 ${el.kind}。先定义 ${el.id}In: { detail: ${el.id}, at: [x, y], w: 480, h: 360 }，框里的东西写 in: ${el.id}In，再 ${a.verb} 框`); continue; }
+            const node = local.get(String(el.src.detail))!, shown = (x: TL) => x.drawT0 != null || !!x.appear;
+            const nb = shifted(node.el.box, pos.get(node.el.id)), nc: Pt = [nb.x + nb.w / 2, nb.y + nb.h / 2];
+            const ratio = Math.min(1, Math.max(0.05, Math.max(nb.w, nb.h) / Math.max(el.box.w, el.box.h)));
+            const fc0 = el.anchors.center, leads = (leadersOf.get(el.id) ?? []).map(i => local.get(i)).filter((x): x is TL => !!x);
+            if (a.verb === 'expand') {
+              if (shown(tl)) { err(aw, `细节框 "${el.id}" 已经打开过了。要再看一次，定义一个新的框`); continue; }
+              if (!shown(node)) { err(aw, `要先把 "${node.el.id}" 画出来，才能展开它的里面`); continue; }
+              const tp = a.t0 + (a.t1 - a.t0) * 0.65, ez = o.ease ?? 'spring';
+              tl.order = order++; tl.appear = { t: a.t0, kind: 'fade', dur: 0.12 };
+              tl.moves.push({ t0: a.t0, t1: tp, from: [nc[0] - fc0[0], nc[1] - fc0[1]], to: [0, 0], ease: ez }); pos.set(el.id, [0, 0]);
+              tl.scale.push({ t0: a.t0, t1: tp, from: ratio, to: 1, ease: ez });
+              for (const lt of leads) { lt.order = order++; schedDraw(lt, tp, a.t1); }
+            } else {
+              if (!need(tl)) continue;
+              if (tl.gone != null) { err(aw, `细节框 "${el.id}" 已经收起了`); continue; }
+              const s1 = ratio * 0.8, fp = pos.get(el.id) ?? [0, 0], fc: Pt = [fc0[0] + fp[0], fc0[1] + fp[1]], tf = a.t0 + (a.t1 - a.t0) * 0.45;
+              for (const lt of leads) if (shown(lt) && lt.gone == null) { lt.alpha.push({ t0: a.t0, t1: a.t0 + 0.2, from: 1, to: 0 }); lt.gone = a.t0 + 0.2; }
+              const inside = [tl, ...[...local.values()].filter(x => x !== tl && !x.ghost && (x.el.over.has(el.id) || membersOf.get(el.id)?.includes(x.el.id)) && shown(x) && x.gone == null)];
+              for (const m of inside) {
+                const cur = pos.get(m.el.id) ?? [0, 0], pc: Pt = [m.el.anchors.center[0] + cur[0], m.el.anchors.center[1] + cur[1]];
+                const to: Pt = [cur[0] + nc[0] + (pc[0] - fc[0]) * s1 - pc[0], cur[1] + nc[1] + (pc[1] - fc[1]) * s1 - pc[1]];
+                m.moves.push({ t0: a.t0, t1: a.t1, from: cur, to, ease: o.ease }); pos.set(m.el.id, to);
+                const from = m.scale.length ? m.scale[m.scale.length - 1].to : 1;
+                m.scale.push({ t0: a.t0, t1: a.t1, from, to: from * s1, ease: o.ease });
+                m.alpha.push({ t0: tf, t1: a.t1, from: 1, to: 0 }); m.gone = a.t1;
+              }
+              node.shakes.push({ t0: a.t1 - 0.05, t1: a.t1 + 0.4, kind: 'pulse' });
+            }
+          }
+          desc = `${a.verb === 'expand' ? '展开' : '收起'} ${ids.join('、')}`;
         } else if (a.verb === 'pose' || a.verb === 'face') {
           for (const tl of tlsOf.filter(need)) {
             if (!tl.el.figure) { err(aw, `"${tl.el.id}" 不是火柴人，不能 ${a.verb}`); continue; }
@@ -757,6 +820,26 @@ export function compile(dir: string): Compiled {
           if (hit) warn(`${file} / 元素 ${eid}`, `change 之后（${fmtTime(mt)}）它会压到 "${hit.el.id}"。定义时引擎只按变化前的样子避让：给它变大之后的样子留出地方（挪开 "${hit.el.id}"，或者把 "${eid}" 定义成变化后的样子、用 change 从小变回来）`);
         }
       }
+    }
+    // 细节框：框里的东西在框打开之后、收起之前画；框不能压到外面的东西
+    for (const [f, mem0] of membersOf) {
+      const ft = local.get(f); if (!ft) continue;
+      const mem = [...new Set([...mem0, ...[...local.values()].filter(x => x !== ft && !x.ghost && x.el.over.has(f)).map(x => x.el.id)])]; // 叠放在框上的（相对框里的东西定位的标签）也算框里的
+      const open = ft.appear?.t, close = ft.gone ?? Infinity;
+      if (open == null) { if (mem.some(i => local.get(i)?.drawT0 != null || local.get(i)?.appear)) err(`${file} / 元素 ${f}`, `细节框 "${f}" 从没打开，框里的东西却画了。在画它们之前加一拍 { expand: ${f} }`); continue; }
+      for (const i of mem) {
+        const m = local.get(i), born = m?.drawT0 ?? m?.appear?.t;
+        if (born == null) continue;
+        if (born < open - 0.01) err(`${file} / 元素 ${i}`, `它在细节框 "${f}" 里，却在框打开（${fmtTime(open)}）之前就画了。先 { expand: ${f} }，再画框里的东西`);
+        else if (born >= close - 0.01) err(`${file} / 元素 ${i}`, `它在细节框 "${f}" 里，但框在 ${fmtTime(close)} 已经收起了，再画就画在空地上`);
+      }
+      const fb = ft.el.box, own = new Set([f, ...mem, ...(leadersOf.get(f) ?? []), String(ft.el.src.detail)]);
+      const hit = [...local.values()].find(o => {
+        if (own.has(o.el.id) || o.ghost || ['arrow', 'line', 'mark', 'axis'].includes(o.el.kind)) return false;
+        const born = o.drawT0 ?? o.appear?.t; if (born == null || born >= close || (o.gone ?? Infinity) <= open) return false;
+        const q = o.el.solid; return Math.min(fb.x + fb.w, q.x + q.w) - Math.max(fb.x, q.x) > 8 && Math.min(fb.y + fb.h, q.y + q.h) - Math.max(fb.y, q.y) > 8;
+      });
+      if (hit) warn(`${file} / 元素 ${f}`, `细节框打开的时候会盖住 "${hit.el.id}"。把框挪到板上空着的地方（改 at），或者把框画小（w、h）；外面的东西要在框收起之后才画，就把它放到 collapse 之后`);
     }
     // 进场方式为 wipe 的下一场景：把本场景整板擦掉
     const nextSrc = srcScenes[si + 1]?.src;
@@ -896,7 +979,7 @@ export function compile(dir: string): Compiled {
       for (const b of scene.beats) {
         const own = mine.filter(k => k.t0 >= b.t - 1e-6 && k.t0 < b.tEnd);
         if (own.length) { cur = own[own.length - 1].to; lastMove = own[own.length - 1].t0; held = true; if (cur === home) lastHome = lastMove; continue; } // 自己写的镜头：照写的走
-        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => [...APPEAR, 'change', 'become'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
+        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => [...APPEAR, 'change', 'become', 'expand'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
         const tgt = boxOfBeat(b);
         if (!tgt) continue;
         // 往后看一小段：接下来几秒要画的东西一起框进去，免得刚推近就得拉开
@@ -904,7 +987,9 @@ export function compile(dir: string): Compiled {
         CB = drawnBy(b.t + GAP);
         // 大板按分区走：要画的东西整个落在某个分区里、而这个分区一屏装得下，就对准整个分区——
         // 观众看到的是“走到了这一块”，在这一块里画的时候镜头不再跟着每一笔晃
-        const want = unionBox([tgt, ...ahead]);
+        // 打开的细节框里画东西：镜头对准整个框，框里画的时候不再跟着每一笔走
+        const frIn = [...frames.entries()].find(([f, fb]) => { const ft = local.get(f), op = ft?.appear?.t; return op != null && b.t >= op - 0.05 && b.t < (ft!.gone ?? Infinity) && tgt.x >= fb.x - 8 && tgt.y >= fb.y - 8 && tgt.x + tgt.w <= fb.x + fb.w + 8 && tgt.y + tgt.h <= fb.y + fb.h + 60; });
+        const want = frIn ? { ...frIn[1], h: frIn[1].h + 60 } : unionBox([tgt, ...ahead]);
         const home0 = BIG ? [...regions.values()].filter(r => want.x >= r.x - 8 && want.y >= r.y - 8 && want.x + want.w <= r.x + r.w + 8 && want.y + want.h <= r.y + r.h + 8 && Math.min(FB.w / r.w, FB.h / r.h) >= 0.72).sort((p, q) => p.w * p.h - q.w * q.h)[0] : undefined;
         const near = whole(home0 ?? want, x => camOf(x, home0 && x === home0 ? 0 : PAD), b.t + GAP), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
         // 分镜自己定的景别（含自己写的全景）：要画的东西在画面里、而且在这个景别下看得清，就不动——那是为这个景别画的
@@ -947,8 +1032,8 @@ export function compile(dir: string): Compiled {
       }
       // 流动、点亮、变成：整条路都要在画面里
       for (const bb of scene.beats) for (const ac of bb.actions) {
-        if (!['flow', 'trace', 'become'].includes(ac.verb)) continue;
-        const bs = ac.ids.map(i => local.get(i)?.el.box).filter((x): x is Box => !!x);
+        if (!['flow', 'trace', 'become', 'expand', 'collapse'].includes(ac.verb)) continue;
+        const bs = ac.ids.flatMap(i => [local.get(i)?.el.box, ...(ac.verb === 'expand' || ac.verb === 'collapse' ? [local.get(String(local.get(i)?.el.src.detail))?.el.box] : [])]).filter((x): x is Box => !!x);
         if (bs.length) needs.push({ t0: ac.t0, t1: ac.t1, box: unionBox(bs), id: ac.ids[0] });
       }
       needs.sort((a, b) => a.t0 - b.t0);
