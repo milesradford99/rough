@@ -4,21 +4,22 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { loadAlignment, resolveAnchor, buildSubtitles, type Alignment, type SubLine } from './alignment';
-import { buildElement, SrcError, KINDS, THING_TIERS, type El, type BuildCtx } from './elements';
+import { buildElement, SrcError, KINDS, THING_TIERS, depsOf, decimalsOf, type El, type BuildCtx } from './elements';
+import { EASES, numberIn, remade, type Morph } from './live';
 import { POSES, FACES, type Pose } from './figure';
-import { FORMATS, THEME, type Format } from './theme';
+import { FORMATS, THEME, color, type Format } from './theme';
 import { type Pt, type Box, unionBox } from './strokes';
 import { PATTERNS } from './patterns';
 import { loadPlan, planRegions, checkPlan, boardSizes, type Plan } from './plan';
 import { loadAppendix, layoutAppendix, appendixTiming, type AppendixLayout } from './appendix';
 
 export interface Issue { level: 'error' | 'warn' | 'info'; where: string; msg: string }
-export interface Tween { t0: number; t1: number; from: number; to: number }
+export interface Tween { t0: number; t1: number; from: number; to: number; ease?: string }
 export interface TL {
   el: El; order: number; scene: number;
   drawT0?: number; drawT1?: number; sched?: Float64Array; // 每笔 [起, 止]
   appear?: { t: number; kind: 'pop' | 'fade'; dur: number };
-  moves: { t0: number; t1: number; from: Pt; to: Pt; path?: number[]; base?: Pt; linear?: boolean }[];
+  moves: { t0: number; t1: number; from: Pt; to: Pt; path?: number[]; base?: Pt; linear?: boolean; ease?: string }[];
   alpha: Tween[]; scale: Tween[];
   shakes: { t0: number; t1: number; kind: 'shake' | 'pulse' | 'nod' }[];
   poses: { t0: number; t1: number; from: Pose; to: Pose; faceFrom: string; faceTo: string }[];
@@ -27,6 +28,12 @@ export interface TL {
   compress?: number;
   /** 从前面的场景沿用过来的：进场时已经在板上 */
   recalled?: boolean;
+  /** 参数随时间的变化（change / grow / count） */
+  morphs: Morph[];
+  /** 它引用的、会挪动或变化的元素：它们一变，它就照新的样子重新生成（箭头跟着两头走、标签跟着横条走） */
+  live?: string[];
+  /** 换一组参数、按另一组周围元素重新生成自己（不再避让） */
+  remake?: (patch: Record<string, any>, els: Map<string, El>) => El;
 }
 export interface EraseGroup { t0: number; t1: number; style: 'wipe' | 'fade'; path: number[]; width: number; scene: number }
 export interface CamSeg { t0: number; t1: number; to: Cam; cut?: boolean; /** 对准的是一个分区（一块地盘），不是具体的东西 */ region?: boolean }
@@ -50,9 +57,13 @@ export interface Compiled {
   castUse?: Map<string, CastUse>;
 }
 
-const NATURAL: Record<string, number> = { move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
-const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
-const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay'];
+const NATURAL: Record<string, number> = { change: 0.8, grow: 0.9, count: 1.1, move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
+const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'change', 'grow', 'count', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
+const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'from', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay', 'ease'];
+/** change 能改哪些参数：每种元素只开放几样，改的是“量”，不是换一样东西 */
+const CHANGE_KEYS: Record<string, string[]> = { span: ['span', 'h', 'color'], chart: ['data', 'color'], shape: ['w', 'h', 'size', 'color'], text: ['color'], note: ['color'], arrow: ['color'], line: ['color'], mark: ['color'], doodle: ['color'], icon: ['color'], parts: ['color'] };
+/** 让元素出现的动作 */
+const APPEAR = ['draw', 'pop', 'fade', 'grow', 'count'];
 const SCENE_GAP = 260;
 /** 自动取景最多推近多少：再大线条会显得粗笨 */
 const FRAME_MAX = 1.4;
@@ -203,7 +214,8 @@ export function compile(dir: string): Compiled {
       try {
         const el = buildElement(ctx, eid, esrc);
         els.set(eid, el);
-        const tl: TL = { el, order: 0, scene: si, moves: [], alpha: [], scale: [], shakes: [], poses: [] };
+        const tl: TL = { el, order: 0, scene: si, moves: [], alpha: [], scale: [], shakes: [], poses: [], morphs: [] };
+        if (!['figure', 'image', 'video'].includes(el.kind)) tl.remake = (patch, cur) => buildElement({ ...ctx, els: cur, life: undefined, note: undefined }, eid, { ...el.src, ...patch, __frozen: el.frozen });
         local.set(eid, tl); scene.els.push(eid);
         if (el.missing?.length) warn(`${file} / 元素 ${eid}`, `这些字符没有字形数据，画不出来：${[...new Set(el.missing)].join(' ')}`);
         return tl;
@@ -219,7 +231,7 @@ export function compile(dir: string): Compiled {
       return [v];
     };
     const idsOf = (v: any): any => (typeof v === 'string' ? (ids1(v).length === 1 && ids1(v)[0] === v ? v : ids1(v)) : Array.isArray(v) ? v.flatMap(x => (typeof x === 'string' ? ids1(x) : [x])) : v);
-    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale'];
+    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale', 'change', 'grow', 'count'];
     const withGroups = (a: any): any => {
       if (!a || typeof a !== 'object') return a;
       const o = { ...a };
@@ -361,7 +373,7 @@ export function compile(dir: string): Compiled {
       if (Number.isNaN(bt)) return;
       expand(b?.do).forEach((a, ai) => {
         if (!a || typeof a !== 'object') return;
-        const verb = ['draw', 'pop', 'fade', 'erase', 'hide'].find(v => v in a);
+        const verb = [...APPEAR, 'erase', 'hide'].find(v => v in a);
         if (!verb) return;
         const tgs: any[] = Array.isArray(a[verb]) ? a[verb] : [a[verb]];
         tgs.forEach((tg, ti) => {
@@ -387,6 +399,8 @@ export function compile(dir: string): Compiled {
     for (const eid of recalled) { const tl = local.get(eid); if (tl) { tl.appear = { t: t0 - 0.02, kind: 'fade', dur: 0.3 }; tl.order = order++; tl.recalled = true; } }
     let pos = new Map<string, Pt>(); // 元素当前位移
     const poseNow = new Map<string, { pose: Pose; face: string }>();
+    /** 元素现在的参数和定义时差在哪儿（change / count 之后） */
+    const morphNow = new Map<string, Record<string, any>>();
     let lastEnd = t0;
     beats.forEach((b, bi) => {
       const where = `${file} / 节拍 ${bi + 1}`;
@@ -474,6 +488,7 @@ export function compile(dir: string): Compiled {
       for (const a of list) {
         const aw = where;
         const o = a.opt;
+        if (o.ease != null && !EASES[o.ease]) err(aw, `ease 写动作的手感：${Object.keys(EASES).join(' ')}（soft 慢起慢收，默认；spring 冲过头一点再弹回；snap 干脆；linear 匀速）`);
         let ids = a.ids;
         if (ids.includes('*')) ids = [...local.values()].filter(tl => (tl.drawT0 ?? tl.appear?.t ?? Infinity) < a.t0 && tl.gone == null).map(tl => tl.el.id);
         const tlsOf = ids.map(i => local.get(i)!).filter(Boolean);
@@ -524,7 +539,7 @@ export function compile(dir: string): Compiled {
               else if (Array.isArray(o.by)) to = [cur[0] + o.by[0], cur[1] + o.by[1]];
               else throw new SrcError(aw, 'move 需要 to（目标：元素 id、"id.锚点" 或 [x,y]）、by（相对位移 [dx,dy]）或 along（沿某条箭头走）');
             } catch (e: any) { if (e instanceof SrcError) { err(aw, e.message.replace(aw + ': ', '')); continue; } throw e; }
-            tl.moves.push({ t0: a.t0, t1: a.t1, from: cur, to, path, base, linear: walking });
+            tl.moves.push({ t0: a.t0, t1: a.t1, from: cur, to, path, base, linear: walking && o.ease == null, ease: o.ease });
             pos.set(tl.el.id, to);
             if (walking) { // 走过去：边移动边交替迈步，到了恢复原来的姿势
               if (!tl.el.figure) { err(aw, `"${tl.el.id}" 不是火柴人，不能 walk（用 move）`); continue; }
@@ -537,8 +552,63 @@ export function compile(dir: string): Compiled {
           desc = `${walking ? '走动' : '移动'} ${ids.join('、')}` + (o.along ? ` 沿 ${o.along}` : o.to ? ` 到 ${JSON.stringify(o.to)}` : '');
         } else if (a.verb === 'scale') {
           if (typeof o.to !== 'number' || o.to <= 0) err(aw, 'scale 需要 to: 倍数（如 1.6 放大、0.5 缩小，相对元素原始大小）');
-          else for (const tl of tlsOf.filter(need)) { const from = tl.scale.length ? tl.scale[tl.scale.length - 1].to : 1; tl.scale.push({ t0: a.t0, t1: a.t1, from, to: o.to }); }
+          else for (const tl of tlsOf.filter(need)) { const from = tl.scale.length ? tl.scale[tl.scale.length - 1].to : 1; tl.scale.push({ t0: a.t0, t1: a.t1, from, to: o.to, ease: o.ease }); }
           desc = `${ids.join('、')} 缩放到 ${o.to} 倍`;
+        } else if (a.verb === 'change') {
+          // 改一个量：横条变长变短、柱子变高、框变大、换颜色。连着它的箭头、标签跟着重新生成
+          const to = o.to;
+          if (!to || typeof to !== 'object' || Array.isArray(to) || !Object.keys(to).length) err(aw, 'change 要写 to: { 参数: 新值 }，例如 { change: bar, to: { span: [0, 81] } }');
+          else for (const tl of tlsOf.filter(need)) {
+            const el = tl.el, allow = CHANGE_KEYS[el.kind] ?? [], bad = Object.keys(to).filter(k => !allow.includes(k));
+            if (bad.length) { err(aw, `"${el.id}"（${el.kind}）不能 change ${bad.join('、')}。${allow.length ? '它能改的：' + allow.join(' ') : '这种元素没有能改的参数：换样子用 pose / face，换位置用 move'}`); continue; }
+            const v = (k: string): string | null => {
+              const x = to[k];
+              if (k === 'span') return Array.isArray(x) && x.length === 2 && x.every((n: any) => Number.isFinite(+n)) ? null : 'span 写起止数值，如 [0, 81]';
+              if (k === 'data') return Array.isArray(x) && x.length === el.src.data.length && x.every((n: any) => typeof n === 'number') ? null : `data 写 ${el.src.data.length} 个数字（和原来的个数一样）`;
+              if (k === 'color') return typeof x === 'string' ? null : 'color 写颜色名，如 red';
+              return typeof x === 'number' && x > 0 ? null : `${k} 写一个正数`;
+            };
+            const bads = Object.keys(to).map(v).filter(Boolean);
+            if (bads.length) { err(aw, bads.join('；')); continue; }
+            const now = morphNow.get(el.id) ?? {}, toFull: Record<string, any> = { ...now };
+            for (const k of Object.keys(to)) toFull[k] = k === 'color' ? color(to[k]) : k === 'span' ? to[k].map(Number) : to[k];
+            const baseOf = (k: string) => (k === 'color' ? color(el.src.color) : k === 'h' && el.kind === 'span' ? el.src.h ?? 50 : k === 'w' || k === 'h' ? el.src[k] ?? el.src.size ?? (k === 'w' ? 240 : 160) : el.src[k]);
+            const from = Object.fromEntries(Object.keys(toFull).map(k => [k, k in now ? now[k] : baseOf(k)]));
+            tl.morphs.push({ t0: a.t0, t1: a.t1, from, to: toFull, ease: o.ease });
+            morphNow.set(el.id, toFull);
+          }
+          desc = `${ids.join('、')} 变成 ${JSON.stringify(to).replace(/"/g, '')}`;
+        } else if (a.verb === 'grow') {
+          // 长出来：区间条从一头伸到定义的长度，柱状图的柱子从零长高。和 draw 一样让它第一次出现
+          for (const tl of tlsOf) {
+            const el = tl.el;
+            if (tl.drawT0 != null || tl.appear) { err(aw, `"${el.id}" 已经在板上了，grow 是让它第一次出现时长出来。已经在板上的要变长变短用 change`); continue; }
+            let from: Record<string, any>, to: Record<string, any>;
+            if (el.kind === 'span') { const [p, q] = el.src.span.map(Number); if (o.from != null && !['start', 'end'].includes(o.from)) { err(aw, 'grow 的 from 写 start（从起点那头长出来，默认）或 end（从终点那头）'); continue; } from = { span: o.from === 'end' ? [q, q] : [p, p] }; to = { span: [p, q] }; }
+            else if (el.kind === 'chart' && el.src.chart === 'bar') { from = { data: el.src.data.map(() => 0) }; to = { data: el.src.data }; }
+            else { err(aw, `grow 只能用在区间条（span）和柱状图（chart: bar）上，"${el.id}" 是 ${el.kind}。别的东西用 draw 画出来`); continue; }
+            tl.order = order++;
+            tl.appear = { t: a.t0, kind: 'fade', dur: Math.min(0.12, (a.t1 - a.t0) / 3) };
+            tl.morphs.push({ t0: a.t0, t1: a.t1, from, to, ease: o.ease, base: true });
+          }
+          desc = '长出 ' + tlsOf.map(tl => describe(tl.el)).join('、');
+        } else if (a.verb === 'count') {
+          // 数字滚动：还没出现的数从 from（默认 0）滚到写的值；已经在板上的数滚到 to
+          for (const tl of tlsOf) {
+            const el = tl.el, n = el.kind === 'text' ? numberIn(String(el.src.text)) : null;
+            if (!n) { err(aw, `count 只能用在带数字的文字上（如 text: "= 1000"），"${el.id}" ${el.kind === 'text' ? '里没有数字' : `是 ${el.kind}`}`); continue; }
+            const shown = tl.drawT0 != null || !!tl.appear;
+            if (o.from != null && typeof o.from !== 'number') { err(aw, 'count 的 from 写一个数（从几开始滚），默认 0'); continue; }
+            if (shown && typeof o.to !== 'number') { err(aw, `"${el.id}" 已经在板上了：写 to: 数字，滚到几`); continue; }
+            if (!shown && o.to != null) { err(aw, `"${el.id}" 还没出现：count 会从 from 滚到它写的数（${n.value}），不用写 to。要滚到别的数，改它的 text`); continue; }
+            const now = morphNow.get(el.id) ?? {}, start = shown ? now.__num ?? n.value : o.from ?? 0, end = shown ? o.to : n.value;
+            const dec = Math.max(n.dec, decimalsOf(start), decimalsOf(end));
+            if (!shown) { tl.order = order++; tl.appear = { t: a.t0, kind: 'fade', dur: 0.1 }; }
+            const toFull = { ...now, __num: end, __numDec: dec };
+            tl.morphs.push({ t0: a.t0, t1: a.t1, from: { ...now, __num: start, __numDec: dec }, to: toFull, ease: o.ease, base: !shown });
+            if (shown) morphNow.set(el.id, toFull);
+          }
+          desc = `数字滚动 ${ids.join('、')}${o.to != null ? ` 到 ${o.to}` : ''}`;
         } else if (a.verb === 'pose' || a.verb === 'face') {
           for (const tl of tlsOf.filter(need)) {
             if (!tl.el.figure) { err(aw, `"${tl.el.id}" 不是火柴人，不能 ${a.verb}`); continue; }
@@ -574,6 +644,45 @@ export function compile(dir: string): Compiled {
         lastEnd = Math.max(lastEnd, a.t1);
       }
     });
+    // 跟着变：引用了会挪动、会变化的元素的东西（箭头的两头、标记和批注的对象、相对定位的参照），跟着重新生成
+    const extents = new Map<string, Box[]>();
+    {
+      const moving = new Set<string>();
+      for (const eid of scene.els) {
+        const tl = local.get(eid); if (!tl) continue;
+        if (tl.moves.length || !tl.remake) { if (tl.moves.length || tl.morphs.length) moving.add(eid); continue; }
+        const ds = depsOf(tl.el.src, i => local.has(i) || groups.has(i)).flatMap(i => groups.get(i) ?? [i]).filter(d => moving.has(d));
+        if (ds.length) tl.live = ds;
+        if (ds.length || tl.morphs.length) moving.add(eid);
+      }
+      // 变化之后它占的地方：镜头要装得下，也不能压到别人
+      const after = new Map<string, { t1: number; box: Box }[]>();
+      for (const eid of scene.els) {
+        const tl = local.get(eid);
+        if (!tl?.remake) continue;
+        for (const m of tl.morphs) {
+          if (m.base) continue;
+          try { const b = remade(tl, m.to, els, els).box; after.set(eid, [...(after.get(eid) ?? []), { t1: m.t1, box: b }]); extents.set(eid, [...(extents.get(eid) ?? []), b]); }
+          catch (e: any) { if (e instanceof SrcError) err(`${file} / 元素 ${eid}`, `变化之后排不出来：${e.message.replace(/^.*?: /, '')}`); else throw e; }
+        }
+      }
+      /** t 时刻它占的地方：最近一次变化之后的样子（同时在变的，按变完算） */
+      const boxAt = (tl: TL, t: number): Box => { let b = tl.el.kind === 'note' ? tl.el.solid : tl.el.box; for (const x of after.get(tl.el.id) ?? []) if (x.t1 <= t + 0.3) b = x.box; return b; };
+      const ov = (a: Box, q: Box) => Math.min(a.x + a.w, q.x + q.w) - Math.max(a.x, q.x) > 8 && Math.min(a.y + a.h, q.y + q.h) - Math.max(a.y, q.y) > 8;
+      for (const [eid, list] of after) {
+        const tl = local.get(eid)!;
+        if (['arrow', 'line', 'mark'].includes(tl.el.kind)) continue;
+        for (const { t1: mt, box: b } of list) {
+          const hit = [...local.values()].find(o => {
+            if (o === tl || ['mark', 'arrow', 'line', 'axis'].includes(o.el.kind) || o.el.src?.overlap === true || tl.el.src?.overlap === true || o.live?.includes(eid) || tl.el.over.has(o.el.id) || o.el.over.has(eid)) return false;
+            const born = o.drawT0 ?? o.appear?.t ?? Infinity;
+            if (born > (tl.gone ?? Infinity) || (o.gone ?? Infinity) <= mt) return false;
+            return ov(b, boxAt(o, Math.max(mt, born))) && !ov(tl.el.box, o.el.solid);
+          });
+          if (hit) warn(`${file} / 元素 ${eid}`, `change 之后（${fmtTime(mt)}）它会压到 "${hit.el.id}"。定义时引擎只按变化前的样子避让：给它变大之后的样子留出地方（挪开 "${hit.el.id}"，或者把 "${eid}" 定义成变化后的样子、用 change 从小变回来）`);
+        }
+      }
+    }
     // 进场方式为 wipe 的下一场景：把本场景整板擦掉
     const nextSrc = srcScenes[si + 1]?.src;
     if (nextSrc && nextSrc.enter === 'wipe') {
@@ -594,6 +703,7 @@ export function compile(dir: string): Compiled {
         if (tl.drawT0 == null && !tl.appear) continue;
         bs.push(tl.el.box);
         for (const m of tl.moves) bs.push(shifted(tl.el.box, m.to as Pt));
+        bs.push(...(extents.get(tl.el.id) ?? []));
       }
       // 沿用（recall）的场景和原场景取同一个景，母图再出现时不跳
       const rcId = src.recall != null ? String(typeof src.recall === 'string' ? src.recall : src.recall?.scene ?? '') : '';
@@ -711,7 +821,7 @@ export function compile(dir: string): Compiled {
       for (const b of scene.beats) {
         const own = mine.filter(k => k.t0 >= b.t - 1e-6 && k.t0 < b.tEnd);
         if (own.length) { cur = own[own.length - 1].to; lastMove = own[own.length - 1].t0; held = true; if (cur === home) lastHome = lastMove; continue; } // 自己写的镜头：照写的走
-        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => ['draw', 'pop', 'fade'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
+        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => [...APPEAR, 'change'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
         const tgt = boxOfBeat(b);
         if (!tgt) continue;
         // 往后看一小段：接下来几秒要画的东西一起框进去，免得刚推近就得拉开
@@ -757,6 +867,7 @@ export function compile(dir: string): Compiled {
         for (const k of tl.shakes) needs.push({ t0: k.t0, t1: k.t1, box, id });
         for (const k of tl.poses) needs.push({ t0: k.t0, t1: k.t1, box, id });
         for (const m of tl.moves) needs.push({ t0: m.t0, t1: m.t1, box: unionBox([shifted(tl.el.box, m.from), shifted(tl.el.box, m.to)]), id });
+        for (const m of tl.morphs) needs.push({ t0: m.t0, t1: m.t1, box: unionBox([box, ...(extents.get(id) ?? [])]), id });
         if (tl.erase != null && !sceneEnd(tl)) needs.push({ t0: erases[tl.erase].t0, t1: erases[tl.erase].t1, box, id });
       }
       needs.sort((a, b) => a.t0 - b.t0);

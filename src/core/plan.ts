@@ -526,7 +526,7 @@ export function conform(c: Compiled): Issue[] {
       }
       // 这一段有没有真的画东西（不是只写字）
       const news = tls.filter(t => { const st = shownAt(t); return st >= t0 - 1.2 && st < t1; });
-      const nonText = news.some(t => !['text', 'note'].includes(t.el.kind) && !(t.el.kind === 'shape' && t.el.src?.inside != null)) /* 框里写字还是字 */ || acts.some(a => a.t0 >= t0 - 0.6 && a.t0 < t1 && !['draw', 'camera', 'wait', 'pop', 'fade'].includes(a.verb));
+      const nonText = news.some(t => !['text', 'note'].includes(t.el.kind) && !(t.el.kind === 'shape' && t.el.src?.inside != null)) /* 框里写字还是字 */ || acts.some(a => a.t0 >= t0 - 0.6 && a.t0 < t1 && !['draw', 'camera', 'wait', 'pop', 'fade', 'count'].includes(a.verb));
       const hit = (bx: { x: number; y: number; w: number; h: number }, rn: string) => { const r = sc.regions?.find(x => x.name === rn)?.box; return !!r && bx.x < r.x + r.w && bx.x + bx.w > r.x && bx.y < r.y + r.h && bx.y + bx.h > r.y; };
       for (const j of s.joins) if (s.in && !news.some(t => ['arrow', 'line', 'mark', 'span', 'shape'].includes(t.el.kind) && hit(t.el.box, j) && hit(t.el.box, s.in!))) err(where, `计划要在这一段画一条线，把分区 "${j}" 和 "${s.in}" 连起来，这一段新画的东西里没有哪一条线同时碰到这两个分区。画一条箭头、连线或括号，两头分别落在两个分区里`);
       if (!nonText && !revisited) err(where, news.length ? '这一段只写了字，没有画任何东西。计划里这一段是有画面的：把它画出来（手绘件、小人、箭头、横条、图表、标记）' : '这一段什么都没画。照计划的 intent 把它画出来');

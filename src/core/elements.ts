@@ -34,6 +34,9 @@ export interface El {
   nudged?: Pt;
   /** 被引擎吸附对齐的距离 */
   snapped?: Pt;
+  /** 第一次排版时引擎替它做的选择（连线的弯度、小字在哪一侧、批注贴哪边、标记收紧几成）。
+   *  元素随时间重新生成时照这些来，不会因为周围的东西变了就跳到另一侧 */
+  frozen?: { curve?: number; flip?: boolean; side?: string; k?: number };
 }
 
 /** 大小的档位：写名字不写数字，同一类东西全片一样大。字四档，东西三档 */
@@ -42,7 +45,7 @@ export const THING_TIERS: Record<string, number> = { big: 210, mid: 160, small: 
 export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'video', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier', '__frozen', '__dec'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame', 'style'], video: ['frame', 'style', 'from', 'to', 'loop'], doodle: ['vars'], parts: ['box', 'anchors'],
   shape: ['inside', 'insideSize'], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
@@ -467,11 +470,12 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     // 线不从别的东西身上穿过去：按给定的弯度试，穿了就换一个弯度绕开
     const blockers = obstacles(ctx, el, [a.el?.id ?? '', b.el?.id ?? '']);
     const crosses = (cv: number) => { const m = midOf(cv); for (let i = 1; i < 12; i++) { const t = i / 12, u = 1 - t, c1x = 2 * m[0] - (p0[0] + p1[0]) / 2, c1y = 2 * m[1] - (p0[1] + p1[1]) / 2; const x = u * u * p0[0] + 2 * u * t * c1x + t * t * p1[0], y = u * u * p0[1] + 2 * u * t * c1y + t * t * p1[1]; if (hits({ x: x - 5, y: y - 5, w: 10, h: 10 }, blockers, -2)) return true; } return false; };
-    const want = src.curve ?? 0;
-    const clear = [want, 0.22, -0.22, 0.36, -0.36, 0.5, -0.5].find(cv => !crosses(cv));
+    const want = src.curve ?? 0, fz = src.__frozen;
+    const clear = fz?.curve ?? [want, 0.22, -0.22, 0.36, -0.36, 0.5, -0.5].find(cv => !crosses(cv));
     const curveUsed = clear ?? want;
     if (clear == null) ctx.note?.(where, '这条连线怎么弯都会从别的元素身上穿过去。把两端的元素挪近、挪到中间没有东西的位置，或者拆成两段', 'warn');
     else if (curveUsed !== want) ctx.note?.(where, `连线会从别的元素身上穿过，已自动改成弯度 ${curveUsed} 绕开`);
+    el.frozen = { curve: curveUsed };
     const bow = curveUsed * L, mid = midOf(curveUsed);
     el.strokes = bow ? R.curve([p0, mid, p1], { ...st, rough: Math.min(st.rough, 0.6) }) : R.line(p0[0], p0[1], p1[0], p1[1], st);
     el.path = (el.strokes[0] as any).pts.slice();
@@ -488,7 +492,9 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       if (!bow && Math.abs(nx) < 0.3) ly = mid[1] - off; // 水平直线：字写在上面
       // 小字压到别的东西就换到线的另一侧
       const lblObs = [...obstacles(ctx, el), ...lineBoxes(ctx, el)], lb = (x: number, y: number) => ({ x: x - t.w / 2, y: y - t.h / 2, w: t.w, h: t.h });
-      if (hits(lb(lx, ly), lblObs, 6)) { const ax = 2 * mid[0] - lx, ay = 2 * mid[1] - ly; if (!hits(lb(ax, ay), lblObs, 6)) { lx = ax; ly = ay; } }
+      const flip = fz?.flip ?? (hits(lb(lx, ly), lblObs, 6) && !hits(lb(2 * mid[0] - lx, 2 * mid[1] - ly), lblObs, 6));
+      if (flip) { lx = 2 * mid[0] - lx; ly = 2 * mid[1] - ly; }
+      el.frozen = { ...el.frozen, flip };
       translateStrokes(t.strokes, lx - t.w / 2, ly - t.h / 2);
       el.strokes.push(...t.strokes); el.text = String(src.label); el.missing = t.missing;
       lineLabel = lb(lx, ly);
@@ -510,7 +516,8 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     const okSide = (sd: string, m = 2) => { const q = spot(sd), bx = { x: q[0], y: q[1], w: t.w, h: t.h }; return inBoard(bx, B, m) && !hits(bx, nObs, 8); };
     // 先找不贴板沿的一侧，实在没有再接受贴边的
     const sides = [sideWant, 'right', 'left', 'bottom', 'top'];
-    const side = sides.find(sd => okSide(sd, -EDGE)) ?? sides.find(sd => okSide(sd)) ?? sideWant;
+    const side = src.__frozen?.side ?? sides.find(sd => okSide(sd, -EDGE)) ?? sides.find(sd => okSide(sd)) ?? sideWant;
+    el.frozen = { side };
     let [tx, ty] = spot(side);
     if (ctx.life && !okSide(side)) { // 四边都放不下：就近找一块空地，细线照样牵回去
       tx = Math.min(Math.max(tx, 0), B.w - t.w); ty = Math.min(Math.max(ty, 0), B.h - t.h);
@@ -578,10 +585,12 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       if (m === 'burst') { const out: Stroke[] = [], n = 10; for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 - Math.PI / 2, rx = b.w / 2 + 14 * k, ry = b.h / 2 + 14 * k, l = (30 + (i % 2) * 16) * (0.4 + 0.6 * k); out.push(...R.line(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, cx + Math.cos(a) * (rx + l), cy + Math.sin(a) * (ry + l), { ...ms, seed: seed + i, rough: 0.5 })); } return out; }
       return [];
     };
-    el.strokes = make(1);
-    if (neighbours.length && ['circle', 'box', 'underline', 'burst', 'cross'].includes(m)) {
-      for (const k of [1, 0.7, 0.45, 0.2, 0]) { el.strokes = make(k); if (!hits(boxOf(el.strokes), neighbours)) break; }
+    let mk = src.__frozen?.k ?? 1;
+    el.strokes = make(mk);
+    if (src.__frozen?.k == null && neighbours.length && ['circle', 'box', 'underline', 'burst', 'cross'].includes(m)) {
+      for (const k of [1, 0.7, 0.45, 0.2, 0]) { mk = k; el.strokes = make(k); if (!hits(boxOf(el.strokes), neighbours)) break; }
     }
+    el.frozen = { k: mk };
     if (!el.strokes.length) throw new SrcError(where, `没有标记 "${m}"。可用：circle box underline strike cross highlight check burst`);
     placed = true;
   } else if (kind === 'chart') {
@@ -688,6 +697,22 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   return el;
 }
 
+/** 数字写成几位小数：变化途中的值按最终值的位数写，不出现 37.29999 */
+export const fmtNum = (v: number, dec?: number) => (dec == null ? String(v) : v.toFixed(dec));
+export const decimalsOf = (v: number) => { const m = /\.(\d+)$/.exec(String(v)); return m ? m[1].length : 0; };
+
+/** 元素的定义里引用了哪些别的元素（箭头的两端、批注和标记的对象、区间条的数轴、相对定位、"id.锚点" 坐标）。
+ *  这些东西挪动或变化时，它要跟着重新生成 */
+export function depsOf(src: any, has: (id: string) => boolean): string[] {
+  const out = new Set<string>();
+  const take = (v: any) => {
+    if (typeof v === 'string') { const id = v.split('.')[0].split('@')[0]; if (has(id)) out.add(id); }
+    else if (Array.isArray(v)) v.forEach(take);
+  };
+  for (const k of ['arrow', 'line', 'target', 'on', 'at', 'rightOf', 'leftOf', 'above', 'below', 'near']) if (src?.[k] != null) take(src[k]);
+  return [...out];
+}
+
 function chartStrokes(src: any, st: Style, where: string): Stroke[] {
   const data: number[] = src.data;
   if (!Array.isArray(data) || data.length < 2 || data.some(v => typeof v !== 'number')) throw new SrcError(where, 'chart 需要 data: [数字, ...]（至少 2 个）');
@@ -704,7 +729,7 @@ function chartStrokes(src: any, st: Style, where: string): Stroke[] {
     data.forEach((v, i) => {
       const c = color(hl[i] ?? src.color ?? 'blue'), x = slot * i + (slot - bw) / 2;
       out.push(...R.rect(x, Y(v), bw, H - Y(v), { ...st, color: c, fill: c, seed: st.seed + 10 + i }));
-      if (src.values) lab(String(v) + (src.unit ?? ''), x + bw / 2, Y(v) - tsize - 8, c);
+      if (src.values) lab(fmtNum(v, src.__dec?.[i]) + (src.unit ?? ''), x + bw / 2, Y(v) - tsize - 8, c);
       if (src.labels?.[i] != null) lab(String(src.labels[i]), x + bw / 2, H + 12, st.color, tsize * 0.9);
     });
   } else if (src.chart === 'line') {

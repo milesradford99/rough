@@ -5,6 +5,7 @@ import { type Stroke, type LineStroke, type Pt, cumLen, pointAt, widthProfile, r
 import { lerpPose } from './figure';
 import { textStrokes } from './text';
 import { THEME } from './theme';
+import { easeBy, liveStrokes } from './live';
 
 export interface Env { createCanvas(w: number, h: number): any; Path2D: any; /** 读一张位图（image 元素用）；视频片段给第几帧 */ image?(file: string, frame?: { dir: string; i: number }): any }
 export interface FrameOpts { scale?: number; subtitles?: boolean; /** 笔：marker 只有一支马克笔，hand 是握着笔的手；true 等于 marker */ pen?: boolean | 'marker' | 'hand'; guides?: boolean; /** 只画板上的东西，不画纸面、暗角和上下的遮罩（透明底，给封面等二次合成用） */ bare?: boolean }
@@ -208,6 +209,23 @@ function veil(env: Env, tex: any, W: number, H: number, board: { x: number; y: n
 interface ElState { visible: boolean; dx: number; dy: number; scale: number; alpha: number; strokes: Stroke[]; drawing: boolean }
 const poseCache = new WeakMap<object, Map<string, Stroke[]>>();
 
+/** 挪动带来的位移（不含晃动、点头这类小动作） */
+export function moveAt(tl: TL, t: number): Pt {
+  let d: Pt = [0, 0];
+  for (const m of tl.moves) {
+    if (t < m.t0) break;
+    const k = m.linear ? span(t, m.t0, m.t1) : easeBy(m.ease, span(t, m.t0, m.t1));
+    if (m.path && m.base) {
+      // 先滑到轨迹起点，再沿轨迹走
+      const kk = Math.min(1, k), cum = cumLen({ pts: m.path }), p = pointAt(m.path, cum, kk);
+      const lead = Math.min(1, kk * 6);
+      const sx = m.from[0] + (m.path[0] - m.base[0] - m.from[0]) * lead, sy = m.from[1] + (m.path[1] - m.base[1] - m.from[1]) * lead;
+      d = kk < 1 / 6 ? [sx, sy] : [p[0] - m.base[0], p[1] - m.base[1]];
+    } else d = [m.from[0] + (m.to[0] - m.from[0]) * k, m.from[1] + (m.to[1] - m.from[1]) * k];
+  }
+  return d;
+}
+
 export function stateAt(tl: TL, t: number): ElState {
   const el = tl.el;
   const st: ElState = { visible: false, dx: 0, dy: 0, scale: 1, alpha: 1, strokes: el.strokes, drawing: false };
@@ -216,19 +234,9 @@ export function stateAt(tl: TL, t: number): ElState {
   st.visible = true;
   st.drawing = tl.drawT1 != null && t < tl.drawT1;
   if (tl.appear) { const k = span(t, tl.appear.t, tl.appear.t + tl.appear.dur); if (tl.appear.kind === 'pop') st.scale *= Math.max(0.01, outBack(k)); else st.alpha *= k; }
-  for (const m of tl.moves) {
-    if (t < m.t0) break;
-    const k = m.linear ? span(t, m.t0, m.t1) : ease(span(t, m.t0, m.t1));
-    if (m.path && m.base) {
-      // 先滑到轨迹起点，再沿轨迹走
-      const cum = cumLen({ pts: m.path }), p = pointAt(m.path, cum, k);
-      const lead = Math.min(1, k * 6);
-      const sx = m.from[0] + (m.path[0] - m.base[0] - m.from[0]) * lead, sy = m.from[1] + (m.path[1] - m.base[1] - m.from[1]) * lead;
-      st.dx = k < 1 / 6 ? sx : p[0] - m.base[0]; st.dy = k < 1 / 6 ? sy : p[1] - m.base[1];
-    } else { st.dx = m.from[0] + (m.to[0] - m.from[0]) * k; st.dy = m.from[1] + (m.to[1] - m.from[1]) * k; }
-  }
+  [st.dx, st.dy] = moveAt(tl, t);
   for (const a of tl.alpha) if (t >= a.t0) st.alpha *= a.from + (a.to - a.from) * span(t, a.t0, a.t1);
-  for (const a of tl.scale) if (t >= a.t0) st.scale = (st.scale / (tl.scale[tl.scale.indexOf(a) - 1]?.to ?? 1)) * (a.from + (a.to - a.from) * ease(span(t, a.t0, a.t1)));
+  for (const a of tl.scale) if (t >= a.t0) st.scale = (st.scale / (tl.scale[tl.scale.indexOf(a) - 1]?.to ?? 1)) * (a.from + (a.to - a.from) * easeBy(a.ease, span(t, a.t0, a.t1)));
   for (const s of tl.shakes) {
     if (t < s.t0 || t > s.t1) continue;
     const k = span(t, s.t0, s.t1);
@@ -324,7 +332,8 @@ function drawMinimap(ctx: any, c: Compiled, t: number, cam: Cam) {
 }
 
 // ── 握笔的手 ──
-interface PenSeg { t0: number; t1: number; tl: TL; i: number }
+/** i 是正在画的那一笔；tip 给出时是“拖着笔走”的轨迹（横条长出来、数字滚动），f 是这段动作的进度 */
+interface PenSeg { t0: number; t1: number; tl: TL; i: number; tip?: (f: number) => Pt; color?: string }
 const penSegs = new WeakMap<object, PenSeg[]>();
 function segsOf(c: Compiled): PenSeg[] {
   let segs = penSegs.get(c);
@@ -337,6 +346,18 @@ function segsOf(c: Compiled): PenSeg[] {
       if ((s as any).deco || !(b > a)) continue;
       segs.push({ t0: a, t1: b, tl, i });
     }
+  }
+  // 长出来、数字滚动：笔拖着那一头走
+  for (const tl of c.tls) for (const m of tl.morphs) {
+    if (!m.base || !(m.t1 > m.t0)) continue;
+    const el = tl.el, b = el.box, col = (el.strokes.find(s => s.kind === 'line') as any)?.color ?? THEME.ink;
+    let tip: ((f: number) => Pt) | undefined;
+    if (el.kind === 'span' && el.anchors.from && el.anchors.to) {
+      const [p, q] = (m.from.span?.[0] === m.to.span?.[1] ? [el.anchors.to, el.anchors.from] : [el.anchors.from, el.anchors.to]);
+      tip = f => { const k = easeBy(m.ease, f); return [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]; };
+    } else if (el.kind === 'chart') tip = f => { const k = easeBy(m.ease, f); return [b.x + b.w * (0.1 + 0.8 * f), b.y + b.h * (1 - 0.9 * Math.min(1, k))]; };
+    else if (el.kind === 'text') tip = f => [b.x + b.w * (0.15 + 0.85 * f), b.y + b.h * (0.6 + 0.12 * Math.sin(f * 18))];
+    if (tip) segs.push({ t0: m.t0, t1: m.t1, tl, i: -1, tip, color: el.kind === 'text' ? (el.strokes[0] as any)?.color ?? col : col });
   }
   segs.sort((x, y) => x.t0 - y.t0);
   penSegs.set(c, segs);
@@ -366,16 +387,16 @@ export function handAt(c: Compiled, t: number, cam: Cam): HandPos | null {
   if (!segs.length) return null;
   const { W, H, board } = c.fmt;
   const screen = (g: PenSeg, f: number): [number, number] => {
-    const sc = c.scenes[g.tl.scene], p = tipOf(g.tl.el.strokes[g.i], f);
+    const sc = c.scenes[g.tl.scene], p = g.tip ? g.tip(f) : tipOf(g.tl.el.strokes[g.i], f);
     return [(sc.origin[0] + board.x + p[0] - cam.cx) * cam.zoom + W / 2, (sc.origin[1] + board.y + p[1] - cam.cy) * cam.zoom + H / 2];
   };
-  const colorOf = (g: PenSeg) => (g.tl.el.strokes[g.i] as any).color || THEME.ink;
+  const colorOf = (g: PenSeg) => g.color ?? ((g.tl.el.strokes[g.i] as any).color || THEME.ink);
   // 二分找到最后一个 t0 <= t 的
   let lo = 0, hi = segs.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (segs[m].t0 <= t) lo = m + 1; else hi = m; }
   let cur: PenSeg | null = null, prev: PenSeg | null = null;
   for (let i = lo - 1; i >= 0 && i >= lo - 40; i--) { const g = segs[i]; if (t < g.t1) { cur = g; break; } if (!prev || g.t1 > prev.t1) prev = g; }
-  if (cur) { const k = (t - cur.t0) / (cur.t1 - cur.t0), p = screen(cur, k * 0.55 + k * k * (3 - 2 * k) * 0.45); return { x: p[0], y: p[1], color: colorOf(cur), scene: cur.tl.scene, down: true }; }
+  if (cur) { const k = (t - cur.t0) / (cur.t1 - cur.t0), p = screen(cur, cur.tip ? k : k * 0.55 + k * k * (3 - 2 * k) * 0.45); return { x: p[0], y: p[1], color: colorOf(cur), scene: cur.tl.scene, down: true }; }
   const next = segs[lo] ?? null, rest: [number, number] = [W * 0.92, H * 1.12];
   const a = prev ? screen(prev, 1) : rest, b = next ? screen(next, 0) : rest;
   const tp = prev ? prev.t1 : -Infinity, tn = next ? next.t0 : Infinity, gap = tn - tp, IN = 0.42, OUT = 0.5, lift = -14;
@@ -444,6 +465,8 @@ function focusOf(c: Compiled): Map<number, { segs: FocusSeg[]; release: number }
       if (!ids.size) continue;
       // 标记、批注、连线牵着的东西也算正在讲的
       for (const id of [...ids]) { const src = byId.get(`${sc.index}/${id}`)?.el.src; if (!src || typeof src !== 'object') continue; for (const r of [src.target, src.arrow, src.line].flat()) if (typeof r === 'string') ids.add(r.split('.')[0]); }
+      // 跟着它变的东西（横条上的标签、连着它的箭头）也在讲
+      for (const id of sc.els) { const tl = byId.get(`${sc.index}/${id}`); if (tl?.live?.some(d => ids.has(d)) && b.actions.some(a => a.t1 > a.t0 && a.ids.some(i => tl.live!.includes(i)) && a.verb !== 'draw')) ids.add(id); }
       segs.push({ t0: b.t, ids });
     }
     m.set(sc.index, { segs, release: release + 0.5 });
@@ -483,11 +506,16 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
   }
   const groups = new Map<number, { tl: TL; st: ElState }[]>();
   let curScene = -1;
+  // 这一刻样子变了的东西（横条在伸长、数字在滚、箭头跟着挪动的东西走）
+  const lives = new Map<number, Map<TL, Stroke[]> | null>();
   for (const tl of c.tls) {
     const sc = c.scenes[tl.scene];
     if (sc.origin[0] > vx1 || sc.origin[0] + (sc.span ?? W) < vx0) continue;
     const st = stateAt(tl, t);
     if (!st.visible) continue;
+    if (!lives.has(tl.scene)) lives.set(tl.scene, liveStrokes(c, tl.scene, t, moveAt));
+    const lv = lives.get(tl.scene)?.get(tl);
+    if (lv) st.strokes = lv;
     if (c.meta?.focus !== false && !st.drawing) st.alpha *= focusAlpha(c, tl, t);
     if (tl.erase != null) { const g = c.erases[tl.erase]; if (t >= g.t0) { if (!groups.has(tl.erase)) groups.set(tl.erase, []); groups.get(tl.erase)!.push({ tl, st }); continue; } }
     if (tl.scene !== curScene) { world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y); curScene = tl.scene; }

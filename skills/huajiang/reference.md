@@ -157,6 +157,9 @@ beats:
 | 走过去 | `walk: 小人id`，配 `to` / `by` | 边移动边迈步，到了恢复原姿势。时长默认 1.1 秒，远的话写 `dur`。`to` 是**脚落在哪儿**（`to: boat.deck`）；几个人一起走（`walk: p6..p10`）会保持队形并收紧，不会叠成一个 |
 | 移动 | `move: id`，配 `to` / `by` / `along` | `to: gov` 或 `to: you.handR` 或 `to: [x, y]`；`by: [dx, dy]`；`along: 箭头id` 沿箭头走 |
 | 缩放 | `scale: id, to: 1.6` | 相对原始大小的倍数 |
+| 长出来 | `grow: id` | 区间条（span）从起点伸到定义的长度（`from: end` 从终点那头长），柱状图（`chart: bar`）的柱子从零长高。和 `draw` 一样是让它**第一次出现**；默认 0.9 秒 |
+| 数字滚动 | `count: id` | 文字里的那个数滚动。还没出现的：从 `from`（默认 0）滚到 text 写的数；已经在板上的：写 `to: 12000` 滚到新值。默认 1.1 秒 |
+| 改一个量 | `change: id, to: { … }` | 已经在板上的东西变长、变短、变色。能改的：区间条 `span` `h` `color`；柱状图 `data`（个数不变）；形状 `w` `h`；其余元素只能改 `color`。默认 0.8 秒 |
 | 换姿势 | `pose: 小人id, to: shrug` | 可同时 `face: surprised` |
 | 换表情 | `face: 小人id, to: worried` | |
 | 弹出 / 淡入 | `pop: id` / `fade: id` | 不经过“画”直接出现。少用，这是 PPT 的出场方式 |
@@ -165,7 +168,11 @@ beats:
 | 镜头 | `camera: { focus: [a, b], pad: 90 }` / `camera: home` | 推近若干元素 / 回到全景 |
 | 等待 | `wait: 0.5` | |
 
-`move` 之后，元素的新位置会被后续的 `move ... to` 和 `camera focus` 认到；但先前已经画好的箭头和标记不会跟着动。
+`move`、`scale`、`grow`、`count`、`change` 都可以写 `ease:` 定手感：`soft`（慢起慢收，默认）、`spring`（冲过头一点再弹回，适合“到位”）、`snap`（干脆）、`linear`（匀速）。
+
+**连着它的东西会跟着走。** 一样东西被 `move`、`change`、`grow`、`count` 之后，引用了它的元素会照新的样子重新生成：箭头和连线的两头（`arrow: [a, b.right]`）、批注和标记的对象（`target`）、相对定位的参照（`below: bar`、`at: [n1.right, 440]`）、区间条的数轴。所以要“跟着走”的东西，定义时就引用它，不要抄它的坐标。
+
+`change` 之后东西变大了，引擎只按变化前的样子避让过；变大之后压到别人，`hj check` 会警告。
 
 ## 元素
 

@@ -130,7 +130,12 @@ beats:
 | 就地画一个标记 | `draw: { mark: cross, target: a }` |
 | 擦掉 | `erase: a`（只在“推翻前面的说法”时用） |
 | 强调一下 | `pulse: a`、`shake: a`、`nod: 小人` |
+| 横条、柱子长出来 | `{ grow: bar }`、`{ grow: bar, ease: spring }` |
+| 数字滚上去 | `{ count: total }`（从 0 滚到它写的数）、`{ count: total, to: 1200 }` |
+| 一个量变了 | `{ change: bar, to: { span: [0, 12000] } }` |
 | 镜头 | `{ camera: { focus: [a, b], pad: 80 } }` 推近；`{ camera: home }` 回全景 |
+
+**量变了，就让它在画面上变。** 讲到“涨到”“少了一成”“翻了一倍”，不要再画一根新的，让原来那根 `change` 过去；讲到结论的那个数，用 `count` 滚上去。标签、箭头、圈、批注只要定义时引用了它（`below: bar`、`arrow: [boss, bar.right]`、`target: total`），就会自己跟着走。
 
 **小人是讲述者的替身。** 反常的事让它吃惊，坏消息让它垮下来，结论让它摊手或欢呼。换姿势和表情几乎不花时间，是填补“画面静止”最便宜的办法。姿势、表情、配饰的清单：`hj assets figure`。
 
