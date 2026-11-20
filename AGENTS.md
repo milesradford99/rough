@@ -71,6 +71,7 @@ npm run check:examples      # 四个示例零错误零警告
 ```
 
 - 改了 `plan.ts` 的检查：在 `test/plan.test.ts` 里加一个“会被拦住”的用例。
+- 真实制作里踩到的坑，修好之后在 `test/lessons.test.ts` 里留一条：下次同样的错要么被检查拦住，要么骨架直接生成对的写法。
 - 改了技能的说明：确认里面提到的每条命令、每个字段在引擎里真的存在。说明和引擎不一致，比没有说明更糟。
 - 加了一条构图的检查：先在 `examples/one-board` 上跑，示例自己要过得去。
 - 改了计划的格式：同步改 `examples/one-board/plan.yaml`、`hj init` 写出的模板（`main.ts` 的 `PLAN_TEMPLATE`）和 `planner.md`。

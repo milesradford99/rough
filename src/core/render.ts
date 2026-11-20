@@ -1,5 +1,5 @@
 // 渲染器：画面是时间的纯函数。drawFrame(ctx, compiled, t) 能精确画出任意时刻的一帧。
-import { appendixOffset } from './appendix';
+import { appendixAt } from './appendix';
 import type { Compiled, TL, Cam, EraseGroup } from './compile';
 import type { El } from './elements';
 import { type Stroke, type LineStroke, type Pt, cumLen, pointAt, widthProfile, rng } from './strokes';
@@ -17,12 +17,9 @@ const span = (t: number, t0: number, t1: number) => (t1 <= t0 ? (t >= t1 ? 1 : 0
 const outBack = (k: number) => 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2);
 
 export function camAt(c: Compiled, t: number): Cam {
-  // 附录：从最后的全景出发，放到原大，顺着纸往下走
+  // 附录：镜头停在讲完那一刻的全景上不动（附录在画面上滚，不是镜头在走）
   const ap = c.appendix;
-  if (ap && t > ap.t0) {
-    const u = t - ap.t0, k = ease(clamp01(u / 1.4));
-    return { cx: ap.from.cx, cy: ap.from.cy + appendixOffset(u, ap.dist, ap.speed), zoom: Math.exp(Math.log(ap.from.zoom) * (1 - k)) };
-  }
+  if (ap && t > ap.t0) return camAt(c, ap.t0);
   let s: Cam = c.cams[0]?.to ?? { cx: c.fmt.W / 2, cy: c.fmt.H / 2, zoom: 1 };
   for (const seg of c.cams) {
     if (t >= seg.t1) { s = seg.to; continue; }
@@ -641,15 +638,26 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
     ctx.drawImage(layer, 0, 0);
     ctx.globalAlpha = 1;
   }
-  // 附录：就在最后一块板的下面，镜头走到了才看得见
-  if (c.appendix && vy1 > c.appendix.y) {
-    const ap = c.appendix;
-    world(ctx); ctx.translate(ap.x, ap.y); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // 附录：像电影片尾。讲完那一刻的全景慢慢虚化、淡成底色，附录从下面滚上来
+  if (c.appendix && t > c.appendix.t0) {
+    const ap = c.appendix, { blur, top } = appendixAt(ap, t);
+    if (!o.bare && blur > 0) {
+      const cw = Math.round(W * k), ch = Math.round(H * k), snap = env.createCanvas(cw, ch);
+      snap.getContext('2d').drawImage(ctx.canvas, 0, 0);
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(tex, 0, 0, cw, ch);                                   // 先铺纸：虚化的边缘不会透出黑边
+      ctx.filter = `blur(${Math.max(0.5, 9 * k * blur).toFixed(2)}px)`;
+      ctx.drawImage(snap, 0, 0);
+      ctx.filter = 'none';
+      ctx.globalAlpha = 0.62 * blur; ctx.drawImage(tex, 0, 0, cw, ch);   // 再罩一层纸，把全景淡成底色，字才读得清
+      ctx.restore(); ctx.globalAlpha = 1;
+    }
+    ctx.setTransform(k, 0, 0, k, 0, 0); ctx.translate(0, top); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const under of [true, false]) for (const row of ap.layout.rows) {
-      if (ap.y + row.y1 < vy0 - 20 || ap.y + row.y0 > vy1 + 20) continue;
+      if (top + row.y1 < -20 || top + row.y0 > H + 20) continue;
       for (const s of row.strokes) if (!!(s as any).under === under) drawStroke(ctx, env, s, 1, 1);
     }
-    ctx.globalAlpha = 1;
+    ctx.setTransform(k, 0, 0, k, 0, 0); ctx.globalAlpha = 1;
   }
   // 画板上下是平台界面和字幕的地方：近景时邻近的东西会漫进去，用纸面把它们柔和地收掉
   ctx.setTransform(k, 0, 0, k, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';

@@ -1,6 +1,6 @@
-// 附录：口播讲完之后，镜头顺着同一张纸往下走，滚过一份补充材料（完整时间线、数据出处、名词表）。
-// 内容写在项目的 appendix.yaml 里，只写字，不写坐标和字号；版面、字体、纸面都由引擎排，和正片是同一套笔画。
-// 它排在最后一块板的正下方（同一个世界坐标系），所以“滚动”只是镜头往下平移：纸纹、手写字、线条和正片完全一致。
+// 附录：口播讲完之后，像电影片尾那样滚过一份补充材料（完整时间线、数据出处、名词表）。
+// 内容写在项目的 appendix.yaml 里，只写字，不写坐标和字号；版面、字体都由引擎排，和正片是同一套笔画。
+// 镜头停在最后的全景上，全景慢慢虚化、淡成底色，附录从画面下方滚上来：观众知道正片讲完了，又还看得见刚才那张图。
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import YAML from 'yaml';
@@ -127,7 +127,11 @@ export function layoutAppendix(ap: Appendix, fmt: Format): AppendixLayout {
   return { rows, width: W, height: y, missing: [...new Set(missing)] };
 }
 
-/** 镜头从最后一块板的全景往下走的路程和时间：先加速、匀速滚、到底减速，再停一会儿 */
+/** 全景虚化要多久（秒） */
+export const APPENDIX_BLUR = 1.2;
+/** 虚化开始多久之后字幕开始滚上来（和虚化叠一点，不干等） */
+export const APPENDIX_DELAY = 0.7;
+/** 附录在画面上滚多远、多久：先加速、匀速滚、到底减速，再停一会儿 */
 export function appendixTiming(dist: number, speed: number, hold: number): { ramp: number; scroll: number; total: number } {
   const ramp = Math.min(0.9, dist / speed); // 起步、收尾各用这么久，从零加到匀速
   const scroll = dist / speed + ramp;       // 梯形速度曲线：总路程 = speed × (scroll − ramp)
@@ -141,4 +145,11 @@ export function appendixOffset(u: number, dist: number, speed: number): number {
   if (u < ramp) return (speed * u * u) / (2 * ramp);
   if (u > scroll - ramp) { const r = scroll - u; return dist - (speed * r * r) / (2 * ramp); }
   return speed * (u - ramp / 2);
+}
+
+const easeIO = (k: number) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+/** 附录这一刻的样子：blur 是全景虚化到几成（0 到 1），top 是附录顶端在画面上的 y（屏幕坐标） */
+export function appendixAt(ap: { t0: number; start: number; dist: number; speed: number }, t: number): { blur: number; top: number } {
+  const u = t - ap.t0;
+  return { blur: easeIO(Math.min(1, Math.max(0, u / APPENDIX_BLUR))), top: ap.start - appendixOffset(u - APPENDIX_DELAY, ap.dist, ap.speed) };
 }

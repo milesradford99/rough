@@ -295,7 +295,9 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   if (!src || typeof src !== 'object') throw new SrcError(where, '元素定义应该是一个对象');
   const kind = KINDS.find(k => k in src);
   if (!kind) throw new SrcError(where, `看不出这是什么元素。需要包含其中一个键：${KINDS.join(' ')}`);
-  for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
+  // 常见的写错位置：动作的选项写到了元素上。直接说该写在哪儿
+  const MOVED: Record<string, string> = { from: '`from: end`（从终点那头长）是 grow 动作的选项，写在节拍里：{ grow: 元素id, from: end }', ease: 'ease 是动作的选项，写在节拍里：{ grow: 元素id, ease: spring }', dur: 'dur 是动作的选项，写在节拍里：{ draw: 元素id, dur: 0.8 }', delay: 'delay 是动作的选项，写在节拍里' };
+  for (const k of Object.keys(src)) if (k !== kind && !COMMON.includes(k) && !FIELDS[kind].includes(k)) throw new SrcError(where, `${kind} 元素不认识字段 "${k}"。${MOVED[k] ? `${MOVED[k]}。` : ''}可用：${[...COMMON, ...FIELDS[kind]].join(' ')}`);
   if (typeof src.size === 'string') {
     const tiers = kind === 'text' || kind === 'note' ? TEXT_TIERS : ['figure', 'doodle', 'parts', 'icon', 'image', 'video', 'shape'].includes(kind) ? THING_TIERS : null;
     if (!tiers || !(src.size in tiers)) throw new SrcError(where, tiers ? `size 没有 "${src.size}" 这一档。${tiers === TEXT_TIERS ? '字' : '东西'}的档位：${Object.entries(tiers).map(([k, v]) => `${k}（${v}）`).join(' ')}；也可以直接写数字` : `${kind} 的 size 要写数字`);

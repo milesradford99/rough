@@ -264,7 +264,7 @@ lp:  { doodle: laptop, size: 90, at: dk.surface, anchor: bottom }
 | 图表 | `{ chart: bar, data: [3800, 1200], labels: [法定, 实发], values: true }` | `bar` / `line`。`highlight: 1` 或 `highlight: {1: red}` 标红某项；`unit` 数值后缀；`w`、`h`。几张图要**比高低**：都写 `range: [下限, 上限]`（固定的取值范围，数据变了图也不挪）和同一个 `perUnit`（每个单位多少像素，高度由它算），各自的范围可以不同，同一个数在每张图上一样高。折线图还可以：`smooth: true` 顺滑的曲线；`axes: false` 不画坐标轴；`base: 100` 在这个值上画一条很淡的基准线；`fill: 颜色` 在线和基准线之间淡淡涂一层 |
 | 自由图形 | `{ parts: [ … ], box: [w, h], size: 200 }` | 就地用基本图形拼一个，格式同手绘件 |
 | 细节框 | `{ detail: bank, at: [480, 860], w: 820, h: 520, label: 银行里面 }` | 像拿放大镜看一样东西的里面。`detail` 写要展开的那样东西（定义在它前面），`at` 是框的中心，放在板上空着的地方；`shape: circle` 是圆框（只看 `w`）。框里的东西写 `in: 框的名字`，坐标相对框的左上角，和分区一样；相对它们定位的标签（`below: rev`）也算框里的。框用 `expand` 打开、`collapse` 收起，不用 draw。两条引线自动生成，叫 `<框>_a`、`<框>_b` |
-| 人群 | `{ crowd: 10, cols: 5, of: { figure: stand, size: 140 }, at: [250, 800] }` | 一群一样的东西。`at` 是整群的中心，`cols` 每排几个，`gap: 110` 或 `gap: [横, 竖]` 调间距。成员自动叫 `<id>1`…`<id>N`；整群作为一个整体定位，不会有谁被单独挪走 |
+| 人群 | `{ crowd: 10, cols: 5, of: { figure: stand, size: 140 }, at: [250, 800] }` | 一群一样的东西。`at` 是整群的中心，`cols` 每排几个，`gap: 110` 或 `gap: [横, 竖]` 调间距。成员自动叫 `<id>1`…`<id>N`；整群作为一个整体定位，不会有谁被单独挪走。`label` 是整群下面居中的一行小字（元素叫 `<id>_label`，画这一群时一起写出来），`labelSize` 调字号 |
 
 人群可以写 `in: 分区`；箭头和坐标可以把整群当一个东西：`{ arrow: [docs, pkg] }`、`at: [docs.right, 300]`。箭头、连线写了 `in: 分区` 时，直接写出的坐标点也相对这个分区。
 
@@ -341,7 +341,7 @@ npx hj import quickdraw tree.ndjson --pick 17 --name tree --out work/<项目>/do
 
 ## 片尾附录（appendix.yaml）
 
-口播讲完之后，镜头顺着同一张纸往下滚过一份补充材料：完整时间线、数据出处、名词表。只写内容，版面、字号、滚动都由引擎排，字和线与正片是同一套手写笔画。没有这个文件就没有附录。
+口播讲完之后，像电影片尾一样滚过一份补充材料：完整时间线、数据出处、名词表。镜头停在最后的全景上，全景慢慢虚化、淡成底色，附录从画面下方滚上来。只写内容，版面、字号、滚动都由引擎排，字和线与正片是同一套手写笔画。没有这个文件就没有附录。
 
 ```yaml
 title: 1993–2026 关键事件          # 这一节的标题
@@ -377,7 +377,7 @@ seconds: 30                        # 可选：总共滚多少秒；不写按每�
 | `hj stills <目录> [--scene 板] [--at 秒数或口播片段]` | 正式关键帧和审片页 `out/review/keyframes-<版本>.png`、`.html`（需先确认计划和全景定稿）。每张卡片写着这一拍的起止和时长，画完之后干等超过 4 秒的标红。`--scene`、`--at` 只出图，不更新审片页 |
 | `hj preview <目录> [--scene 板 \| --from 秒 --to 秒] [--fps 10] [--scale 0.4]` | 有声预览：低帧率、小尺寸、带配音，几十秒出片，输出 `out/video.preview.mp4`。听着配音看卡点，不需要确认，也不交付 |
 | `hj render <目录> [--scene 板 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染（需先确认全景定稿和关键帧）。`--draft` 为半分辨率、15 帧 |
-| `hj cover <目录> [--draft] [--out 文件]` | 封面图 `out/cover.png`。标题写在 project.yaml 的 `cover` 里 |
+| `hj cover <目录> [--draft] [--aspect 4:3] [--out 文件]` | 封面图 `out/cover.png`。标题写在 project.yaml 的 `cover` 里；画面一律取那块板的全景，`cover.at` 往后 3 秒但不越过那块板的结尾。`--aspect` 出别的比例（短边 1080，如 `3:4` 得 `out/cover-1080x1440.png`），平台要的封面比例和视频不同时用 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |
 | `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件]` | 素材 |
 | `hj import excalidraw\|svg\|quickdraw <文件> …` | 把外部手绘素材转成手绘件 |

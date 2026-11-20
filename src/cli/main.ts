@@ -128,15 +128,30 @@ function storyGate(dir: string, what: string) {
   if (approvals(dir).story?.planHash !== sc.story!.hash) die(`创意简报${approvals(dir).story ? '在用户确认之后又改过，' : '还没有得到用户确认，'}${what}之前要先确认它：hj story ${dir} 生成简报，交给用户看；用户明确同意后运行 hj approve ${dir} story --by "<用户的确认原话>"。
 简报会决定稿子怎么写、惊叹点放在哪儿，所以它排在配音和计划前面`);
 }
-/** 只看计划、不编译场景：规划者写计划、交用户确认时用（这时候还没有场景文件） */
-function planCtx(dir: string): { meta: any; fmt: (typeof FORMATS)[string]; al: ReturnType<typeof loadAlignment>; duration: number; plan: Plan; issues: Issue[] } | null {
+/** 还没配音时估时间用的语速（字/秒）：和 hj fake-align 一样 */
+const EST_CPS = 4.5;
+/** 按稿子匀速估一份时间表，写在 out/.estimate/ 里（不放进 voice/：那里只放真实的配音，hj status 靠它判断配没配音） */
+function fakeAlignmentFile(dir: string, script: string): string {
+  const d = join(dir, 'out', '.estimate'); mkdirSync(d, { recursive: true });
+  const f = join(d, 'alignment.json'); writeFileSync(f, JSON.stringify(fakeAlignment(script, EST_CPS)));
+  return f;
+}
+/** 只看计划、不编译场景：规划者写计划、交用户确认时用（这时候还没有场景文件）。
+ *  estimate：还没有配音时，按稿子匀速估一份时间表，让规划者在配音之前就能查计划、出审片页（确认计划仍要等配音） */
+function planCtx(dir: string, o: { estimate?: boolean } = {}): { meta: any; fmt: (typeof FORMATS)[string]; al: ReturnType<typeof loadAlignment>; duration: number; plan: Plan; issues: Issue[]; estimated?: boolean } | null {
   let plan: Plan | null;
   try { plan = loadPlan(dir); } catch (e: any) { return die(e.message); }
   if (!plan) return null;
   if (!existsSync(join(dir, 'project.yaml'))) die(`${dir} 里没有 project.yaml，这不是一个画讲项目（用 hj init 创建）`);
   const meta = YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {}, fmt = FORMATS[meta.format ?? 'portrait'] ?? die('project.yaml: format 只能是 portrait 或 landscape');
-  if (!existsSync(join(dir, meta.voice ?? 'voice/alignment.json'))) die(`找不到时间表 ${join(dir, meta.voice ?? 'voice/alignment.json')}：还没有配音。hj status ${dir} 看下一步`);
-  const al = loadAlignment(join(dir, meta.voice ?? 'voice/alignment.json')), duration = al.duration + (meta.tail ?? 0.6);
+  const alf = join(dir, meta.voice ?? 'voice/alignment.json'), sf = join(dir, 'script.txt');
+  if (!existsSync(alf)) {
+    if (!o.estimate || !existsSync(sf)) die(`找不到时间表 ${alf}：还没有配音。${o.estimate ? '' : '计划可以在配音之前先查、先出审片页（hj check、hj plan 会按稿子估时间），但确认计划、生成骨架要等配好音、按真实时间重排之后。'}hj status ${dir} 看下一步`);
+    const al = loadAlignment(fakeAlignmentFile(dir, readFileSync(sf, 'utf8'))), duration = al.duration + (meta.tail ?? 0.6);
+    const note: Issue = { level: 'info', where: 'voice', msg: `还没有配音：时间是按每秒 ${EST_CPS} 个字估的，秒数只作参考。结构可以先查、先给用户看；配音之后重跑 hj plan，按真实时间再确认计划` };
+    return { meta, fmt, al, duration, plan, estimated: true, issues: [note, ...checkPlan(plan, al, fmt, duration, dir), ...loadAppendix(dir).issues] };
+  }
+  const al = loadAlignment(alf), duration = al.duration + (meta.tail ?? 0.6);
   // 附录写错了，在规划阶段就拦住（有场景之后由编译器报）
   return { meta, fmt, al, duration, plan, issues: [...checkPlan(plan, al, fmt, duration, dir), ...loadAppendix(dir).issues] };
 }
@@ -371,8 +386,8 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   check() {
     const dir = args[0] ?? die('用法：hj check <项目目录>');
-    // 规划阶段：有计划、还没有场景文件，只查计划
-    const pc = planCtx(dir);
+    // 规划阶段：有计划、还没有场景文件，只查计划（还没配音也能查：按稿子估时间）
+    const pc = hasScenes(dir) ? planCtx(dir) : planCtx(dir, { estimate: true });
     if (pc && !hasScenes(dir)) {
       console.log(`计划：${pc.plan.boards.length} 块板，${pc.plan.boards.reduce((n, b) => n + b.segments.length, 0)} 段，${Object.keys(pc.plan.cast).length} 个角色，${Object.keys(pc.plan.relations).length} 条关系，时长 ${fmtT(pc.duration)}，计划版本 ${pc.plan.hash}\n`);
       const r = printIssues(pc.issues), a = approvals(dir);
@@ -396,7 +411,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   plan() {
     const dir = args[0] ?? die('用法：hj plan <项目目录>');
-    const pc = planCtx(dir);
+    const pc = planCtx(dir, { estimate: true });
     if (pc) {
       // 有计划：分镜表由计划排出来，这时候不需要、也不看任何场景文件
       if (pc.issues.some(i => i.level === 'error')) { printIssues(pc.issues); die('计划有错误，先修掉再生成分镜表（hj check 可随时重查）'); }
@@ -409,6 +424,7 @@ const commands: Record<string, () => Promise<void> | void> = {
         const { plan } = pc, { times } = segmentTimes(plan, pc.al, pc.duration), nm = (id: string) => plan.cast[id]?.name ?? id;
         const blocks: ReviewBlock[] = [], parts: any[] = [];
         const nSeg = plan.boards.reduce((n, b) => n + b.segments.length, 0);
+        if (pc.estimated) blocks.push({ heading: '还没有配音：这一版的秒数是估的', note: `时间按每秒 ${EST_CPS} 个字估算，只作参考。这一页用来先看结构（论点、角色、关系、分区、每一段画什么）；配好音之后会按真实时间重排一版，再请你确认计划。` });
         blocks.push({ heading: '这条片子讲的是什么', html: `<p><b>论点：</b>${esc(plan.thesis)}</p><p><b>角色（${Object.keys(plan.cast).length} 个）：</b>${Object.values(plan.cast).map(c => esc(c.name)).join('、')}</p><p><b>关系（这件事的骨架）：</b>${Object.values(plan.relations).map(r => `${esc(nm(r.from))} →${r.label ? ` ${esc(r.label)} →` : ''} ${esc(nm(r.to))}`).join('；') || '（没有）'}</p><p><b>篇幅：</b>${fmtT(pc.duration)}，${plan.boards.length} 块板，${nSeg} 段${plan.appendix ? `，片尾有滚动附录（${plan.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）` : ''}</p>` });
         for (const [bi, b] of plan.boards.entries()) {
           const L = layoutSketch(plan, b, pc.fmt, dir), senv = await sketchEnv(env, L, f => posterOf(dir, f));
@@ -446,7 +462,7 @@ const commands: Record<string, () => Promise<void> | void> = {
         if (plan.appendix) {
           const lay = layoutAppendix(plan.appendix, pc.fmt), strip = appendixStrip(pc, lay, 0.6);
           parts.push(strip);
-          blocks.push({ heading: `片尾的滚动附录（${plan.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）`, note: '口播讲完之后，镜头顺着同一张纸往下滚过这一份。下面是它排好版的样子（成片里是一屏一屏滚过去的）。', images: [{ src: await jpeg(strip, 84), wide: true }] });
+          blocks.push({ heading: `片尾的滚动附录（${plan.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）`, note: '口播讲完之后，最后的全景虚化成底色，这一份像电影片尾一样从下往上滚过。下面是它排好版的样子。', images: [{ src: await jpeg(strip, 84), wide: true }] });
         }
         const hero = plan.boards.map(b => (b.hero ? plan.cast[b.hero]?.name ?? `“${b.hero}”` : '')).filter(Boolean).join('、');
         await writeReview(dir, { title: String(pc.meta.title ?? '未命名'), stage: 'plan', hash: plan.hash, step: 2, steps: STEPS,
@@ -611,6 +627,9 @@ const commands: Record<string, () => Promise<void> | void> = {
     if (!sc.exists) { writeFileSync(join(dir, 'story.yaml'), STORY_TEMPLATE); die(`没有创意简报，已经写好模板：${join(dir, 'story.yaml')}。照 director.md 填上`); }
     printIssues(sc.issues);
     if (sc.issues.some(i => i.level === 'error')) die('简报有错误，改好再交给用户');
+    // 稿子的读法问题（阿拉伯数字、英文、单个字母…）在导演这一步就改掉：用户确认之后再改稿，确认就失效了，卡点也要跟着改
+    const sf = join(dir, 'script.txt'), sw = existsSync(sf) ? scriptWarnings(readFileSync(sf, 'utf8')) : [];
+    if (sw.length) console.log(`稿子的读法：交给用户确认之前先改掉（配音时一样会报，那时再改稿要重新确认）\n${sw.map(w => `! ${w}`).join('\n')}\n`);
     const md = storyMarkdown(sc.story!), f = join(dir, 'story.md');
     writeFileSync(f, md);
     console.log(md);
@@ -789,7 +808,7 @@ const commands: Record<string, () => Promise<void> | void> = {
         smx.drawImage(cv, 0, 0, small.width, small.height); imgs.push({ src: await jpeg(small, 78), caption: `附录 ${fmtT(t)}` });
       }
       writeFileSync(join(out, 'sheet-appendix.png'), await sheet.encode('png')); sheets.push('sheet-appendix.png'); sheetCvs.push(sheet);
-      rblocks.push({ heading: `片尾的滚动附录（${fmtT(ap.t0)} 起，滚 ${(ap.t1 - ap.t0).toFixed(0)} 秒）`, note: '口播讲完之后，镜头顺着同一张纸往下滚。下面是滚动途中的几屏。', images: imgs, grid: true });
+      rblocks.push({ heading: `片尾的滚动附录（${fmtT(ap.t0)} 起，滚 ${(ap.t1 - ap.t0).toFixed(0)} 秒）`, note: '口播讲完之后，全景虚化成底色，附录像电影片尾一样滚上来。下面是滚动途中的几屏。', images: imgs, grid: true });
     }
     if (draft) { console.log(`✓ 草稿关键帧已输出到 ${out}（半分辨率，带“草稿 · 未确认”水印）\n  每个场景一张联系表：${sheets.join('  ')}\n这是给你自己看的：逐张检查重叠、出界、难看、看不懂、和口播对不上，改到满意再交给用户。\n草稿不是交付物：不要把它当作关键帧请用户确认。交给用户的是审片页：${c.plan ? 'hj look（全景定稿）和 ' : ''}hj stills（关键帧，不带 --draft）。`); return; }
     console.log(`✓ 关键帧已输出到 ${out}\n  每个场景一张联系表：${sheets.join('  ')}\n  每一拍的全尺寸图：<场景序号>-<场景>-<拍>.png`);
@@ -818,7 +837,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   // 封面：整块板的全景缩到下半张，上面是手写的大标题。平台的封面图 / 视频的第一眼
   async cover() {
-    const dir = args[0] ?? die('用法：hj cover <项目目录> [--draft] [--out 文件]\n  标题写在 project.yaml：cover: { title: "两行以内\\n第二行", accent: 2, sub: "一句小字", at: "口播片段或秒数（默认片尾全景）" }');
+    const dir = args[0] ?? die('用法：hj cover <项目目录> [--draft] [--aspect 4:3|3:4|…] [--out 文件]\n  标题写在 project.yaml：cover: { title: "两行以内\\n第二行", accent: 2, sub: "一句小字", at: "口播片段或秒数（默认片尾全景）" }');
     const c = load(dir); await preload(c);
     const draft = !!flags.draft, k = draft ? 0.5 : 1;
     if (!draft) gate(c, 'plan');
@@ -827,26 +846,41 @@ const commands: Record<string, () => Promise<void> | void> = {
     if (!title) die('封面需要标题：在 project.yaml 里写 cover: { title: "…" }');
     const lines = title.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length > 3 || lines.some(l => [...l].length > 9)) console.log('  ! 封面标题最好两行以内、每行不超过 8 个字：手机信息流里封面只有拇指大');
-    const { W, H, board } = c.fmt, portrait = H > W;
+    const { W: VW, H: VH, board } = c.fmt;
+    // 封面的画幅：默认和视频一样；--aspect 4:3 / 3:4 这类比例按短边 1080 出图（平台的封面比例常和视频不同）
+    let W = VW, H = VH;
+    if (flags.aspect != null) {
+      const m = /^(\d+(?:\.\d+)?)\s*[:x×]\s*(\d+(?:\.\d+)?)$/.exec(String(flags.aspect));
+      if (!m || !(+m[1] > 0) || !(+m[2] > 0)) die(`--aspect 写成 宽:高，例如 4:3、3:4、16:9（现在是 "${flags.aspect}"）`);
+      const a = +m![1], b = +m![2];
+      [W, H] = a >= b ? [Math.round((1080 * a) / b), 1080] : [1080, Math.round((1080 * b) / a)];
+    }
+    const portrait = H > W, stacked = W / H < 1.5; // 接近方形的横图也把标题放上面：放左边会把全景挤得太小
     let t = c.duration - 0.05;
-    if (cfg.at != null) { if (typeof cfg.at === 'number') t = cfg.at; else { try { t = resolveAnchor(c.al, String(cfg.at)).time + 3; } catch { die(`cover.at 写的 "${cfg.at}" 在口播里找不到`); } } }
-    // 先画出那一刻的画面（不带字幕），裁出画板
-    const src = createCanvas(W, H), sx = src.getContext('2d');
-    await prepare(c, Math.min(Math.max(0, t), c.duration - 0.01));
-    drawFrame(sx, c, Math.min(Math.max(0, t), c.duration - 0.01), env, { scale: 1, subtitles: false, bare: true });
+    if (cfg.at != null) { if (typeof cfg.at === 'number') t = cfg.at; else { try {
+      // 说到那句之后 3 秒：画面上多半已经画完了；但不越过这块板的结尾（再往后就是下一块板的开头，几乎是空的）
+      const ta = resolveAnchor(c.al, String(cfg.at)).time, own = c.scenes.find(s => ta >= s.t0 && ta < s.t1);
+      t = Math.min(ta + 3, own ? own.t1 - 0.05 : Infinity);
+    } catch { die(`cover.at 写的 "${cfg.at}" 在口播里找不到`); } } }
+    // 先画出那一刻的画面（不带字幕），裁出画板。镜头一律用那块板的全景：那一刻镜头可能正推近某一处，封面要的是整张图
+    const tc = Math.min(Math.max(0, t), c.duration - 0.01), sc = c.scenes.find(s => tc >= s.t0 && tc < s.t1) ?? c.scenes[c.scenes.length - 1];
+    const cc = sc ? ({ ...c, cams: [{ t0: 0, t1: 0, to: sc.home, cut: true }] } as Compiled) : c;
+    const src = createCanvas(VW, VH), sx = src.getContext('2d');
+    await prepare(cc, tc);
+    drawFrame(sx, cc, tc, env, { scale: 1, subtitles: false, bare: true });
     const cv = createCanvas(Math.round(W * k), Math.round(H * k)), x = cv.getContext('2d');
     x.setTransform(k, 0, 0, k, 0, 0);
-    drawFrame(x, { ...c, tls: [], subs: [] } as Compiled, 0, env, { scale: k, subtitles: false }); // 一张空白的纸
+    drawFrame(x, { ...c, fmt: { ...c.fmt, W, H }, tls: [], subs: [] } as Compiled, 0, env, { scale: k, subtitles: false }); // 一张空白的纸
     x.setTransform(k, 0, 0, k, 0, 0);
-    // 标题区：竖屏在上方三分之一，横屏在左边四成
-    const T = portrait ? { x: 70, y: 150, w: W - 140, h: H * 0.3 } : { x: 90, y: 90, w: W * 0.4, h: H - 180 };
-    const P = portrait ? { x: 50, y: T.y + T.h + 30, w: W - 100, h: H - (T.y + T.h + 30) - 150 } : { x: T.x + T.w + 40, y: 60, w: W - (T.x + T.w + 40) - 60, h: H - 120 };
+    // 标题区：竖屏和接近方形的图在上方三分之一，宽的横屏在左边四成
+    const T = stacked ? { x: 70, y: portrait ? 150 : 70, w: W - 140, h: H * (portrait ? 0.3 : 0.32) } : { x: 90, y: 90, w: W * 0.4, h: H - 180 };
+    const P = stacked ? { x: 50, y: T.y + T.h + 30, w: W - 100, h: H - (T.y + T.h + 30) - (portrait ? 150 : 50) } : { x: T.x + T.w + 40, y: 60, w: W - (T.x + T.w + 40) - 60, h: H - 120 };
     const ps = Math.min(P.w / board.w, P.h / board.h);
     x.drawImage(src, board.x, board.y, board.w, board.h, P.x + (P.w - board.w * ps) / 2, P.y + (P.h - board.h * ps) / 2, board.w * ps, board.h * ps);
     x.globalCompositeOperation = 'source-over';
     // 标题：字尽量大，撑满标题区的宽
     const sub = cfg.sub ? String(cfg.sub) : '', gap = 0.2;
-    let size = portrait ? 210 : 170;
+    let size = stacked ? 210 : 170;
     const fit = () => { const ws = lines.map(l => textStrokes(l, { size, color: THEME.ink }).w); return Math.max(...ws) <= T.w && lines.length * size * (1 + gap) + (sub ? size * 0.55 : 0) <= T.h; };
     while (size > 60 && !fit()) size -= 6;
     const accent = cfg.accent == null ? lines.length : +cfg.accent; // 第几行用强调色（从 1 数），默认最后一行
@@ -854,7 +888,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     let y = T.y + (T.h - total) / 2;
     x.lineCap = 'round'; x.lineJoin = 'round';
     lines.forEach((l, i) => {
-      const hot = i + 1 === accent, r = textStrokes(l, { size, color: hot ? THEME.colors.red : THEME.ink }), lx = portrait ? T.x + (T.w - r.w) / 2 : T.x;
+      const hot = i + 1 === accent, r = textStrokes(l, { size, color: hot ? THEME.colors.red : THEME.ink }), lx = stacked ? T.x + (T.w - r.w) / 2 : T.x;
       if (hot) { // 强调行底下一道黄色马克笔
         x.save(); x.globalCompositeOperation = 'multiply'; x.globalAlpha = 0.55; x.strokeStyle = THEME.colors.yellow; x.lineWidth = size * 0.42; x.lineCap = 'butt';
         x.beginPath(); x.moveTo(lx - size * 0.12, y + size * 0.74); x.quadraticCurveTo(lx + r.w / 2, y + size * 0.7, lx + r.w + size * 0.12, y + size * 0.76); x.stroke(); x.restore();
@@ -864,9 +898,9 @@ const commands: Record<string, () => Promise<void> | void> = {
       x.restore(); x.globalAlpha = 1;
       y += size * (1 + gap);
     });
-    if (sub) { const r = textStrokes(sub, { size: size * 0.36, color: THEME.colors.gray }); x.save(); x.translate(portrait ? T.x + (T.w - r.w) / 2 : T.x, y + size * 0.05); drawStrokes(x, env, r.strokes); x.restore(); }
+    if (sub) { const r = textStrokes(sub, { size: size * 0.36, color: THEME.colors.gray }); x.save(); x.translate(stacked ? T.x + (T.w - r.w) / 2 : T.x, y + size * 0.05); drawStrokes(x, env, r.strokes); x.restore(); }
     if (draft) { const stamp = textStrokes('草稿 · 未确认', { size: 54, color: '#d9433a' }); x.save(); x.globalAlpha = 0.6; x.translate(W / 2 - stamp.w / 2, H * 0.94); drawStrokes(x, env, stamp.strokes, 0.6); x.restore(); }
-    const out = String(flags.out ?? join(dir, 'out', draft ? 'draft' : '', 'cover.png')); mkdirSync(join(out, '..'), { recursive: true });
+    const out = String(flags.out ?? join(dir, 'out', draft ? 'draft' : '', flags.aspect != null ? `cover-${W}x${H}.png` : 'cover.png')); mkdirSync(join(out, '..'), { recursive: true });
     writeFileSync(out, await cv.encode('png'));
     console.log(`✓ 封面：${out}${draft ? '（草稿，带水印；正式封面需先确认文字分镜）' : ''}`);
   },
@@ -1085,7 +1119,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj stills <目录> [--scene x]        出逐拍的关键帧（需先确认全景定稿）→ 交用户确认
   hj preview <目录> [--scene x]       有声预览：10 帧/秒、小尺寸、带配音，听着配音看卡点（不需要确认，不交付）
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
-  hj cover <目录> [--draft]                封面图：全景 + 手写大标题（标题写在 project.yaml 的 cover 里）
+  hj cover <目录> [--draft] [--aspect 4:3] 封面图：全景 + 手写大标题（标题写在 project.yaml 的 cover 里）
 
   素材：
   hj patterns [名字]                  表现手法：自带构图和动作编排的场景骨架

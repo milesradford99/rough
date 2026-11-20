@@ -11,7 +11,7 @@ import { compile } from '../src/core/compile';
 import { drawFrame, camAt, clipIndex } from '../src/core/render';
 import { buildElement } from '../src/core/elements';
 import { FORMATS } from '../src/core/theme';
-import { loadAppendix, appendixOffset, appendixTiming, wrapText } from '../src/core/appendix';
+import { loadAppendix, appendixOffset, appendixTiming, appendixAt, wrapText } from '../src/core/appendix';
 import { loadPlan } from '../src/core/plan';
 
 const hj = (args: string[]) => spawnSync(process.execPath, ['bin/hj.mjs', ...args], { encoding: 'utf8' });
@@ -95,7 +95,7 @@ test('附录：只写内容；写错的字段拦住；折行不拆数字、标�
   for (let u = 0; u <= scroll; u += 0.1) { const o = appendixOffset(u, 2000, 170); assert.ok(o >= prev - 1e-9 && o - prev <= 17.5); prev = o; }
 });
 
-test('附录接在正片后面：同一张纸往下滚，总时长变长，改了附录确认就失效', () => {
+test('附录接在正片后面：全景虚化，附录像片尾字幕一样滚上来；总时长变长，改了附录确认就失效', () => {
   const d = tmp(); mkdirSync(join(d, 'voice')); mkdirSync(join(d, 'scenes'));
   writeFileSync(join(d, 'voice/alignment.json'), JSON.stringify(fakeAlignment('先画一个工厂。再画一个银行。')));
   writeFileSync(join(d, 'project.yaml'), 'title: t\nformat: portrait\n');
@@ -108,20 +108,22 @@ test('附录接在正片后面：同一张纸往下滚，总时长变长，改�
   assert.equal(ap.t0, c.duration);
   assert.notEqual(c.planHash, plain.planHash, '附录是内容的一部分：改了要重新确认');
   const fmt = c.fmt, last = c.scenes[c.scenes.length - 1].home;
-  assert.ok(ap.y >= last.cy + fmt.H / last.zoom / 2, '排在最后一块板的下面，不压住板书');
-  // 镜头：开始时还在最后的全景，结束时最后一行已经滚进画面，中间只往下走
-  const c0 = camAt(c, c.duration), c1 = camAt(c, c.total);
-  assert.ok(Math.abs(c0.cy - last.cy) < 1);
-  assert.equal(c1.zoom, 1);
-  assert.ok(c1.cy + fmt.H / 2 >= ap.y + ap.layout.height, '滚到底能看到最后一条');
-  let prev = c0.cy;
-  for (let t = c.duration; t <= c.total; t += 0.2) { const cy = camAt(c, t).cy; assert.ok(cy >= prev - 1e-6); prev = cy; }
+  // 镜头停在最后的全景上，整段附录都不动
+  for (let t = c.duration; t <= c.total; t += 0.5) { const cm = camAt(c, t); assert.ok(Math.abs(cm.cy - last.cy) < 1 && Math.abs(cm.zoom - last.zoom) < 1e-6, '附录期间镜头不动'); }
+  // 附录从画面下方出发，只往上走；滚到底时最后一行在画面里
+  const a0 = appendixAt(ap, c.duration), a1 = appendixAt(ap, c.total);
+  assert.equal(a0.blur, 0); assert.equal(a1.blur, 1);
+  assert.ok(a0.top >= fmt.board.y + fmt.board.h - 1, '一开始附录还在画面下面');
+  assert.ok(a1.top + ap.layout.height <= fmt.H * 0.6 && a1.top + ap.layout.height > fmt.H * 0.3, '滚到底能看到最后一条');
+  let prev = a0.top;
+  for (let t = c.duration; t <= c.total; t += 0.2) { const y = appendixAt(ap, t).top; assert.ok(y <= prev + 1e-6); prev = y; }
+  const shot = (t: number) => { const cv = createCanvas(fmt.W / 4, fmt.H / 4), g = cv.getContext('2d'); drawFrame(g as any, c, t, { createCanvas, Path2D } as any, { scale: 0.25 }); return g.getImageData(0, 0, cv.width, cv.height).data; };
+  const dark = (px: Uint8ClampedArray) => { let n = 0; for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] < 380) n++; return n; };
+  // 虚化：全景还在，但线条被化开、淡下去，深色像素明显变少
+  const sharp = dark(shot(c.duration - 0.01)), blurred = dark(shot(c.duration + 1.25));
+  assert.ok(sharp > 200 && blurred < sharp * 0.5, `全景虚化后深色像素变少（${sharp} → ${blurred}）`);
   // 画得出来，而且真的画了字（附录那一屏不是空白纸）
-  const cv = createCanvas(fmt.W / 4, fmt.H / 4), g = cv.getContext('2d');
-  drawFrame(g as any, c, c.total - 0.5, { createCanvas, Path2D } as any, { scale: 0.25 });
-  const px = g.getImageData(0, 0, cv.width, cv.height).data; let dark = 0;
-  for (let i = 0; i < px.length; i += 4) if (px[i] + px[i + 1] + px[i + 2] < 380) dark++;
-  assert.ok(dark > 200, `附录画面上有字（${dark}）`);
+  assert.ok(dark(shot(c.total - 0.5)) > 200, '附录画面上有字');
   // 指定总时长；滚得太快要提醒
   writeFileSync(join(d, 'appendix.yaml'), APPENDIX + 'seconds: 12\n');
   const fixed = compile(d);
