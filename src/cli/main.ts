@@ -818,7 +818,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   // 封面：整块板的全景缩到下半张，上面是手写的大标题。平台的封面图 / 视频的第一眼
   async cover() {
-    const dir = args[0] ?? die('用法：hj cover <项目目录> [--draft] [--out 文件]\n  标题写在 project.yaml：cover: { title: "两行以内\\n第二行", accent: 2, sub: "一句小字", at: "口播片段或秒数（默认片尾全景）" }');
+    const dir = args[0] ?? die('用法：hj cover <项目目录> [--draft] [--aspect 4:3|3:4|…] [--out 文件]\n  标题写在 project.yaml：cover: { title: "两行以内\\n第二行", accent: 2, sub: "一句小字", at: "口播片段或秒数（默认片尾全景）" }');
     const c = load(dir); await preload(c);
     const draft = !!flags.draft, k = draft ? 0.5 : 1;
     if (!draft) gate(c, 'plan');
@@ -827,26 +827,35 @@ const commands: Record<string, () => Promise<void> | void> = {
     if (!title) die('封面需要标题：在 project.yaml 里写 cover: { title: "…" }');
     const lines = title.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length > 3 || lines.some(l => [...l].length > 9)) console.log('  ! 封面标题最好两行以内、每行不超过 8 个字：手机信息流里封面只有拇指大');
-    const { W, H, board } = c.fmt, portrait = H > W;
+    const { W: VW, H: VH, board } = c.fmt;
+    // 封面的画幅：默认和视频一样；--aspect 4:3 / 3:4 这类比例按短边 1080 出图（平台的封面比例常和视频不同）
+    let W = VW, H = VH;
+    if (flags.aspect != null) {
+      const m = /^(\d+(?:\.\d+)?)\s*[:x×]\s*(\d+(?:\.\d+)?)$/.exec(String(flags.aspect));
+      if (!m || !(+m[1] > 0) || !(+m[2] > 0)) die(`--aspect 写成 宽:高，例如 4:3、3:4、16:9（现在是 "${flags.aspect}"）`);
+      const a = +m![1], b = +m![2];
+      [W, H] = a >= b ? [Math.round((1080 * a) / b), 1080] : [1080, Math.round((1080 * b) / a)];
+    }
+    const portrait = H > W, stacked = W / H < 1.5; // 接近方形的横图也把标题放上面：放左边会把全景挤得太小
     let t = c.duration - 0.05;
     if (cfg.at != null) { if (typeof cfg.at === 'number') t = cfg.at; else { try { t = resolveAnchor(c.al, String(cfg.at)).time + 3; } catch { die(`cover.at 写的 "${cfg.at}" 在口播里找不到`); } } }
     // 先画出那一刻的画面（不带字幕），裁出画板
-    const src = createCanvas(W, H), sx = src.getContext('2d');
+    const src = createCanvas(VW, VH), sx = src.getContext('2d');
     await prepare(c, Math.min(Math.max(0, t), c.duration - 0.01));
     drawFrame(sx, c, Math.min(Math.max(0, t), c.duration - 0.01), env, { scale: 1, subtitles: false, bare: true });
     const cv = createCanvas(Math.round(W * k), Math.round(H * k)), x = cv.getContext('2d');
     x.setTransform(k, 0, 0, k, 0, 0);
-    drawFrame(x, { ...c, tls: [], subs: [] } as Compiled, 0, env, { scale: k, subtitles: false }); // 一张空白的纸
+    drawFrame(x, { ...c, fmt: { ...c.fmt, W, H }, tls: [], subs: [] } as Compiled, 0, env, { scale: k, subtitles: false }); // 一张空白的纸
     x.setTransform(k, 0, 0, k, 0, 0);
-    // 标题区：竖屏在上方三分之一，横屏在左边四成
-    const T = portrait ? { x: 70, y: 150, w: W - 140, h: H * 0.3 } : { x: 90, y: 90, w: W * 0.4, h: H - 180 };
-    const P = portrait ? { x: 50, y: T.y + T.h + 30, w: W - 100, h: H - (T.y + T.h + 30) - 150 } : { x: T.x + T.w + 40, y: 60, w: W - (T.x + T.w + 40) - 60, h: H - 120 };
+    // 标题区：竖屏和接近方形的图在上方三分之一，宽的横屏在左边四成
+    const T = stacked ? { x: 70, y: portrait ? 150 : 70, w: W - 140, h: H * (portrait ? 0.3 : 0.32) } : { x: 90, y: 90, w: W * 0.4, h: H - 180 };
+    const P = stacked ? { x: 50, y: T.y + T.h + 30, w: W - 100, h: H - (T.y + T.h + 30) - (portrait ? 150 : 50) } : { x: T.x + T.w + 40, y: 60, w: W - (T.x + T.w + 40) - 60, h: H - 120 };
     const ps = Math.min(P.w / board.w, P.h / board.h);
     x.drawImage(src, board.x, board.y, board.w, board.h, P.x + (P.w - board.w * ps) / 2, P.y + (P.h - board.h * ps) / 2, board.w * ps, board.h * ps);
     x.globalCompositeOperation = 'source-over';
     // 标题：字尽量大，撑满标题区的宽
     const sub = cfg.sub ? String(cfg.sub) : '', gap = 0.2;
-    let size = portrait ? 210 : 170;
+    let size = stacked ? 210 : 170;
     const fit = () => { const ws = lines.map(l => textStrokes(l, { size, color: THEME.ink }).w); return Math.max(...ws) <= T.w && lines.length * size * (1 + gap) + (sub ? size * 0.55 : 0) <= T.h; };
     while (size > 60 && !fit()) size -= 6;
     const accent = cfg.accent == null ? lines.length : +cfg.accent; // 第几行用强调色（从 1 数），默认最后一行
@@ -854,7 +863,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     let y = T.y + (T.h - total) / 2;
     x.lineCap = 'round'; x.lineJoin = 'round';
     lines.forEach((l, i) => {
-      const hot = i + 1 === accent, r = textStrokes(l, { size, color: hot ? THEME.colors.red : THEME.ink }), lx = portrait ? T.x + (T.w - r.w) / 2 : T.x;
+      const hot = i + 1 === accent, r = textStrokes(l, { size, color: hot ? THEME.colors.red : THEME.ink }), lx = stacked ? T.x + (T.w - r.w) / 2 : T.x;
       if (hot) { // 强调行底下一道黄色马克笔
         x.save(); x.globalCompositeOperation = 'multiply'; x.globalAlpha = 0.55; x.strokeStyle = THEME.colors.yellow; x.lineWidth = size * 0.42; x.lineCap = 'butt';
         x.beginPath(); x.moveTo(lx - size * 0.12, y + size * 0.74); x.quadraticCurveTo(lx + r.w / 2, y + size * 0.7, lx + r.w + size * 0.12, y + size * 0.76); x.stroke(); x.restore();
@@ -864,9 +873,9 @@ const commands: Record<string, () => Promise<void> | void> = {
       x.restore(); x.globalAlpha = 1;
       y += size * (1 + gap);
     });
-    if (sub) { const r = textStrokes(sub, { size: size * 0.36, color: THEME.colors.gray }); x.save(); x.translate(portrait ? T.x + (T.w - r.w) / 2 : T.x, y + size * 0.05); drawStrokes(x, env, r.strokes); x.restore(); }
+    if (sub) { const r = textStrokes(sub, { size: size * 0.36, color: THEME.colors.gray }); x.save(); x.translate(stacked ? T.x + (T.w - r.w) / 2 : T.x, y + size * 0.05); drawStrokes(x, env, r.strokes); x.restore(); }
     if (draft) { const stamp = textStrokes('草稿 · 未确认', { size: 54, color: '#d9433a' }); x.save(); x.globalAlpha = 0.6; x.translate(W / 2 - stamp.w / 2, H * 0.94); drawStrokes(x, env, stamp.strokes, 0.6); x.restore(); }
-    const out = String(flags.out ?? join(dir, 'out', draft ? 'draft' : '', 'cover.png')); mkdirSync(join(out, '..'), { recursive: true });
+    const out = String(flags.out ?? join(dir, 'out', draft ? 'draft' : '', flags.aspect != null ? `cover-${W}x${H}.png` : 'cover.png')); mkdirSync(join(out, '..'), { recursive: true });
     writeFileSync(out, await cv.encode('png'));
     console.log(`✓ 封面：${out}${draft ? '（草稿，带水印；正式封面需先确认文字分镜）' : ''}`);
   },
@@ -1085,7 +1094,7 @@ if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help' || !commands[cmd]
   hj stills <目录> [--scene x]        出逐拍的关键帧（需先确认全景定稿）→ 交用户确认
   hj preview <目录> [--scene x]       有声预览：10 帧/秒、小尺寸、带配音，听着配音看卡点（不需要确认，不交付）
   hj render <目录> [--scene x] [--draft]   渲染视频（需先确认关键帧）
-  hj cover <目录> [--draft]                封面图：全景 + 手写大标题（标题写在 project.yaml 的 cover 里）
+  hj cover <目录> [--draft] [--aspect 4:3] 封面图：全景 + 手写大标题（标题写在 project.yaml 的 cover 里）
 
   素材：
   hj patterns [名字]                  表现手法：自带构图和动作编排的场景骨架

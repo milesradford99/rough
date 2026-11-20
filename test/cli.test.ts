@@ -129,6 +129,14 @@ test('端到端：init → check → 两道确认闸 → 出图 → 带音频渲
   const cover = hj('cover', dir);
   assert.equal(cover.status, 0, cover.stderr);
   assert.ok(existsSync(join(dir, 'out/cover.png')));
+  // 平台要的封面比例常和视频不同：--aspect 按短边 1080 出图
+  for (const [aspect, w, h] of [['3:4', 1080, 1440], ['4:3', 1440, 1080]] as const) {
+    const r = hj('cover', dir, '--aspect', aspect);
+    assert.equal(r.status, 0, r.stderr);
+    const png = readFileSync(join(dir, `out/cover-${w}x${h}.png`));
+    assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [w, h], `${aspect} 的封面应是 ${w}×${h}`);
+  }
+  assert.notEqual(hj('cover', dir, '--aspect', '4-3').status, 0, '比例写错要报错');
 });
 
 test('位图元素：图片能贴到板上；路径写错时说清楚', () => {

@@ -377,7 +377,7 @@ seconds: 30                        # 可选：总共滚多少秒；不写按每�
 | `hj stills <目录> [--scene 板] [--at 秒数或口播片段]` | 正式关键帧和审片页 `out/review/keyframes-<版本>.png`、`.html`（需先确认计划和全景定稿）。每张卡片写着这一拍的起止和时长，画完之后干等超过 4 秒的标红。`--scene`、`--at` 只出图，不更新审片页 |
 | `hj preview <目录> [--scene 板 \| --from 秒 --to 秒] [--fps 10] [--scale 0.4]` | 有声预览：低帧率、小尺寸、带配音，几十秒出片，输出 `out/video.preview.mp4`。听着配音看卡点，不需要确认，也不交付 |
 | `hj render <目录> [--scene 板 \| --from 秒 --to 秒] [--draft] [--out 文件]` | 渲染（需先确认全景定稿和关键帧）。`--draft` 为半分辨率、15 帧 |
-| `hj cover <目录> [--draft] [--out 文件]` | 封面图 `out/cover.png`。标题写在 project.yaml 的 `cover` 里 |
+| `hj cover <目录> [--draft] [--aspect 4:3] [--out 文件]` | 封面图 `out/cover.png`。标题写在 project.yaml 的 `cover` 里。`--aspect` 出别的比例（短边 1080，如 `3:4` 得 `out/cover-1080x1440.png`），平台要的封面比例和视频不同时用 |
 | `hj patterns [名字]` | 表现手法清单；带名字时打印参数、步骤和完整例子 |
 | `hj assets doodles \| figure \| icons <关键词> \| colors \| sheet [--out 文件]` | 素材 |
 | `hj import excalidraw\|svg\|quickdraw <文件> …` | 把外部手绘素材转成手绘件 |
