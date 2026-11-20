@@ -446,7 +446,7 @@ const commands: Record<string, () => Promise<void> | void> = {
         if (plan.appendix) {
           const lay = layoutAppendix(plan.appendix, pc.fmt), strip = appendixStrip(pc, lay, 0.6);
           parts.push(strip);
-          blocks.push({ heading: `片尾的滚动附录（${plan.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）`, note: '口播讲完之后，镜头顺着同一张纸往下滚过这一份。下面是它排好版的样子（成片里是一屏一屏滚过去的）。', images: [{ src: await jpeg(strip, 84), wide: true }] });
+          blocks.push({ heading: `片尾的滚动附录（${plan.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）`, note: '口播讲完之后，最后的全景虚化成底色，这一份像电影片尾一样从下往上滚过。下面是它排好版的样子。', images: [{ src: await jpeg(strip, 84), wide: true }] });
         }
         const hero = plan.boards.map(b => (b.hero ? plan.cast[b.hero]?.name ?? `“${b.hero}”` : '')).filter(Boolean).join('、');
         await writeReview(dir, { title: String(pc.meta.title ?? '未命名'), stage: 'plan', hash: plan.hash, step: 2, steps: STEPS,
@@ -789,7 +789,7 @@ const commands: Record<string, () => Promise<void> | void> = {
         smx.drawImage(cv, 0, 0, small.width, small.height); imgs.push({ src: await jpeg(small, 78), caption: `附录 ${fmtT(t)}` });
       }
       writeFileSync(join(out, 'sheet-appendix.png'), await sheet.encode('png')); sheets.push('sheet-appendix.png'); sheetCvs.push(sheet);
-      rblocks.push({ heading: `片尾的滚动附录（${fmtT(ap.t0)} 起，滚 ${(ap.t1 - ap.t0).toFixed(0)} 秒）`, note: '口播讲完之后，镜头顺着同一张纸往下滚。下面是滚动途中的几屏。', images: imgs, grid: true });
+      rblocks.push({ heading: `片尾的滚动附录（${fmtT(ap.t0)} 起，滚 ${(ap.t1 - ap.t0).toFixed(0)} 秒）`, note: '口播讲完之后，全景虚化成底色，附录像电影片尾一样滚上来。下面是滚动途中的几屏。', images: imgs, grid: true });
     }
     if (draft) { console.log(`✓ 草稿关键帧已输出到 ${out}（半分辨率，带“草稿 · 未确认”水印）\n  每个场景一张联系表：${sheets.join('  ')}\n这是给你自己看的：逐张检查重叠、出界、难看、看不懂、和口播对不上，改到满意再交给用户。\n草稿不是交付物：不要把它当作关键帧请用户确认。交给用户的是审片页：${c.plan ? 'hj look（全景定稿）和 ' : ''}hj stills（关键帧，不带 --draft）。`); return; }
     console.log(`✓ 关键帧已输出到 ${out}\n  每个场景一张联系表：${sheets.join('  ')}\n  每一拍的全尺寸图：<场景序号>-<场景>-<拍>.png`);

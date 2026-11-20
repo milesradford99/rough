@@ -11,7 +11,7 @@ import { FORMATS, THEME, color, setStyle, isInk, type Format } from './theme';
 import { type Pt, type Box, type Stroke, unionBox, cloneStrokes } from './strokes';
 import { PATTERNS } from './patterns';
 import { loadPlan, planRegions, checkPlan, boardSizes, type Plan } from './plan';
-import { loadAppendix, layoutAppendix, appendixTiming, type AppendixLayout } from './appendix';
+import { loadAppendix, layoutAppendix, appendixTiming, APPENDIX_DELAY, type AppendixLayout } from './appendix';
 
 export interface Issue { level: 'error' | 'warn' | 'info'; where: string; msg: string }
 export interface Tween { t0: number; t1: number; from: number; to: number; ease?: string }
@@ -59,7 +59,8 @@ export interface Compiled {
   /** 整条片子多长：口播讲完（duration）再加上附录 */
   total: number;
   /** 片尾的滚动附录：排在最后一块板的正下方，t0 起镜头往下走 */
-  appendix?: { layout: AppendixLayout; x: number; y: number; t0: number; t1: number; from: Cam; dist: number; speed: number };
+  /** 片尾附录：t0 起全景虚化，附录顶端从画面上的 start 滚上去 dist 像素（屏幕坐标），t1 结束 */
+  appendix?: { layout: AppendixLayout; t0: number; t1: number; from: Cam; start: number; dist: number; speed: number };
   castUse?: Map<string, CastUse>;
   /** 画在元素之上的效果：流动的小记号、点亮的路线 */
   fx: { flows: FlowFx[]; traces: TraceFx[]; /** become 时走过去的替身：只画，不进元素清单 */ ghosts: TL[] };
@@ -1093,18 +1094,17 @@ export function compile(dir: string): Compiled {
   // 有计划时，第一道确认认的是计划本身：执行者怎么画不会让它失效
   const planHash = plan ? plan.hash : sceneHash, keyHash = plan ? createHash('sha256').update(plan.hash + JSON.stringify(boardSizes(plan)) + sceneHash).digest('hex').slice(0, 16) : sceneHash;
   if (plan) issues.push(...checkPlan(plan, al, fmt, duration, dir));
-  // 附录：排在最后一块板全景的正下方。镜头从全景出发，放到原大（附录按一屏的字号排），一路往下滚到最后一条停在画面中间偏上
+  // 附录：镜头停在最后一块板的全景上，全景虚化成底色；附录按一屏的字号排，从画板底边滚上来，滚到最后一条停在画面中间偏上
   const apx = loadAppendix(dir);
   for (const i of apx.issues) issues.push(i);
   let appendix: Compiled['appendix'], total = duration;
   if (apx.appendix && scenes.length && !apx.issues.some(i => i.level === 'error')) {
-    const layout = layoutAppendix(apx.appendix, fmt), last = scenes[scenes.length - 1], from = last.home, vh = fmt.H / from.zoom;
-    const x = from.cx - fmt.W / 2, y = from.cy + vh / 2 + 40;
-    // 滚到底时，附录的最后一行落在画面高度的 58% 处（下面是平台的界面，不放字）
-    const dist = y + layout.height - fmt.H * 0.58 + fmt.H / 2 - from.cy;
-    const speed = apx.seconds != null ? Math.min(600, Math.max(60, dist / Math.max(1, apx.seconds - apx.appendix.hold - 0.9))) : apx.appendix.speed;
+    const layout = layoutAppendix(apx.appendix, fmt), last = scenes[scenes.length - 1], from = last.home;
+    // 从画板底边下面开始（字幕区有纸面遮罩，字是从遮罩里浮上来的）；滚到底时，最后一行落在画面高度的 58% 处
+    const start = fmt.board.y + fmt.board.h, dist = start - (fmt.H * 0.58 - layout.height);
+    const speed = apx.seconds != null ? Math.min(600, Math.max(60, dist / Math.max(1, apx.seconds - apx.appendix.hold - 0.9 - APPENDIX_DELAY))) : apx.appendix.speed;
     const tm = appendixTiming(dist, speed, apx.appendix.hold);
-    appendix = { layout, x, y, t0: duration, t1: duration + tm.total, from, dist, speed };
+    appendix = { layout, t0: duration, t1: duration + APPENDIX_DELAY + tm.total, from, start, dist, speed };
     total = appendix.t1;
     if (layout.missing.length) warn('appendix.yaml', `这些字符手写字体里没有，会缺字：${layout.missing.slice(0, 12).join(' ')}。换个写法`);
     if (tm.total > 45) warn('appendix.yaml', `附录要滚 ${Math.round(tm.total)} 秒（${apx.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）。片尾太长观众会划走：删掉次要的几条，或者写 seconds: 30 滚快一点（太快就读不清了）`);
