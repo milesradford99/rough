@@ -8,7 +8,7 @@ import { R, type ImageStroke, type Stroke, type Style, type Pt, type Box, boxOf,
 import { textStrokes } from './text';
 import { iconStrokes, iconExists, scalePath } from './icons';
 import { figureStrokes, POSES, FACES, ACCESSORIES, type Pose, type FigureSpec } from './figure';
-import { THEME, color, type Format } from './theme';
+import { THEME, color, isInk, wash, type Format } from './theme';
 
 export class SrcError extends Error { constructor(public where: string, msg: string) { super(`${where}: ${msg}`); } }
 
@@ -34,20 +34,27 @@ export interface El {
   nudged?: Pt;
   /** 被引擎吸附对齐的距离 */
   snapped?: Pt;
+  /** 细节框：从它要展开的那样东西连过来的两条引线（场景坐标） */
+  leaders?: [Pt, Pt][];
+  /** 第一次排版时引擎替它做的选择（连线的弯度、小字在哪一侧、批注贴哪边、标记收紧几成）。
+   *  元素随时间重新生成时照这些来，不会因为周围的东西变了就跳到另一侧 */
+  frozen?: { curve?: number; flip?: boolean; side?: string; k?: number };
+  /** 占位框是定死的（固定了取值范围的图表）：挪动时整体平移，不按笔画重算 */
+  fixedBox?: boolean;
 }
 
 /** 大小的档位：写名字不写数字，同一类东西全片一样大。字四档，东西三档 */
 export const TEXT_TIERS: Record<string, number> = { hero: 108, key: 64, label: 46, note: 40 };
 export const THING_TIERS: Record<string, number> = { big: 210, mid: 160, small: 120 };
-export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'video', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note'] as const;
+export const KINDS = ['text', 'figure', 'icon', 'doodle', 'parts', 'image', 'video', 'shape', 'axis', 'span', 'arrow', 'line', 'mark', 'chart', 'note', 'detail'] as const;
 const RESERVED_ANCHORS = ['center', 'top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
 const POS_KEYS = ['at', 'rightOf', 'leftOf', 'above', 'below'];
-const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier'];
+const COMMON = ['id', 'at', 'rightOf', 'leftOf', 'above', 'below', 'gap', 'align', 'anchor', 'dx', 'dy', 'size', 'color', 'label', 'labelSize', 'rough', 'w', 'h', 'fill', 'fillStyle', 'fillAlpha', 'fillGap', 'pen', 'weight', 'near', 'overlap', 'shade', 'snap', '__rigid', '__seed', '__tier', '__frozen', '__dec', '__in'];
 const FIELDS: Record<string, string[]> = {
   text: ['lineGap'], figure: ['face', 'wear', 'accent', 'pose', 'carry'], icon: [], image: ['frame', 'style'], video: ['frame', 'style', 'from', 'to', 'loop'], doodle: ['vars'], parts: ['box', 'anchors'],
-  shape: ['inside', 'insideSize'], arrow: ['curve', 'head', 'both', 'pad'], line: ['curve', 'pad'], mark: ['target', 'pad'],
-  chart: ['data', 'labels', 'highlight', 'values', 'unit'], note: ['target', 'side'],
-  axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'],
+  shape: ['inside', 'insideSize'], arrow: ['curve', 'head', 'both', 'pad', 'taper'], line: ['curve', 'pad', 'taper'], mark: ['target', 'pad'],
+  chart: ['data', 'labels', 'highlight', 'values', 'unit', 'range', 'perUnit', 'axes', 'smooth', 'base'], note: ['target', 'side'],
+  axis: ['length', 'step', 'ticks', 'labels', 'unit', 'dir'], span: ['on', 'inside', 'insideSize', 'offset'], detail: ['shape'],
 };
 
 const DOODLE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '../../doodles');
@@ -87,8 +94,12 @@ export function buildParts(parts: any[], k: number, base: Style, vars: Record<st
     const out: Stroke[] = [];
     const w0 = `${where} 第 ${i + 1} 个图形`;
     if (!p || typeof p !== 'object') throw new SrcError(w0, '应该是一个对象，例如 {rect: [0,0,100,60]}');
-    const st: Style = { ...base, seed: base.seed + i * 7 + 1, color: p.color ? color(sub(p.color)) : base.color, w: p.pen ?? base.w, rough: p.rough ?? base.rough,
-      fill: p.fill ? color(sub(p.fill)) : undefined, fillStyle: p.fillStyle, fillAlpha: p.fillAlpha, fillGap: p.fillGap, shade };
+    // 克制墨线：手绘件的轮廓一律用墨（或这个元素自己的颜色），颜色只留在一层淡彩的底色里
+    const pc = p.color ? color(sub(p.color)) : base.color, pf = p.fill ? color(sub(p.fill)) : undefined, ink = isInk();
+    const opaque = p.fillAlpha != null && p.fillAlpha >= 0.9;
+    const st: Style = { ...base, seed: base.seed + i * 7 + 1, color: ink && pc !== THEME.paper ? base.color : pc, w: p.pen ?? base.w, rough: p.rough ?? base.rough,
+      fill: pf && ink && !opaque ? wash(pf) : pf, fillStyle: ink && pf && !opaque && (!p.fillStyle || p.fillStyle === 'marker') ? 'solid' : p.fillStyle,
+      fillAlpha: ink && pf && !opaque ? p.fillAlpha ?? 0.85 : p.fillAlpha, fillGap: p.fillGap, shade };
     const need = (key: string, n: number) => { if (!Array.isArray(p[key]) || p[key].length < n) throw new SrcError(w0, `${key} 需要 ${n} 个数字`); return p[key].map((x: number) => x * k); };
     if ('line' in p) { const a = need('line', 4); out.push(...R.line(a[0], a[1], a[2], a[3], st)); }
     else if ('rect' in p) { const a = need('rect', 4); out.push(...R.rect(a[0], a[1], a[2], a[3], st)); }
@@ -213,7 +224,7 @@ function shiftEl(el: El, dx: number, dy: number) {
   if (el.path) for (let i = 0; i < el.path.length; i += 2) { el.path[i] += dx; el.path[i + 1] += dy; }
   for (const k of Object.keys(el.anchors)) el.anchors[k] = [el.anchors[k][0] + dx, el.anchors[k][1] + dy];
   if (el.figure) { el.figure.dx += dx; el.figure.dy += dy; }
-  el.box = boxOf(el.strokes);
+  el.box = el.fixedBox ? { ...el.box, x: el.box.x + dx, y: el.box.y + dy } : boxOf(el.strokes);
 }
 
 /** 数轴上数值 v 的位置 */
@@ -296,10 +307,11 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   if (src.weight != null && !['bold', 'normal', 'light'].includes(src.weight)) throw new SrcError(where, 'weight 只能是 bold（加重）/ normal / light（轻）');
   const wk = src.weight === 'bold' ? 1.35 : src.weight === 'light' ? 0.7 : 1;
   const bySize = ['doodle', 'parts', 'icon'].includes(kind) && src.size && src.weight == null ? Math.min(1.25, Math.max(0.62, Math.pow(src.size / 190, 0.55))) : 1;
-  const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen * wk * bySize, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? color(src.fill) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
+  const st: Style = { color: color(src.color), w: src.pen ?? THEME.pen * wk * bySize, rough: src.rough ?? THEME.rough, seed, fill: src.fill ? (isInk() && !(src.fillAlpha >= 0.9) ? wash(color(src.fill)) : color(src.fill)) : undefined, fillStyle: src.fillStyle, fillAlpha: src.fillAlpha, fillGap: src.fillGap };
   const shade = (src.shade ?? ctx.shade) !== false;
   const el: El = { id, scene: ctx.scene, kind, src, strokes: [], box: { x: 0, y: 0, w: 0, h: 0 }, anchors: {}, over: new Set(), solid: { x: 0, y: 0, w: 0, h: 0 } };
-  let placed = false; // arrow/line/mark 直接画在场景坐标里
+  if (src.__in) el.over.add(String(src.__in)); // 写在细节框里的东西本来就叠在框上
+  let placed = false, frame: Box | null = null; // arrow/line/mark 直接画在场景坐标里
   let lineLabel: Box | null = null; // 箭头上小字的绝对位置，box 定下来之后换成相对的
 
   if (kind === 'text') {
@@ -457,8 +469,32 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     placed = true;
   } else if (kind === 'arrow' || kind === 'line') {
     const refs = src[kind];
-    if (!Array.isArray(refs) || refs.length !== 2) throw new SrcError(where, `${kind} 要写成 [起点, 终点]，起终点可以是元素 id、"id.锚点" 或 [x, y]`);
-    const a = parseRef(ctx, refs[0], where), b = parseRef(ctx, refs[1], where);
+    if (!Array.isArray(refs) || refs.length < 2 || refs.length > 18) throw new SrcError(where, `${kind} 要写成 [起点, 终点]，起终点可以是元素 id、"id.锚点" 或 [x, y]；中间可以再写几个途经点（最多 16 个），线顺滑地穿过它们`);
+    const a = parseRef(ctx, refs[0], where), b = parseRef(ctx, refs[refs.length - 1], where);
+    if (refs.length > 2) {
+      // 途经点：一条顺滑的线依次穿过它们（贯穿几行的斜线、一根鞭子）。照写的走，不自动绕路
+      const mids = refs.slice(1, -1).map((r: any) => parseRef(ctx, r, where).pt);
+      const pad = src.pad ?? 18;
+      const p0 = a.el && !a.explicit ? exitPoint(a.el.box, pad, a.pt, mids[0]) : a.pt;
+      const p1 = b.el && !b.explicit ? exitPoint(b.el.box, pad, b.pt, mids[mids.length - 1]) : b.pt;
+      const path = catmull([p0, ...mids, p1], 10);
+      // taper: [起笔, 收笔] 粗细倍数，一笔由粗到细（鞭子从手柄到鞭梢）：整条是连续的一笔，不切成小段
+      if (Array.isArray(src.taper) && src.taper.length === 2) {
+        const pts = path.flat();
+        el.strokes = [{ kind: 'line', pts, w: st.w, color: st.color, len: polyLen(pts), taper: [+src.taper[0], +src.taper[1]] }];
+      } else el.strokes = R.poly(path, false, { ...st, rough: Math.min(st.rough, 0.45), bow: 0.2 });
+      el.path = path.flat();
+      if (kind === 'arrow') {
+        const hs = src.head ?? 26, tip = path[path.length - 1], from = path[Math.max(0, path.length - 4)], ang = Math.atan2(tip[1] - from[1], tip[0] - from[0]);
+        for (const sg of [-1, 1]) { const q = ang + Math.PI + sg * 0.48; el.strokes.push(...R.line(tip[0], tip[1], tip[0] + Math.cos(q) * hs, tip[1] + Math.sin(q) * hs, { ...st, rough: 0.4, seed: seed + 11 + sg })); }
+      }
+      if (src.label) {
+        const t = textStrokes(String(src.label), { size: src.labelSize ?? 46, color: st.color }), m = path[Math.floor(path.length / 2)];
+        translateStrokes(t.strokes, m[0] + 24, m[1] - t.h / 2); el.strokes.push(...t.strokes);
+        lineLabel = boxOf(t.strokes);
+      }
+      placed = true;
+    } else {
     const pad = src.pad ?? 18;
     const p0 = a.el && !a.explicit ? exitPoint(a.el.box, pad, a.pt, b.pt) : a.pt;
     const p1 = b.el && !b.explicit ? exitPoint(b.el.box, pad, b.pt, a.pt) : b.pt;
@@ -467,11 +503,12 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     // 线不从别的东西身上穿过去：按给定的弯度试，穿了就换一个弯度绕开
     const blockers = obstacles(ctx, el, [a.el?.id ?? '', b.el?.id ?? '']);
     const crosses = (cv: number) => { const m = midOf(cv); for (let i = 1; i < 12; i++) { const t = i / 12, u = 1 - t, c1x = 2 * m[0] - (p0[0] + p1[0]) / 2, c1y = 2 * m[1] - (p0[1] + p1[1]) / 2; const x = u * u * p0[0] + 2 * u * t * c1x + t * t * p1[0], y = u * u * p0[1] + 2 * u * t * c1y + t * t * p1[1]; if (hits({ x: x - 5, y: y - 5, w: 10, h: 10 }, blockers, -2)) return true; } return false; };
-    const want = src.curve ?? 0;
-    const clear = [want, 0.22, -0.22, 0.36, -0.36, 0.5, -0.5].find(cv => !crosses(cv));
+    const want = src.curve ?? 0, fz = src.__frozen;
+    const clear = fz?.curve ?? [want, 0.22, -0.22, 0.36, -0.36, 0.5, -0.5].find(cv => !crosses(cv));
     const curveUsed = clear ?? want;
     if (clear == null) ctx.note?.(where, '这条连线怎么弯都会从别的元素身上穿过去。把两端的元素挪近、挪到中间没有东西的位置，或者拆成两段', 'warn');
     else if (curveUsed !== want) ctx.note?.(where, `连线会从别的元素身上穿过，已自动改成弯度 ${curveUsed} 绕开`);
+    el.frozen = { curve: curveUsed };
     const bow = curveUsed * L, mid = midOf(curveUsed);
     el.strokes = bow ? R.curve([p0, mid, p1], { ...st, rough: Math.min(st.rough, 0.6) }) : R.line(p0[0], p0[1], p1[0], p1[1], st);
     el.path = (el.strokes[0] as any).pts.slice();
@@ -488,12 +525,15 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       if (!bow && Math.abs(nx) < 0.3) ly = mid[1] - off; // 水平直线：字写在上面
       // 小字压到别的东西就换到线的另一侧
       const lblObs = [...obstacles(ctx, el), ...lineBoxes(ctx, el)], lb = (x: number, y: number) => ({ x: x - t.w / 2, y: y - t.h / 2, w: t.w, h: t.h });
-      if (hits(lb(lx, ly), lblObs, 6)) { const ax = 2 * mid[0] - lx, ay = 2 * mid[1] - ly; if (!hits(lb(ax, ay), lblObs, 6)) { lx = ax; ly = ay; } }
+      const flip = fz?.flip ?? (hits(lb(lx, ly), lblObs, 6) && !hits(lb(2 * mid[0] - lx, 2 * mid[1] - ly), lblObs, 6));
+      if (flip) { lx = 2 * mid[0] - lx; ly = 2 * mid[1] - ly; }
+      el.frozen = { ...el.frozen, flip };
       translateStrokes(t.strokes, lx - t.w / 2, ly - t.h / 2);
       el.strokes.push(...t.strokes); el.text = String(src.label); el.missing = t.missing;
       lineLabel = lb(lx, ly);
     }
     placed = true;
+    }
   } else if (kind === 'note') {
     // 批注：一行小字贴在目标旁边，用一条细线牵过去。用来补数字、名字、出处这类“第二层信息”
     const tg = parseRef(ctx, src.target, where);
@@ -510,7 +550,8 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     const okSide = (sd: string, m = 2) => { const q = spot(sd), bx = { x: q[0], y: q[1], w: t.w, h: t.h }; return inBoard(bx, B, m) && !hits(bx, nObs, 8); };
     // 先找不贴板沿的一侧，实在没有再接受贴边的
     const sides = [sideWant, 'right', 'left', 'bottom', 'top'];
-    const side = sides.find(sd => okSide(sd, -EDGE)) ?? sides.find(sd => okSide(sd)) ?? sideWant;
+    const side = src.__frozen?.side ?? sides.find(sd => okSide(sd, -EDGE)) ?? sides.find(sd => okSide(sd)) ?? sideWant;
+    el.frozen = { side };
     let [tx, ty] = spot(side);
     if (ctx.life && !okSide(side)) { // 四边都放不下：就近找一块空地，细线照样牵回去
       tx = Math.min(Math.max(tx, 0), B.w - t.w); ty = Math.min(Math.max(ty, 0), B.h - t.h);
@@ -578,16 +619,47 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
       if (m === 'burst') { const out: Stroke[] = [], n = 10; for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2 - Math.PI / 2, rx = b.w / 2 + 14 * k, ry = b.h / 2 + 14 * k, l = (30 + (i % 2) * 16) * (0.4 + 0.6 * k); out.push(...R.line(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, cx + Math.cos(a) * (rx + l), cy + Math.sin(a) * (ry + l), { ...ms, seed: seed + i, rough: 0.5 })); } return out; }
       return [];
     };
-    el.strokes = make(1);
-    if (neighbours.length && ['circle', 'box', 'underline', 'burst', 'cross'].includes(m)) {
-      for (const k of [1, 0.7, 0.45, 0.2, 0]) { el.strokes = make(k); if (!hits(boxOf(el.strokes), neighbours)) break; }
+    let mk = src.__frozen?.k ?? 1;
+    el.strokes = make(mk);
+    if (src.__frozen?.k == null && neighbours.length && ['circle', 'box', 'underline', 'burst', 'cross'].includes(m)) {
+      for (const k of [1, 0.7, 0.45, 0.2, 0]) { mk = k; el.strokes = make(k); if (!hits(boxOf(el.strokes), neighbours)) break; }
     }
+    el.frozen = { k: mk };
     if (!el.strokes.length) throw new SrcError(where, `没有标记 "${m}"。可用：circle box underline strike cross highlight check burst`);
+    placed = true;
+  } else if (kind === 'detail') {
+    // 细节框：像拿放大镜看一样东西的里面。框画在板上的空地方，两条引线从那样东西连到框；框里的东西写 in: 框的名字
+    const node = ctx.els.get(String(src.detail));
+    if (!node) throw new SrcError(where, `detail 写要展开的那样东西的 id（定义在它前面），如 detail: bank。现在是 ${JSON.stringify(src.detail)}`);
+    const shp = src.shape ?? 'rect', w = +(src.w ?? 480), h = shp === 'circle' ? w : +(src.h ?? 360);
+    if (!['rect', 'circle'].includes(shp)) throw new SrcError(where, 'detail 的 shape 只能是 rect（方框，默认）或 circle（圆，像放大镜）');
+    if (!(w >= 160 && h >= 120)) throw new SrcError(where, '细节框至少 160×120，里面要画得下一张小图：写大 w、h');
+    if (!Array.isArray(src.at)) throw new SrcError(where, 'detail 的 at 写框的中心 [x, y]（放在板上空着的地方，和要展开的东西隔开一点）');
+    const [cx, cy] = parseRef(ctx, src.at, where).pt;
+    const fst: Style = { ...st, color: color(src.color, THEME.colors.gray), w: src.pen ?? 5, rough: Math.min(st.rough, 0.7), fill: '#ece5d3', fillStyle: 'solid', fillAlpha: 0.5, shade: false };
+    el.strokes = shp === 'circle' ? R.ellipse(cx, cy, w, w, fst) : R.rect(cx - w / 2, cy - h / 2, w, h, fst);
+    // 引线：从那样东西朝框的两侧边缘，连到框离它近的那两个角（圆框就是两条切线方向上的点）
+    const N = node.body ? { x: node.box.x + node.body.x, y: node.box.y + node.body.y, w: node.body.w, h: node.body.h } : node.box;
+    const nc: Pt = [N.x + N.w / 2, N.y + N.h / 2], dx = cx - nc[0], dy = cy - nc[1], L = Math.hypot(dx, dy) || 1, gap = 10;
+    let pairs: [Pt, Pt][];
+    if (shp === 'circle') {
+      const px = -dy / L, py = dx / L, rn = Math.min(N.w, N.h) / 2 + gap, rf = w / 2;
+      pairs = [1, -1].map(sg => [[nc[0] + px * rn * sg, nc[1] + py * rn * sg], [cx + px * rf * sg - (dx / L) * rf * 0.25, cy + py * rf * sg - (dy / L) * rf * 0.25]] as [Pt, Pt]);
+    } else if (Math.abs(dx) / (N.w / 2 + w / 2) >= Math.abs(dy) / (N.h / 2 + h / 2)) {
+      const sx = Math.sign(dx) || 1, nx = sx > 0 ? N.x + N.w + gap : N.x - gap, fx = sx > 0 ? cx - w / 2 : cx + w / 2;
+      pairs = [[[nx, N.y], [fx, cy - h / 2]], [[nx, N.y + N.h], [fx, cy + h / 2]]];
+    } else {
+      const sy = Math.sign(dy) || 1, ny = sy > 0 ? N.y + N.h + gap : N.y - gap, fy = sy > 0 ? cy - h / 2 : cy + h / 2;
+      pairs = [[[N.x, ny], [cx - w / 2, fy]], [[N.x + N.w, ny], [cx + w / 2, fy]]];
+    }
+    el.leaders = pairs;
+    el.anchors.node = nc;
     placed = true;
   } else if (kind === 'chart') {
     const csrc = { ...src };
     el.strokes = chartStrokes(csrc, { ...st, shade }, where); el.text = (src.labels ?? []).join('') || undefined;
     if (csrc.__path) el.path = csrc.__path;
+    if (csrc.__frame) frame = csrc.__frame;
   }
 
   if (!el.strokes.length) throw new SrcError(where, '这个元素没有画出任何笔画');
@@ -600,7 +672,8 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
     labelStrokes = t.strokes; el.text = (el.text ? el.text + ' ' : '') + String(src.label); // 手绘件自带的字和标签分开，分镜表里才不会粘成“粉面粉店” el.missing = [...(el.missing ?? []), ...t.missing];
     el.strokes.push(...labelStrokes);
   }
-  el.box = boxOf(el.strokes);
+  el.box = frame && !labelStrokes.length ? frame : boxOf(el.strokes);
+  if (frame && !labelStrokes.length) el.fixedBox = true;
   if (labelStrokes.length) el.body = { x: core.x - el.box.x, y: core.y - el.box.y, w: core.w, h: core.h };
   if (lineLabel) el.label = { x: lineLabel.x - el.box.x, y: lineLabel.y - el.box.y, w: lineLabel.w, h: lineLabel.h };
 
@@ -688,30 +761,81 @@ export function buildElement(ctx: BuildCtx, id: string, src: any): El {
   return el;
 }
 
+/** 数字写成几位小数：变化途中的值按最终值的位数写，不出现 37.29999 */
+export const fmtNum = (v: number, dec?: number) => (dec == null ? String(v) : v.toFixed(dec));
+export const decimalsOf = (v: number) => { const m = /\.(\d+)$/.exec(String(v)); return m ? m[1].length : 0; };
+
+/** 元素的定义里引用了哪些别的元素（箭头的两端、批注和标记的对象、区间条的数轴、相对定位、"id.锚点" 坐标）。
+ *  这些东西挪动或变化时，它要跟着重新生成 */
+export function depsOf(src: any, has: (id: string) => boolean): string[] {
+  const out = new Set<string>();
+  const take = (v: any) => {
+    if (typeof v === 'string') { const id = v.split('.')[0].split('@')[0]; if (has(id)) out.add(id); }
+    else if (Array.isArray(v)) v.forEach(take);
+  };
+  for (const k of ['arrow', 'line', 'target', 'on', 'at', 'rightOf', 'leftOf', 'above', 'below', 'near']) if (src?.[k] != null) take(src[k]);
+  return [...out];
+}
+
+/** 穿过每个点的顺滑曲线（Catmull-Rom），每段取 k 个点 */
+function catmull(p: Pt[], k: number): Pt[] {
+  const out: Pt[] = [p[0]];
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = p[Math.max(0, i - 1)], p1 = p[i], p2 = p[i + 1], p3 = p[Math.min(p.length - 1, i + 2)];
+    for (let j = 1; j <= k; j++) {
+      const t = j / k, t2 = t * t, t3 = t2 * t;
+      out.push([0, 1].map(d => 0.5 * (2 * p1[d] + (-p0[d] + p2[d]) * t + (2 * p0[d] - 5 * p1[d] + 4 * p2[d] - p3[d]) * t2 + (-p0[d] + 3 * p1[d] - 3 * p2[d] + p3[d]) * t3)) as Pt);
+    }
+  }
+  return out;
+}
 function chartStrokes(src: any, st: Style, where: string): Stroke[] {
   const data: number[] = src.data;
   if (!Array.isArray(data) || data.length < 2 || data.some(v => typeof v !== 'number')) throw new SrcError(where, 'chart 需要 data: [数字, ...]（至少 2 个）');
-  const W = src.w ?? 620, H = src.h ?? 380, n = data.length, out: Stroke[] = [];
+  // range：固定的取值范围（下限在底边，上限在顶边）。几张图要比高低，就写 range 和同一个 perUnit（每个单位多少像素），高度由它算出来
+  let rg: [number, number] | null = null;
+  if (src.range != null) {
+    if (!Array.isArray(src.range) || src.range.length !== 2 || src.range.some((v: any) => typeof v !== 'number') || !(src.range[1] > src.range[0])) throw new SrcError(where, 'range 写 [下限, 上限]，上限大于下限，如 range: [0, 300]');
+    rg = [src.range[0], src.range[1]];
+  }
+  if (src.perUnit != null && !(rg && +src.perUnit > 0)) throw new SrcError(where, 'perUnit（每个单位多少像素）要和 range 一起写，且大于 0：几张图写同一个 perUnit，高低才能直接比');
+  const W = src.w ?? 620, H = rg && src.perUnit ? (rg[1] - rg[0]) * +src.perUnit : src.h ?? 380, n = data.length, out: Stroke[] = [];
+  // 固定了取值范围的图，占位框就是整个范围：数据变了，图不挪地方，几张图也对得齐
+  if (rg) src.__frame = { x: 0, y: 0, w: W, h: H };
   const max = Math.max(...data, 0), min = src.chart === 'line' ? Math.min(...data) - (Math.max(...data) - Math.min(...data)) * 0.25 : 0;
-  const Y = (v: number) => H - ((v - min) / (max - min || 1)) * H * 0.86;
+  const Y = rg ? (v: number) => H - ((v - rg![0]) / (rg![1] - rg![0])) * H : (v: number) => H - ((v - min) / (max - min || 1)) * H * 0.86;
   const hl: Record<number, string> = typeof src.highlight === 'number' ? { [src.highlight]: 'red' } : src.highlight ?? {};
-  // 坐标轴
-  out.push(...R.line(0, -10, 0, H, st), ...R.line(0, H, W + 10, H, { ...st, seed: st.seed + 1 }));
+  // 坐标轴（axes: false 不画：几条线叠着比的时候，轴是多余的墨）
+  if (src.axes !== false) out.push(...R.line(0, -10, 0, H, st), ...R.line(0, H, W + 10, H, { ...st, seed: st.seed + 1 }));
+  // 基准线：base 那个值画一条很淡的细线，“平时”在哪儿一眼就看得出
+  if (src.base != null) {
+    if (typeof src.base !== 'number') throw new SrcError(where, 'base 写一个数（基准线画在这个值上），如 base: 100');
+    out.push(...R.line(0, Y(src.base), W, Y(src.base), { ...st, color: color('gray'), w: Math.max(2, st.w * 0.35), rough: 0.3, seed: st.seed + 3 }).map(k => ({ ...k, alpha: 0.45 }) as Stroke));
+  }
   const tsize = Math.min(44, (W / n) * 0.42);
   const lab = (s: string, cx: number, y: number, c: string, size = tsize) => { const t = textStrokes(s, { size, color: c }); translateStrokes(t.strokes, cx - t.w / 2, y); out.push(...t.strokes); };
   if (src.chart === 'bar') {
     const slot = W / n, bw = slot * 0.56;
     data.forEach((v, i) => {
       const c = color(hl[i] ?? src.color ?? 'blue'), x = slot * i + (slot - bw) / 2;
-      out.push(...R.rect(x, Y(v), bw, H - Y(v), { ...st, color: c, fill: c, seed: st.seed + 10 + i }));
-      if (src.values) lab(String(v) + (src.unit ?? ''), x + bw / 2, Y(v) - tsize - 8, c);
+      out.push(...R.rect(x, Y(v), bw, H - Y(v), { ...st, color: c, fill: isInk() ? wash(c) : c, seed: st.seed + 10 + i }));
+      if (src.values) lab(fmtNum(v, src.__dec?.[i]) + (src.unit ?? ''), x + bw / 2, Y(v) - tsize - 8, c);
       if (src.labels?.[i] != null) lab(String(src.labels[i]), x + bw / 2, H + 12, st.color, tsize * 0.9);
     });
   } else if (src.chart === 'line') {
     const X = (i: number) => (W * (i + 0.5)) / n, c = color(src.color ?? 'blue');
     const linePts = data.map((v, i) => [X(i), Y(v)] as Pt);
-    (src as any).__path = linePts.flat();
-    out.push(...R.poly(linePts, false, { ...st, color: c, w: st.w * 1.25, rough: 0.5, seed: st.seed + 9 }));
+    // smooth：顺滑的曲线（波浪），不是折线。轨迹也取曲线上的点
+    const pts = src.smooth ? catmull(linePts, 8) : linePts;
+    (src as any).__path = pts.flat();
+    // fill：线和基准线（没写 base 就是底边）之间淡淡涂一层，像墨洇开
+    if (src.fill) {
+      const y0 = src.base != null ? Y(src.base) : H, area = [pts[0][0], y0, ...pts.flat(), pts[pts.length - 1][0], y0];
+      out.push({ kind: 'fill', pts: area, color: color(src.fill), alpha: src.fillAlpha ?? 0.16, len: Math.sqrt(polyLen(area)) * 10, under: true });
+    }
+    out.push(...(src.smooth
+      ? R.poly(pts, false, { ...st, color: c, w: st.w * 1.25, rough: 0.35, bow: 0.2, seed: st.seed + 9 })
+      : R.poly(linePts, false, { ...st, color: c, w: st.w * 1.25, rough: 0.5, seed: st.seed + 9 })));
     data.forEach((v, i) => {
       const hc = hl[i] ? color(hl[i]) : null;
       if (hc) out.push(...R.ellipse(X(i), Y(v), 26, 26, { ...st, color: hc, fill: hc, fillStyle: 'solid', fillAlpha: 1, seed: st.seed + 20 + i }));

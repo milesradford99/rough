@@ -1,11 +1,12 @@
 // 笔画层：把 rough.js 生成的手绘路径压成可按时间重放的折线笔画。
 import { RoughGenerator } from '../rough/generator';
 import type { Drawable, Options } from '../rough/core';
+import { isInk } from './theme';
 
 export type Pt = [number, number];
 export type Box = { x: number; y: number; w: number; h: number };
 
-export interface LineStroke { kind: 'line'; pts: number[]; w: number; color: string; len: number; under?: boolean; alpha?: number; cum?: number[]; /** 平头、等宽：马克笔涂色的宽笔道 */ flat?: boolean; wm?: Float32Array; /** 装饰笔画（阴影）：不算进元素的占位框 */ deco?: boolean }
+export interface LineStroke { kind: 'line'; pts: number[]; w: number; color: string; len: number; under?: boolean; alpha?: number; cum?: number[]; /** 平头、等宽：马克笔涂色的宽笔道 */ flat?: boolean; wm?: Float32Array; /** 装饰笔画（阴影）：不算进元素的占位框 */ deco?: boolean; /** 从头到尾的粗细倍数 [起笔, 收笔]：鞭子、毛笔的一笔由粗到细 */ taper?: [number, number] }
 /** 汉字：整个字形 + 笔顺中线。笔沿中线走，走过的地方露出字形 */
 export interface GlyphStroke { kind: 'fglyph'; d: string; tx: number; ty: number; s: number; medians: number[][]; r: number; color: string; len: number; box: Box; mcum?: number[][]; /** 加粗：在字形外再描一圈，单位是像素 */ bold?: number }
 /** 非汉字字形：整个字形轮廓，从左到右揭开 */
@@ -138,6 +139,7 @@ export function widthProfile(s: LineStroke): Float32Array {
     m *= 1 + 0.2 * Math.min(1, turn[i] / 0.9);
     if (d < head) m *= 1.24 - 0.24 * (d / head);
     if (L - d < tail) { const k = (L - d) / tail; m *= 0.4 + 0.6 * k * (2 - k); }
+    if (s.taper) m *= s.taper[0] + (s.taper[1] - s.taper[0]) * Math.pow(d / L, 0.8);
     wm[i] = m;
   }
   return (s.wm = wm);
@@ -180,14 +182,14 @@ const gen = new RoughGenerator();
 
 export interface Style { color: string; w: number; rough: number; seed: number; fill?: string; /** marker（默认，马克笔宽笔道涂色）/ hachure（细排线）/ solid / zigzag / cross-hatch / dots */ fillStyle?: string; fillGap?: number; fillAlpha?: number; double?: boolean; bow?: number; /** 画完后在背光一侧扫一道灰色阴影（只对闭合图形有效） */ shade?: boolean }
 
-const isMarker = (st: Style) => !!st.fill && (!st.fillStyle || st.fillStyle === 'marker');
+const isMarker = (st: Style) => !!st.fill && (!st.fillStyle || st.fillStyle === 'marker') && !isInk();
 
 function opts(st: Style, fillStyle = st.fillStyle): Options {
   const marker = isMarker(st);
   return {
     seed: st.seed, roughness: st.rough, bowing: st.bow ?? 1, stroke: st.color, strokeWidth: st.w,
     disableMultiStroke: !st.double, disableMultiStrokeFill: true,
-    fill: st.fill, fillStyle: marker ? fillStyle ?? 'solid' : st.fillStyle, hachureGap: marker ? st.fillGap ?? 15 : st.fillGap ?? Math.max(9, st.w * 2.4), fillWeight: Math.max(2, st.w * 0.6),
+    fill: st.fill, fillStyle: marker ? fillStyle ?? 'solid' : st.fillStyle ?? (st.fill && isInk() ? 'solid' : undefined), hachureGap: marker ? st.fillGap ?? 15 : st.fillGap ?? Math.max(9, st.w * 2.4), fillWeight: Math.max(2, st.w * 0.6),
     hachureAngle: marker ? -33 : -41, preserveVertices: st.rough < 0.5, curveStepCount: 12, fillShapeRoughnessGain: marker ? 0.4 : 0.8,
   };
 }
@@ -222,7 +224,7 @@ export function toStrokes(d: Drawable, st: Style): Stroke[] {
       else {
         const marker = isMarker(st);
         if (marker) for (let i = 0; i < pts.length; i += 2) { pts[i] += 4; pts[i + 1] += 3; } // 涂色故意和轮廓错开一点
-        fills.push({ kind: 'fill', pts, color: st.fill!, alpha: st.fillAlpha ?? (marker ? 0.42 : 0.35), len: Math.sqrt(len) * 16, under: true });
+        fills.push({ kind: 'fill', pts, color: st.fill!, alpha: st.fillAlpha ?? (marker ? 0.42 : isInk() ? 0.8 : 0.35), len: Math.sqrt(len) * 16, under: true });
       }
     }
   }

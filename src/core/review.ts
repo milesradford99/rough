@@ -1,24 +1,14 @@
 // 审片页：每道确认闸交给用户看的那一页。由引擎生成，图都嵌在里面，一个文件就能发给用户。
-// 确认码印在图上和页面上：用户看了图才报得出来。`hj approve` 要求用户的原话里带着它。
-import { createHash } from 'node:crypto';
+// 页面和长图上印着内容的版本号：内容改了，审片页要重新生成，`hj approve` 只认和现在这一版对得上的审片页。
 
 export type Stage = 'plan' | 'look' | 'keyframes';
 export const STAGE_NAME: Record<Stage, string> = { plan: '分镜计划', look: '全景定稿', keyframes: '关键帧' };
 
-/** 四位确认码：由“哪一道闸 + 内容的版本号”算出来，内容一变码就变 */
-export function confirmCode(stage: Stage, hash: string): string {
-  return String(1000 + (parseInt(createHash('sha256').update(`hj-review:${stage}:${hash}`).digest('hex').slice(0, 8), 16) % 9000));
-}
-/** 用户的原话里有没有这个确认码（全角数字也认） */
-export function hasCode(by: string, code: string): boolean {
-  const half = by.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
-  return new RegExp(`(^|\\D)${code}(\\D|$)`).test(half);
-}
 
 export interface ReviewImage { src: string; caption?: string; sub?: string; wide?: boolean; /** 要用户留意的地方（如一拍里干等太久），红字标出 */ alert?: string }
 export interface ReviewBlock { heading: string; note?: string; images?: ReviewImage[]; html?: string; grid?: boolean }
 export interface ReviewPage {
-  title: string; stage: Stage; code: string; hash: string;
+  title: string; stage: Stage; hash: string;
   /** 这一步在整个流程里的位置：前面确认过什么，这一步确认什么，后面还有什么 */
   step: number; steps: string[];
   lead: string;
@@ -48,7 +38,6 @@ h1{font-size:26px;margin:6px 0 2px}h2{font-size:19px;margin:36px 0 8px;padding-t
 .lead{color:var(--dim);margin:6px 0 18px}
 .ask{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:14px 0}
 .ask ol{margin:6px 0 0;padding-left:22px}.ask li{margin:8px 0}.ask small{display:block;color:var(--dim)}
-.code{display:inline-block;font:700 30px/1 ui-monospace,Menlo,monospace;letter-spacing:4px;color:var(--red);background:var(--yellow);padding:8px 14px;border-radius:8px;vertical-align:middle}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
 figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}figure.wide{max-width:760px;margin:0 auto 14px}
 img{display:block;width:100%;height:auto}figcaption .alert{display:block;font-style:normal;color:var(--red);font-weight:600}figure:has(.alert){border-color:var(--red)}figcaption{padding:8px 10px;font-size:13.5px}figcaption b{display:block}figcaption span{display:block;color:var(--dim)}
@@ -68,8 +57,8 @@ table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px
 <p class="lead">${esc(p.lead)}</p>
 <div class="ask"><b>请看完下面的图，回答这 ${p.questions.length} 件事</b>
 <ol>${p.questions.map(q => `<li>${esc(q.q)}<small>没意见：${esc(q.fallback)}</small></li>`).join('')}</ol>
-<p>都没问题，回复 <span class="code">确认 ${esc(p.code)}</span>　要改，直接说改哪儿（图下面有编号）。</p>
-<p class="note">确认码只对这一版有效（版本 ${esc(p.hash)}）。内容改了，码会变，要重新看。</p></div>
+<p>都没问题，回复<b>“确认”</b>；要改，直接说改哪儿（图下面有编号）。</p>
+<p class="note">这一页是版本 ${esc(p.hash)}。内容改了会重新出一页，要重新看。</p></div>
 ${p.blocks.map(b => `<h2>${esc(b.heading)}</h2>${b.note ? `<p class="note">${esc(b.note)}</p>` : ''}${b.html ?? ''}${b.images?.length ? (b.grid ? `<div class="grid">${b.images.map(img).join('')}</div>` : b.images.map(img).join('')) : ''}`).join('\n')}
 ${p.warnings.length ? `<h2>自动检查发现、还没处理的问题（${p.warnings.length}）</h2><ul class="warn">${p.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
 </main></body></html>

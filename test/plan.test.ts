@@ -7,8 +7,8 @@ import { join } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { fakeAlignment, loadAlignment, resolveAnchor } from '../src/core/alignment';
-import { confirmCode, hasCode, type Stage } from '../src/core/review';
 import { cpSync, rmSync } from 'node:fs';
+import YAML from 'yaml';
 import { compile } from '../src/core/compile';
 import { lint } from '../src/core/lint';
 import { focusAlpha } from '../src/core/render';
@@ -51,11 +51,10 @@ function project(plan = PLAN): string {
   mkdirSync(voice, { recursive: true });
   writeFileSync(join(voice, 'alignment.json'), JSON.stringify(fakeAlignment(SCRIPT)));
   assert.equal(hj(['init', dir, '--voice', voice]).status, 0);
+  rmSync(join(dir, 'story.yaml')); writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8').replace(/^story:.*\n/m, '')); // 这条测试不管导演那一步（在 story.test.ts）
   if (plan) writeFileSync(join(dir, 'plan.yaml'), plan);
   return dir;
 }
-
-const codeOf = (dir: string, stage: Stage) => confirmCode(stage, JSON.parse(readFileSync(join(dir, 'out/review', stage + '.json'), 'utf8')).hash);
 
 test('没填的计划拦住一切：不能跳过规划直接画', () => {
   const dir = project('');
@@ -90,10 +89,9 @@ test('规划者 → 用户确认 → 执行者：骨架能直接编译，偏离�
   assert.equal(hj(['plan', dir]).status, 0);
   const sb = readFileSync(join(dir, 'storyboard.md'), 'utf8');
   assert.match(sb, /论点/); assert.match(sb, /公司 → 交税 → 政府/); assert.match(sb, /回头改：公司/);
-  // 计划这一步也有图：结构草图。没带图上的确认码不能确认
+  // 计划这一步也有图：结构草图。审片页生成之后，用户一句“确认”就够了
   assert.ok(existsSync(join(dir, 'out/review/plan.png')) && existsSync(join(dir, 'out/review/plan.html')));
-  assert.match(hj(['approve', dir, 'plan', '--by', '可以']).stderr, /没有确认码/);
-  assert.equal(hj(['approve', dir, 'plan', '--by', `确认 ${codeOf(dir, 'plan')}`]).status, 0);
+  assert.equal(hj(['approve', dir, 'plan', '--by', '确认']).status, 0);
   assert.match(hj(['status', dir]).stdout, /现在轮到：执行者[\s\S]*hj scaffold/);
 
   assert.equal(hj(['scaffold', dir]).status, 0);
@@ -124,21 +122,13 @@ test('规划者 → 用户确认 → 执行者：骨架能直接编译，偏离�
   assert.equal(st.status, 1); assert.match(st.stderr, /又改过了/);
 });
 
-test('确认码：随内容版本变，全角数字也认，夹在别的数字里不算', () => {
-  const c = confirmCode('look', 'abc');
-  assert.match(c, /^\d{4}$/);
-  assert.notEqual(c, confirmCode('look', 'abd')); assert.notEqual(c, confirmCode('keyframes', 'abc'));
-  assert.ok(hasCode(`好的，确认 ${c}`, c)); assert.ok(hasCode(`确认${[...c].map(d => String.fromCharCode(d.charCodeAt(0) + 0xfee0)).join('')}`, c));
-  assert.ok(!hasCode('可以', c)); assert.ok(!hasCode(`1${c}9`, c));
-});
-
 test('四道确认：计划 → 全景定稿 → 关键帧，每道都有审片页；审片页过期、板上的东西变了都要重来', { timeout: 240000 }, () => {
   const dir = join(mkdtempSync(join(tmpdir(), 'hj-gate-')), 'p');
   cpSync('examples/one-board', dir, { recursive: true }); rmSync(join(dir, 'out'), { recursive: true, force: true }); rmSync(join(dir, 'approvals.json'), { force: true });
   // 没生成这一版的审片页，不能确认
-  assert.match(hj(['approve', dir, 'plan', '--by', '确认 1234']).stderr, /还没有生成审片页/);
+  assert.match(hj(['approve', dir, 'plan', '--by', '确认']).stderr, /还没有生成审片页/);
   assert.equal(hj(['plan', dir]).status, 0);
-  assert.equal(hj(['approve', dir, 'plan', '--by', `确认 ${codeOf(dir, 'plan')}`]).status, 0);
+  assert.equal(hj(['approve', dir, 'plan', '--by', '确认']).status, 0);
   // 全景定稿没确认：不出正式关键帧，不能确认关键帧
   const early = hj(['stills', dir]);
   assert.equal(early.status, 1); assert.match(early.stderr, /全景定稿还没有得到用户确认/);
@@ -147,9 +137,8 @@ test('四道确认：计划 → 全景定稿 → 关键帧，每道都有审片�
   assert.equal(look.status, 0, look.stderr);
   assert.match(look.stdout, /必须让用户看到图/);
   const html = readFileSync(join(dir, 'out/review/look.html'), 'utf8');
-  assert.match(html, /眯眼看/); assert.match(html, /data:image\/jpeg;base64/); assert.match(html, new RegExp(codeOf(dir, 'look')));
-  assert.match(hj(['approve', dir, 'look', '--by', '挺好看的']).stderr, /没有确认码/);
-  assert.equal(hj(['approve', dir, 'look', '--by', `确认 ${codeOf(dir, 'look')}，好看`]).status, 0);
+  assert.match(html, /眯眼看/); assert.match(html, /data:image\/jpeg;base64/); assert.match(html, new RegExp(JSON.parse(readFileSync(join(dir, 'out/review/look.json'), 'utf8')).hash)); assert.doesNotMatch(html, /确认码/);
+  assert.equal(hj(['approve', dir, 'look', '--by', '挺好看的']).status, 0);
   // 微调位置不让全景定稿失效；换了大小的档位就失效
   const f = join(dir, 'scenes/01-board.yaml'), src = readFileSync(f, 'utf8');
   writeFileSync(f, src.replace('at: [690, 78]', 'at: [690, 78], dx: 6'));
@@ -162,7 +151,7 @@ test('四道确认：计划 → 全景定稿 → 关键帧，每道都有审片�
   const st = hj(['stills', dir]);
   assert.equal(st.status, 0, st.stderr);
   assert.match(readFileSync(join(dir, 'out/review/keyframes.html'), 'utf8'), /口播：/);
-  assert.equal(hj(['approve', dir, 'keyframes', '--by', `确认 ${codeOf(dir, 'keyframes')}`]).status, 0);
+  assert.equal(hj(['approve', dir, 'keyframes', '--by', '确认']).status, 0);
   assert.match(hj(['status', dir]).stdout, /hj render/);
   // 草稿多出一张眯眼图
   assert.equal(hj(['stills', dir, '--draft']).status, 0);
@@ -331,6 +320,12 @@ test('配音：稿子没确认不调用；确认后合成一次，产物直接�
     const root = mkdtempSync(join(tmpdir(), 'hj-voice-')), dir = join(root, 'proj'), sf = join(root, 's.txt');
     writeFileSync(sf, SCRIPT);
     assert.equal((await run(['init', dir, '--script', sf])).status, 0);
+    // 先过导演那一道：简报没确认，不配音
+    assert.match((await run(['status', dir])).out, /现在轮到：导演/);
+    writeFileSync(join(dir, 'story.yaml'), YAML.stringify({ audience: '交过税、拿过补贴的人', myth: '政府发钱，大家就变富了', truth: '钱转了一圈，公司一分没多赚', motif: '一张钞票绕一圈', hook: { say: '公司交一百块税' }, predict: { say: '政府发给你' }, aha: { say: '没多赚', see: '钞票沿着圈走回公司', move: 'flow' }, land: { say: '谁也没有多出来', callback: '开头的公司' } }));
+    const r00 = await run(['voice', dir]);
+    assert.equal(r00.status, 1); assert.match(r00.out, /创意简报还没有得到用户确认/); assert.equal(calls, 0);
+    assert.equal((await run(['approve', dir, 'story', '--by', '简报可以'])).status, 0);
     assert.match((await run(['status', dir])).out, /现在轮到：配音/);
     // 没确认：列出稿子，不调用
     const r0 = await run(['voice', dir]);
@@ -438,9 +433,9 @@ test('审片页的文件名带版本号；关键帧卡片写着每一拍的起�
   const hash = JSON.parse(readFileSync(join(dir, 'out/review/plan.json'), 'utf8')).hash;
   assert.ok(existsSync(join(dir, `out/review/plan-${hash.slice(0, 8)}.png`)) && existsSync(join(dir, `out/review/plan-${hash.slice(0, 8)}.html`)));
   assert.match(pl.stdout, new RegExp(`plan-${hash.slice(0, 8)}\\.png`));
-  assert.equal(hj(['approve', dir, 'plan', '--by', `确认 ${codeOf(dir, 'plan')}`]).status, 0);
+  assert.equal(hj(['approve', dir, 'plan', '--by', '确认']).status, 0);
   assert.equal(hj(['look', dir]).status, 0);
-  assert.equal(hj(['approve', dir, 'look', '--by', `确认 ${codeOf(dir, 'look')}`]).status, 0);
+  assert.equal(hj(['approve', dir, 'look', '--by', '确认']).status, 0);
   assert.equal(hj(['stills', dir]).status, 0);
   assert.match(readFileSync(join(dir, 'out/review/keyframes.html'), 'utf8'), /1\.1  0:00\.0–\d:\d\d\.\d（[\d.]+ 秒）/);
   const pv = hj(['preview', dir, '--from', '0', '--to', '2']);

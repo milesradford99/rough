@@ -4,21 +4,22 @@ import { join, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { loadAlignment, resolveAnchor, buildSubtitles, type Alignment, type SubLine } from './alignment';
-import { buildElement, SrcError, KINDS, THING_TIERS, type El, type BuildCtx } from './elements';
+import { buildElement, SrcError, KINDS, THING_TIERS, depsOf, decimalsOf, loadDoodle, type El, type BuildCtx } from './elements';
+import { EASES, numberIn, remade, type Morph } from './live';
 import { POSES, FACES, type Pose } from './figure';
-import { FORMATS, THEME, type Format } from './theme';
-import { type Pt, type Box, unionBox } from './strokes';
+import { FORMATS, THEME, color, setStyle, isInk, type Format } from './theme';
+import { type Pt, type Box, type Stroke, unionBox, cloneStrokes } from './strokes';
 import { PATTERNS } from './patterns';
 import { loadPlan, planRegions, checkPlan, boardSizes, type Plan } from './plan';
 import { loadAppendix, layoutAppendix, appendixTiming, type AppendixLayout } from './appendix';
 
 export interface Issue { level: 'error' | 'warn' | 'info'; where: string; msg: string }
-export interface Tween { t0: number; t1: number; from: number; to: number }
+export interface Tween { t0: number; t1: number; from: number; to: number; ease?: string }
 export interface TL {
   el: El; order: number; scene: number;
   drawT0?: number; drawT1?: number; sched?: Float64Array; // 每笔 [起, 止]
   appear?: { t: number; kind: 'pop' | 'fade'; dur: number };
-  moves: { t0: number; t1: number; from: Pt; to: Pt; path?: number[]; base?: Pt; linear?: boolean }[];
+  moves: { t0: number; t1: number; from: Pt; to: Pt; path?: number[]; base?: Pt; linear?: boolean; ease?: string }[];
   alpha: Tween[]; scale: Tween[];
   shakes: { t0: number; t1: number; kind: 'shake' | 'pulse' | 'nod' }[];
   poses: { t0: number; t1: number; from: Pose; to: Pose; faceFrom: string; faceTo: string }[];
@@ -27,7 +28,19 @@ export interface TL {
   compress?: number;
   /** 从前面的场景沿用过来的：进场时已经在板上 */
   recalled?: boolean;
+  /** 参数随时间的变化（change / grow / count） */
+  morphs: Morph[];
+  /** 它引用的、会挪动或变化的元素：它们一变，它就照新的样子重新生成（箭头跟着两头走、标签跟着横条走） */
+  live?: string[];
+  /** become 时从原地走过去、变成另一样东西的那个替身 */
+  ghost?: boolean;
+  /** 换一组参数、按另一组周围元素重新生成自己（不再避让） */
+  remake?: (patch: Record<string, any>, els: Map<string, El>) => El;
 }
+/** 流动：小记号沿着一条或几条首尾相接的线走（钱在转、货在送、消息在传） */
+export interface FlowFx { scene: number; t0: number; t1: number; ids: string[]; token: Stroke[]; n: number; loop: number }
+/** 点亮：顺着一条线用荧光笔描一遍，until 之后淡掉 */
+export interface TraceFx { scene: number; id: string; t0: number; t1: number; color: string; w: number; until: number }
 export interface EraseGroup { t0: number; t1: number; style: 'wipe' | 'fade'; path: number[]; width: number; scene: number }
 export interface CamSeg { t0: number; t1: number; to: Cam; cut?: boolean; /** 对准的是一个分区（一块地盘），不是具体的东西 */ region?: boolean }
 export interface Cam { cx: number; cy: number; zoom: number }
@@ -48,11 +61,18 @@ export interface Compiled {
   /** 片尾的滚动附录：排在最后一块板的正下方，t0 起镜头往下走 */
   appendix?: { layout: AppendixLayout; x: number; y: number; t0: number; t1: number; from: Cam; dist: number; speed: number };
   castUse?: Map<string, CastUse>;
+  /** 画在元素之上的效果：流动的小记号、点亮的路线 */
+  fx: { flows: FlowFx[]; traces: TraceFx[]; /** become 时走过去的替身：只画，不进元素清单 */ ghosts: TL[] };
 }
 
-const NATURAL: Record<string, number> = { move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
-const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
-const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay'];
+const NATURAL: Record<string, number> = { expand: 1.0, collapse: 0.9, become: 1.4, change: 0.8, grow: 0.9, count: 1.1, move: 0.6, walk: 1.1, scale: 0.5, pose: 0.35, face: 0.15, pop: 0.3, fade: 0.35, hide: 0.2, erase: 0.55, camera: 1.1, shake: 0.5, pulse: 0.45, nod: 0.5 };
+const VERBS = ['draw', 'erase', 'move', 'walk', 'scale', 'change', 'grow', 'count', 'flow', 'become', 'trace', 'expand', 'collapse', 'pose', 'face', 'pop', 'fade', 'hide', 'shake', 'pulse', 'nod', 'camera', 'wait'];
+const ACTION_OPTS = ['dur', 'at', 'with', 'to', 'from', 'by', 'along', 'style', 'face', 'pad', 'zoom', 'delay', 'ease', 'token', 'n', 'loop', 'keep', 'color', 'size'];
+const pathLen = (p?: number[]) => { let L = 0; if (p) for (let i = 2; i < p.length; i += 2) L += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]); return L; };
+/** change 能改哪些参数：每种元素只开放几样，改的是“量”，不是换一样东西 */
+const CHANGE_KEYS: Record<string, string[]> = { span: ['span', 'h', 'color'], chart: ['data', 'color'], shape: ['w', 'h', 'size', 'color'], text: ['color'], note: ['color'], arrow: ['color'], line: ['color'], mark: ['color'], doodle: ['color'], icon: ['color'], parts: ['color'] };
+/** 让元素出现的动作 */
+const APPEAR = ['draw', 'pop', 'fade', 'grow', 'count'];
 const SCENE_GAP = 260;
 /** 自动取景最多推近多少：再大线条会显得粗笨 */
 const FRAME_MAX = 1.4;
@@ -72,6 +92,7 @@ export function loadProject(dir: string): { meta: any; scenes: { file: string; s
   const pf = join(dir, 'project.yaml');
   if (!existsSync(pf)) throw new Error(`${dir} 里没有 project.yaml，这不是一个画讲项目（用 hj init 创建）`);
   const meta = YAML.parse(readFileSync(pf, 'utf8')) ?? {};
+  setStyle(meta.style === 'ink' ? 'ink' : 'color');
   const sd = join(dir, 'scenes');
   const files = existsSync(sd) ? readdirSync(sd).filter(f => /\.ya?ml$/.test(f)).sort() : [];
   let scenes = files.map(f => {
@@ -152,7 +173,7 @@ export function compile(dir: string): Compiled {
     starts.push(t);
   });
 
-  const scenes: CScene[] = [], tls: TL[] = [], erases: EraseGroup[] = [], camEvents: CamSeg[] = [];
+  const scenes: CScene[] = [], tls: TL[] = [], erases: EraseGroup[] = [], camEvents: CamSeg[] = [], flows: FlowFx[] = [], traces: TraceFx[] = [], ghosts: TL[] = [];
   const framed = new Map<string, Box>();
   let nextX = 0;
   const screenC: Pt = [fmt.W / 2, fmt.H / 2], boardC: Pt = [fmt.board.x + fmt.board.w / 2, fmt.board.y + fmt.board.h / 2];
@@ -197,13 +218,14 @@ export function compile(dir: string): Compiled {
     const local = new Map<string, TL>();
     const life = new Map<string, [number, number]>();
     const pending: [string, any][] = [];
-    const ctx: BuildCtx = { scene: id, fmt: sfmt, els, projectDir: dir, life, shade: meta.shade, note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
+    const ctx: BuildCtx = { scene: id, fmt: sfmt, els, projectDir: dir, life, shade: meta.shade ?? !isInk(), note: (w, m, level = 'info') => issues.push({ level, where: w.replace(`场景 ${id}`, file), msg: m }) };
     const addEl = (eid: string, esrc: any): TL | null => {
       if (els.has(eid)) { err(`${file} / 元素 ${eid}`, 'id 重复了'); return local.get(eid)!; }
       try {
         const el = buildElement(ctx, eid, esrc);
         els.set(eid, el);
-        const tl: TL = { el, order: 0, scene: si, moves: [], alpha: [], scale: [], shakes: [], poses: [] };
+        const tl: TL = { el, order: 0, scene: si, moves: [], alpha: [], scale: [], shakes: [], poses: [], morphs: [] };
+        if (!['figure', 'image', 'video'].includes(el.kind)) tl.remake = (patch, cur) => buildElement({ ...ctx, els: cur, life: undefined, note: undefined }, eid, { ...el.src, ...patch, __frozen: el.frozen });
         local.set(eid, tl); scene.els.push(eid);
         if (el.missing?.length) warn(`${file} / 元素 ${eid}`, `这些字符没有字形数据，画不出来：${[...new Set(el.missing)].join(' ')}`);
         return tl;
@@ -219,7 +241,7 @@ export function compile(dir: string): Compiled {
       return [v];
     };
     const idsOf = (v: any): any => (typeof v === 'string' ? (ids1(v).length === 1 && ids1(v)[0] === v ? v : ids1(v)) : Array.isArray(v) ? v.flatMap(x => (typeof x === 'string' ? ids1(x) : [x])) : v);
-    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale'];
+    const GROUP_KEYS = ['draw', 'erase', 'hide', 'pop', 'fade', 'move', 'walk', 'shake', 'pulse', 'nod', 'pose', 'face', 'scale', 'change', 'grow', 'count', 'flow', 'trace', 'become', 'expand', 'collapse'];
     const withGroups = (a: any): any => {
       if (!a || typeof a !== 'object') return a;
       const o = { ...a };
@@ -293,10 +315,13 @@ export function compile(dir: string): Compiled {
         } catch (e: any) { if (e instanceof SrcError) err(file, e.message); else throw e; }
       });
     }
+    /** 细节框（detail）：框里的东西写 in: 框的名字，坐标相对框的左上角 */
+    const frames = new Map<string, Box>();
     const inRegion = (eid: string, esrc: any): any => {
       if (!esrc || typeof esrc !== 'object' || esrc.in == null) return esrc;
-      const rg = regions.get(String(esrc.in)), { in: _in, ...rest } = esrc;
-      if (!rg) { err(`${file} / 元素 ${eid}`, `没有叫 "${esrc.in}" 的分区。本场景的分区：${[...regions.keys()].join(' ') || '（还没有定义 regions）'}`); return rest; }
+      const fr = frames.get(String(esrc.in)), rg = regions.get(String(esrc.in)) ?? fr, { in: _in, ...rest } = esrc;
+      if (fr) rest.__in = String(esrc.in);
+      if (!rg) { err(`${file} / 元素 ${eid}`, `没有叫 "${esrc.in}" 的分区或细节框。本场景的分区：${[...regions.keys()].join(' ') || '（还没有定义 regions）'}${frames.size ? '；细节框：' + [...frames.keys()].join(' ') : ''}`); return rest; }
       if (Array.isArray(rest.at) && rest.at.length === 2) rest.at = rest.at.map((v: any, i: number) => (typeof v === 'number' ? (i ? rg.y : rg.x) + v : typeof v === 'string' && /^-?[\d.]+%$/.test(v) ? (i ? rg.y : rg.x) + (parseFloat(v) / 100) * (i ? rg.h : rg.w) : v));
       else if (rest.at == null && !['rightOf', 'leftOf', 'above', 'below'].some(k => k in rest) && !('arrow' in rest || 'line' in rest || 'mark' in rest || 'note' in rest)) rest.at = [rg.x + rg.w / 2, rg.y + rg.h / 2];
       // 箭头、连线里直接写的坐标点也相对分区（引用元素的端点不受影响）
@@ -304,6 +329,12 @@ export function compile(dir: string): Compiled {
       return rest;
     };
     if (src.elements && typeof src.elements !== 'object') err(file, 'elements 应该是 "id: 定义" 的映射');
+    for (const [eid, esrc] of Object.entries(src.elements ?? {}) as [string, any][]) {
+      if (!esrc || typeof esrc !== 'object' || !('detail' in esrc)) continue;
+      const r = inRegion(eid, esrc), w = +(r.w ?? 480), h = r.shape === 'circle' ? w : +(r.h ?? 360);
+      if (Array.isArray(r.at) && r.at.every((v: any) => typeof v === 'number')) frames.set(eid, { x: r.at[0] - w / 2, y: r.at[1] - h / 2, w, h });
+      else err(`${file} / 元素 ${eid}`, 'detail 的 at 写框中心的坐标 [x, y]（数字，可以配 in: 分区）');
+    }
     for (const [eid, esrc0] of Object.entries(src.elements ?? {}) as [string, any][]) {
       const esrc = esrc0 && typeof esrc0 === 'object' && 'crowd' in esrc0 ? inRegion(eid, esrc0) : esrc0; // 人群也可以写 in: 分区
       if (esrc && typeof esrc === 'object' && 'crowd' in esrc) {
@@ -354,6 +385,14 @@ export function compile(dir: string): Compiled {
       }
       return acts.map(withGroups);
     };
+    // 细节框里有哪些东西、两条引线叫什么
+    const membersOf = new Map<string, string[]>(), leadersOf = new Map<string, string[]>();
+    for (const f of frames.keys()) {
+      // 写了 in: 框的，加上相对它们定位的（below: rev 的标签），一层层找下去
+      const mem = new Set(pending.filter(([, e]) => e && typeof e === 'object' && e.in === f).map(([i]) => i));
+      for (let grew = true; grew;) { grew = false; for (const [i, e] of pending) if (!mem.has(i) && e && typeof e === 'object' && e.in == null && !('detail' in e) && ['below', 'above', 'rightOf', 'leftOf'].some(k => mem.has(String(e[k] ?? '').split('.')[0]))) { mem.add(i); grew = true; } }
+      membersOf.set(f, [...mem]); leadersOf.set(f, [`${f}_a`, `${f}_b`]);
+    }
     for (const eid of recalled) life.set(eid, [t0 - 1, Infinity]);
     // 预扫一遍节拍：每个元素什么时候出现、什么时候被擦掉。只有同时在板上的元素才需要互相避让
     beats.forEach((b, bi) => {
@@ -361,7 +400,10 @@ export function compile(dir: string): Compiled {
       if (Number.isNaN(bt)) return;
       expand(b?.do).forEach((a, ai) => {
         if (!a || typeof a !== 'object') return;
-        const verb = ['draw', 'pop', 'fade', 'erase', 'hide'].find(v => v in a);
+        if (typeof a.expand === 'string' && frames.has(a.expand)) for (const i of [a.expand, ...leadersOf.get(a.expand)!]) if (!life.has(i)) life.set(i, [bt, Infinity]);
+        if (typeof a.collapse === 'string' && frames.has(a.collapse)) for (const i of [a.collapse, ...leadersOf.get(a.collapse)!, ...membersOf.get(a.collapse)!]) if (life.has(i) && life.get(i)![1] === Infinity) life.get(i)![1] = bt;
+        if (Array.isArray(a.become) && a.become.length === 2 && typeof a.become[1] === 'string' && !life.has(a.become[1])) life.set(a.become[1], [bt, Infinity]);
+        const verb = [...APPEAR, 'erase', 'hide'].find(v => v in a);
         if (!verb) return;
         const tgs: any[] = Array.isArray(a[verb]) ? a[verb] : [a[verb]];
         tgs.forEach((tg, ti) => {
@@ -375,7 +417,11 @@ export function compile(dir: string): Compiled {
         });
       });
     });
-    for (const [eid, esrc] of pending) addEl(eid, inRegion(eid, esrc));
+    for (const [eid, esrc] of pending) {
+      const tl = addEl(eid, inRegion(eid, esrc));
+      // 细节框的两条引线：从那样东西连到框，expand 时框到位之后画出来
+      tl?.el.leaders?.forEach((pq, i) => addEl(leadersOf.get(eid)?.[i] ?? `${eid}_${i}`, { line: pq, color: tl.el.src.color ?? 'gray', pen: 3.5, rough: 0.6, pad: 0 }));
+    }
     // 写了 in: 的元素被引擎挪出了自己的分区：多半是这个分区太挤
     for (const [eid, esrc] of pending) {
       const rn = esrc && typeof esrc === 'object' ? esrc.in : null, rg = rn != null ? regions.get(String(rn)) : null, el = els.get(eid);
@@ -385,8 +431,18 @@ export function compile(dir: string): Compiled {
     }
     for (const rn of regions.keys()) if (els.has(rn)) err(file, `分区和元素都叫 "${rn}"，镜头不知道该推近哪个。给其中一个换个名字`);
     for (const eid of recalled) { const tl = local.get(eid); if (tl) { tl.appear = { t: t0 - 0.02, kind: 'fade', dur: 0.3 }; tl.order = order++; tl.recalled = true; } }
+    /** 一笔一笔画出来：按笔画的分量分配 [t0, t1] */
+    const schedDraw = (tl: TL, a0: number, a1: number) => {
+      tl.drawT0 = a0; tl.drawT1 = a1; tl.compress = 1;
+      const ws = tl.el.strokes.map(weight), sum = ws.reduce((x, y) => x + y, 0), sched = new Float64Array(ws.length * 2);
+      let acc = a0;
+      tl.el.strokes.forEach((s, i) => { const slot = ((a1 - a0) * ws[i]) / sum; sched[2 * i] = acc + slot * Math.min(0.6, penUp(s) / ws[i]) * 0.9; sched[2 * i + 1] = acc + slot; acc += slot; });
+      tl.sched = sched;
+    };
     let pos = new Map<string, Pt>(); // 元素当前位移
     const poseNow = new Map<string, { pose: Pose; face: string }>();
+    /** 元素现在的参数和定义时差在哪儿（change / count 之后） */
+    const morphNow = new Map<string, Record<string, any>>();
     let lastEnd = t0;
     beats.forEach((b, bi) => {
       const where = `${file} / 节拍 ${bi + 1}`;
@@ -432,6 +488,8 @@ export function compile(dir: string): Compiled {
         if (verb === 'draw') {
           ids.forEach((eid, k) => { const x = mk([eid], a.dur != null ? a.dur / ids.length : naturalDraw(local.get(eid)!.el), k === 0 ? !!a.with : false); if (k > 0) x.atTime = undefined; list.push(x); });
         } else if (verb === 'wait') list.push(mk([], +a.wait || 0));
+        else if (verb === 'flow') { const L = ids.reduce((n, i) => n + pathLen(local.get(i)?.el.path), 0), nn = +(a.n ?? 1); list.push(mk(ids, a.dur ?? Math.min(2.6, Math.max(0.8, L / 480)) * (+(a.loop ?? 1) + (nn - 1) / nn))); }
+        else if (verb === 'trace') list.push(mk(ids, a.dur ?? ids.reduce((n, i) => n + (local.get(i)?.el.path ? Math.max(0.35, pathLen(local.get(i)!.el.path) / 800) : 0.25), 0)));
         else if (verb === 'camera' || ids.length) list.push(mk(ids, a.dur ?? NATURAL[verb] ?? 0.4));
       });
 
@@ -474,6 +532,7 @@ export function compile(dir: string): Compiled {
       for (const a of list) {
         const aw = where;
         const o = a.opt;
+        if (o.ease != null && !EASES[o.ease]) err(aw, `ease 写动作的手感：${Object.keys(EASES).join(' ')}（soft 慢起慢收，默认；spring 冲过头一点再弹回；snap 干脆；linear 匀速）`);
         let ids = a.ids;
         if (ids.includes('*')) ids = [...local.values()].filter(tl => (tl.drawT0 ?? tl.appear?.t ?? Infinity) < a.t0 && tl.gone == null).map(tl => tl.el.id);
         const tlsOf = ids.map(i => local.get(i)!).filter(Boolean);
@@ -484,11 +543,8 @@ export function compile(dir: string): Compiled {
             if (tl.drawT0 != null || tl.appear) { err(aw, `元素 "${tl.el.id}" 已经出现过了，不能重复 ${a.verb}（要再出现一次请定义一个新元素）`); continue; }
             tl.order = order++;
             if (a.verb === 'draw') {
-              tl.drawT0 = a.t0; tl.drawT1 = a.t1; tl.compress = a.fixed ? a.natural / naturalDraw(tl.el) : Math.min(1, (a.t1 - a.t0) / a.natural);
-              const ws = tl.el.strokes.map(weight), sum = ws.reduce((x, y) => x + y, 0), sched = new Float64Array(ws.length * 2);
-              let acc = a.t0;
-              tl.el.strokes.forEach((s, i) => { const slot = ((a.t1 - a.t0) * ws[i]) / sum; sched[2 * i] = acc + slot * Math.min(0.6, penUp(s) / ws[i]) * 0.9; sched[2 * i + 1] = acc + slot; acc += slot; });
-              tl.sched = sched;
+              if (tl.el.kind === 'detail') err(aw, `细节框 "${tl.el.id}" 用 { expand: ${tl.el.id} } 打开（框从 "${tl.el.src.detail}" 里长出来，再画引线），不要 draw`);
+              schedDraw(tl, a.t0, a.t1); tl.compress = a.fixed ? a.natural / naturalDraw(tl.el) : Math.min(1, (a.t1 - a.t0) / a.natural);
             } else tl.appear = { t: a.t0, kind: a.verb, dur: a.t1 - a.t0 };
           }
           desc = (a.verb === 'draw' ? '画 ' : a.verb === 'pop' ? '弹出 ' : '淡入 ') + tlsOf.map(tl => describe(tl.el)).join('、');
@@ -524,7 +580,7 @@ export function compile(dir: string): Compiled {
               else if (Array.isArray(o.by)) to = [cur[0] + o.by[0], cur[1] + o.by[1]];
               else throw new SrcError(aw, 'move 需要 to（目标：元素 id、"id.锚点" 或 [x,y]）、by（相对位移 [dx,dy]）或 along（沿某条箭头走）');
             } catch (e: any) { if (e instanceof SrcError) { err(aw, e.message.replace(aw + ': ', '')); continue; } throw e; }
-            tl.moves.push({ t0: a.t0, t1: a.t1, from: cur, to, path, base, linear: walking });
+            tl.moves.push({ t0: a.t0, t1: a.t1, from: cur, to, path, base, linear: walking && o.ease == null, ease: o.ease });
             pos.set(tl.el.id, to);
             if (walking) { // 走过去：边移动边交替迈步，到了恢复原来的姿势
               if (!tl.el.figure) { err(aw, `"${tl.el.id}" 不是火柴人，不能 walk（用 move）`); continue; }
@@ -537,8 +593,161 @@ export function compile(dir: string): Compiled {
           desc = `${walking ? '走动' : '移动'} ${ids.join('、')}` + (o.along ? ` 沿 ${o.along}` : o.to ? ` 到 ${JSON.stringify(o.to)}` : '');
         } else if (a.verb === 'scale') {
           if (typeof o.to !== 'number' || o.to <= 0) err(aw, 'scale 需要 to: 倍数（如 1.6 放大、0.5 缩小，相对元素原始大小）');
-          else for (const tl of tlsOf.filter(need)) { const from = tl.scale.length ? tl.scale[tl.scale.length - 1].to : 1; tl.scale.push({ t0: a.t0, t1: a.t1, from, to: o.to }); }
+          else for (const tl of tlsOf.filter(need)) { const from = tl.scale.length ? tl.scale[tl.scale.length - 1].to : 1; tl.scale.push({ t0: a.t0, t1: a.t1, from, to: o.to, ease: o.ease }); }
           desc = `${ids.join('、')} 缩放到 ${o.to} 倍`;
+        } else if (a.verb === 'change') {
+          // 改一个量：横条变长变短、柱子变高、框变大、换颜色。连着它的箭头、标签跟着重新生成
+          const to = o.to;
+          if (!to || typeof to !== 'object' || Array.isArray(to) || !Object.keys(to).length) err(aw, 'change 要写 to: { 参数: 新值 }，例如 { change: bar, to: { span: [0, 81] } }');
+          else for (const tl of tlsOf.filter(need)) {
+            const el = tl.el, allow = CHANGE_KEYS[el.kind] ?? [], bad = Object.keys(to).filter(k => !allow.includes(k));
+            if (bad.length) { err(aw, `"${el.id}"（${el.kind}）不能 change ${bad.join('、')}。${allow.length ? '它能改的：' + allow.join(' ') : '这种元素没有能改的参数：换样子用 pose / face，换位置用 move'}`); continue; }
+            const v = (k: string): string | null => {
+              const x = to[k];
+              if (k === 'span') return Array.isArray(x) && x.length === 2 && x.every((n: any) => Number.isFinite(+n)) ? null : 'span 写起止数值，如 [0, 81]';
+              if (k === 'data') return Array.isArray(x) && x.length === el.src.data.length && x.every((n: any) => typeof n === 'number') ? null : `data 写 ${el.src.data.length} 个数字（和原来的个数一样）`;
+              if (k === 'color') return typeof x === 'string' ? null : 'color 写颜色名，如 red';
+              return typeof x === 'number' && x > 0 ? null : `${k} 写一个正数`;
+            };
+            const bads = Object.keys(to).map(v).filter(Boolean);
+            if (bads.length) { err(aw, bads.join('；')); continue; }
+            const now = morphNow.get(el.id) ?? {}, toFull: Record<string, any> = { ...now };
+            for (const k of Object.keys(to)) toFull[k] = k === 'color' ? color(to[k]) : k === 'span' ? to[k].map(Number) : to[k];
+            const baseOf = (k: string) => (k === 'color' ? color(el.src.color) : k === 'h' && el.kind === 'span' ? el.src.h ?? 50 : k === 'w' || k === 'h' ? el.src[k] ?? el.src.size ?? (k === 'w' ? 240 : 160) : el.src[k]);
+            const from = Object.fromEntries(Object.keys(toFull).map(k => [k, k in now ? now[k] : baseOf(k)]));
+            tl.morphs.push({ t0: a.t0, t1: a.t1, from, to: toFull, ease: o.ease });
+            morphNow.set(el.id, toFull);
+          }
+          desc = `${ids.join('、')} 变成 ${JSON.stringify(to).replace(/"/g, '')}`;
+        } else if (a.verb === 'grow') {
+          // 长出来：区间条从一头伸到定义的长度，柱状图的柱子从零长高。和 draw 一样让它第一次出现
+          for (const tl of tlsOf) {
+            const el = tl.el;
+            if (tl.drawT0 != null || tl.appear) { err(aw, `"${el.id}" 已经在板上了，grow 是让它第一次出现时长出来。已经在板上的要变长变短用 change`); continue; }
+            let from: Record<string, any>, to: Record<string, any>;
+            if (el.kind === 'span') { const [p, q] = el.src.span.map(Number); if (o.from != null && !['start', 'end'].includes(o.from)) { err(aw, 'grow 的 from 写 start（从起点那头长出来，默认）或 end（从终点那头）'); continue; } from = { span: o.from === 'end' ? [q, q] : [p, p] }; to = { span: [p, q] }; }
+            else if (el.kind === 'chart' && el.src.chart === 'bar') { from = { data: el.src.data.map(() => 0) }; to = { data: el.src.data }; }
+            else { err(aw, `grow 只能用在区间条（span）和柱状图（chart: bar）上，"${el.id}" 是 ${el.kind}。别的东西用 draw 画出来`); continue; }
+            tl.order = order++;
+            tl.appear = { t: a.t0, kind: 'fade', dur: Math.min(0.12, (a.t1 - a.t0) / 3) };
+            tl.morphs.push({ t0: a.t0, t1: a.t1, from, to, ease: o.ease, base: true });
+          }
+          desc = '长出 ' + tlsOf.map(tl => describe(tl.el)).join('、');
+        } else if (a.verb === 'count') {
+          // 数字滚动：还没出现的数从 from（默认 0）滚到写的值；已经在板上的数滚到 to
+          for (const tl of tlsOf) {
+            const el = tl.el, n = el.kind === 'text' ? numberIn(String(el.src.text)) : null;
+            if (!n) { err(aw, `count 只能用在带数字的文字上（如 text: "= 1000"），"${el.id}" ${el.kind === 'text' ? '里没有数字' : `是 ${el.kind}`}`); continue; }
+            const shown = tl.drawT0 != null || !!tl.appear;
+            if (o.from != null && typeof o.from !== 'number') { err(aw, 'count 的 from 写一个数（从几开始滚），默认 0'); continue; }
+            if (shown && typeof o.to !== 'number') { err(aw, `"${el.id}" 已经在板上了：写 to: 数字，滚到几`); continue; }
+            if (!shown && o.to != null) { err(aw, `"${el.id}" 还没出现：count 会从 from 滚到它写的数（${n.value}），不用写 to。要滚到别的数，改它的 text`); continue; }
+            const now = morphNow.get(el.id) ?? {}, start = shown ? now.__num ?? n.value : o.from ?? 0, end = shown ? o.to : n.value;
+            const dec = Math.max(n.dec, decimalsOf(start), decimalsOf(end));
+            if (!shown) { tl.order = order++; tl.appear = { t: a.t0, kind: 'fade', dur: 0.1 }; }
+            const toFull = { ...now, __num: end, __numDec: dec };
+            tl.morphs.push({ t0: a.t0, t1: a.t1, from: { ...now, __num: start, __numDec: dec }, to: toFull, ease: o.ease, base: !shown });
+            if (shown) morphNow.set(el.id, toFull);
+          }
+          desc = `数字滚动 ${ids.join('、')}${o.to != null ? ` 到 ${o.to}` : ''}`;
+        } else if (a.verb === 'flow') {
+          // 流动：小记号沿着线走。几条线首尾相接就是一圈（钱借出去、付出去、存回来）
+          const ok = tlsOf.filter(need), bad = ok.find(tl => !tl.el.path);
+          const n = +(o.n ?? 1), loop = +(o.loop ?? 1);
+          if (bad) err(aw, `flow 沿着箭头或连线流动，"${bad.el.id}" 是 ${bad.el.kind}。写一条线，或几条首尾相接的线：{ flow: [lend, pay, back] }`);
+          else if (!(Number.isInteger(n) && n >= 1 && n <= 8)) err(aw, 'flow 的 n 写同时有几个记号在走，1 到 8');
+          else if (!(Number.isInteger(loop) && loop >= 1 && loop <= 10)) err(aw, 'flow 的 loop 写走几趟，1 到 10');
+          else if (ok.length) {
+            for (let i = 1; i < ok.length; i++) {
+              const p = ok[i - 1].el.path!, q = ok[i].el.path!, gap = Math.hypot(q[0] - p[p.length - 2], q[1] - p[p.length - 1]);
+              if (gap > 260) warn(aw, `flow 的 "${ok[i - 1].el.id}" 和 "${ok[i].el.id}" 首尾没接上（隔了 ${gap.toFixed(0)} 像素），记号会从一头跳到另一头。按顺序写首尾相接的线：前一条指向谁，后一条就从谁出发`);
+            }
+            const col = o.color ?? 'blue', tk = o.token ?? 'dot';
+            let tsrc: any = null;
+            if (tk === 'dot') tsrc = { shape: 'circle', size: o.size ?? 24, color: col, fill: col, fillStyle: 'solid', fillAlpha: 1, shade: false };
+            else if (typeof tk === 'string' && /^[\w-]+$/.test(tk) && loadDoodle(tk, dir)) tsrc = { doodle: tk, size: o.size ?? 60, shade: false };
+            else if ((typeof tk === 'string' || typeof tk === 'number') && String(tk).length <= 6) tsrc = { text: String(tk), size: o.size ?? 42, color: col, weight: 'bold' };
+            if (!tsrc) err(aw, 'flow 的 token 写在线上走的是什么：dot（圆点，默认）、一个手绘件的名字（coin、banknote、document…）、或不超过 6 个字的字（"¥"、"90"）');
+            else {
+              try {
+                const te = buildElement({ ...ctx, els: new Map(), life: undefined, note: undefined }, '_token', { ...tsrc, at: [0, 0] }), tc = te.anchors.center;
+                flows.push({ scene: si, t0: a.t0, t1: a.t1, ids: ok.map(tl => tl.el.id), token: cloneStrokes(te.strokes, -tc[0], -tc[1]), n, loop });
+              } catch (e: any) { if (e instanceof SrcError) err(aw, e.message.replace(/^.*?: /, '')); else throw e; }
+            }
+          }
+          desc = `沿 ${ids.join(' → ')} 流动`;
+        } else if (a.verb === 'trace') {
+          // 点亮：顺着一条路，线用荧光笔描一遍，经过的东西跳一下。讲“结论是从哪儿连过来的”
+          const ok = tlsOf.filter(need);
+          const w8 = ok.map(tl => (tl.el.path ? Math.max(0.35, pathLen(tl.el.path) / 800) : 0.25)), sum = w8.reduce((x, y) => x + y, 0) || 1;
+          const until = o.keep === true ? Infinity : Math.max(a.t1 + 1.5, next + 1.2);
+          let tt = a.t0;
+          ok.forEach((tl, i) => {
+            const d = ((a.t1 - a.t0) * w8[i]) / sum;
+            if (tl.el.path) traces.push({ scene: si, id: tl.el.id, t0: tt, t1: tt + d, color: color(o.color ?? 'yellow'), w: +(o.size ?? 28), until });
+            else tl.shakes.push({ t0: tt, t1: tt + Math.max(0.35, d), kind: 'pulse' });
+            tt += d;
+          });
+          if (!ok.some(tl => tl.el.path)) warn(aw, 'trace 里没有一条线：点亮是顺着箭头、连线描一遍。把这条路上的箭头按顺序写进去，如 [me, dep, bank, lend, shop]');
+          desc = `点亮 ${ids.join(' → ')}`;
+        } else if (a.verb === 'become') {
+          // 变成：一样东西（或它的替身）走过去，到了变成另一样。“存回的 90 变成第二条”
+          const [A, B] = ids.map(i => local.get(i));
+          if (ids.length !== 2 || !A || !B) err(aw, 'become 写成 [从哪样, 变成哪样]，例如 { become: [backT, n2], along: back }');
+          else if (!need(A)) { /* need 已经报错 */ }
+          else if (B.drawT0 != null || B.appear) err(aw, `"${B.el.id}" 已经在板上了。become 是让它第一次出现：从 "${A.el.id}" 变过来`);
+          else {
+            const d = a.t1 - a.t0, tTravel = a.t0 + d * 0.75, ta = a.t0 + d * 0.55;
+            const ca = A.el.anchors.center, cb = B.el.anchors.center, from = pos.get(A.el.id) ?? [0, 0];
+            const sa = Math.max(A.el.box.w, A.el.box.h, 1), sb = Math.max(B.el.box.w, B.el.box.h, 1), r = Math.min(3, Math.max(0.3, sb / sa));
+            const ghost: TL = { el: A.el, order: order++, scene: si, moves: [], alpha: [{ t0: ta, t1: a.t1, from: 1, to: 0 }], scale: [{ t0: a.t0, t1: tTravel, from: 1, to: r }], shakes: [], poses: [], morphs: [], appear: { t: a.t0, kind: 'fade', dur: 0.01 }, gone: a.t1, ghost: true };
+            if (o.along != null) {
+              const ar = els.get(String(o.along));
+              if (!ar?.path) { err(aw, `along 要写一条箭头或连线的 id，"${o.along}" 不是`); }
+              else ghost.moves.push({ t0: a.t0, t1: tTravel, from, to: [cb[0] - ca[0], cb[1] - ca[1]], path: [...ar.path, cb[0], cb[1]], base: ca, ease: o.ease });
+            } else ghost.moves.push({ t0: a.t0, t1: tTravel, from, to: [cb[0] - ca[0], cb[1] - ca[1]], ease: o.ease });
+            local.set(`${A.el.id}~${B.el.id}`, ghost);
+            if (o.keep !== true) { A.alpha.push({ t0: a.t0, t1: a.t0 + 0.05, from: 1, to: 0 }); A.gone = a.t0 + 0.05; }
+            B.order = order++;
+            B.appear = { t: ta, kind: 'fade', dur: Math.max(0.1, a.t1 - ta) };
+            B.scale.push({ t0: ta, t1: a.t1 + 0.15, from: 1 / r, to: 1, ease: o.ease ?? 'spring' });
+          }
+          desc = ids.length === 2 ? `${ids[0]} ${o.keep === true ? '的替身' : ''}走过去变成 ${ids[1]}` : '';
+        } else if (a.verb === 'expand' || a.verb === 'collapse') {
+          // 展开：细节框从那样东西里长出来，引线随后画出；收起：引线先消失，框和框里的东西一起缩回那样东西，它跳一下
+          for (const tl of tlsOf) {
+            const el = tl.el;
+            if (el.kind !== 'detail') { err(aw, `${a.verb} 的对象是细节框（detail），"${el.id}" 是 ${el.kind}。先定义 ${el.id}In: { detail: ${el.id}, at: [x, y], w: 480, h: 360 }，框里的东西写 in: ${el.id}In，再 ${a.verb} 框`); continue; }
+            const node = local.get(String(el.src.detail))!, shown = (x: TL) => x.drawT0 != null || !!x.appear;
+            const nb = shifted(node.el.box, pos.get(node.el.id)), nc: Pt = [nb.x + nb.w / 2, nb.y + nb.h / 2];
+            const ratio = Math.min(1, Math.max(0.05, Math.max(nb.w, nb.h) / Math.max(el.box.w, el.box.h)));
+            const fc0 = el.anchors.center, leads = (leadersOf.get(el.id) ?? []).map(i => local.get(i)).filter((x): x is TL => !!x);
+            if (a.verb === 'expand') {
+              if (shown(tl)) { err(aw, `细节框 "${el.id}" 已经打开过了。要再看一次，定义一个新的框`); continue; }
+              if (!shown(node)) { err(aw, `要先把 "${node.el.id}" 画出来，才能展开它的里面`); continue; }
+              const tp = a.t0 + (a.t1 - a.t0) * 0.65, ez = o.ease ?? 'spring';
+              tl.order = order++; tl.appear = { t: a.t0, kind: 'fade', dur: 0.12 };
+              tl.moves.push({ t0: a.t0, t1: tp, from: [nc[0] - fc0[0], nc[1] - fc0[1]], to: [0, 0], ease: ez }); pos.set(el.id, [0, 0]);
+              tl.scale.push({ t0: a.t0, t1: tp, from: ratio, to: 1, ease: ez });
+              for (const lt of leads) { lt.order = order++; schedDraw(lt, tp, a.t1); }
+            } else {
+              if (!need(tl)) continue;
+              if (tl.gone != null) { err(aw, `细节框 "${el.id}" 已经收起了`); continue; }
+              const s1 = ratio * 0.8, fp = pos.get(el.id) ?? [0, 0], fc: Pt = [fc0[0] + fp[0], fc0[1] + fp[1]], tf = a.t0 + (a.t1 - a.t0) * 0.45;
+              for (const lt of leads) if (shown(lt) && lt.gone == null) { lt.alpha.push({ t0: a.t0, t1: a.t0 + 0.2, from: 1, to: 0 }); lt.gone = a.t0 + 0.2; }
+              const inside = [tl, ...[...local.values()].filter(x => x !== tl && !x.ghost && (x.el.over.has(el.id) || membersOf.get(el.id)?.includes(x.el.id)) && shown(x) && x.gone == null)];
+              for (const m of inside) {
+                const cur = pos.get(m.el.id) ?? [0, 0], pc: Pt = [m.el.anchors.center[0] + cur[0], m.el.anchors.center[1] + cur[1]];
+                const to: Pt = [cur[0] + nc[0] + (pc[0] - fc[0]) * s1 - pc[0], cur[1] + nc[1] + (pc[1] - fc[1]) * s1 - pc[1]];
+                m.moves.push({ t0: a.t0, t1: a.t1, from: cur, to, ease: o.ease }); pos.set(m.el.id, to);
+                const from = m.scale.length ? m.scale[m.scale.length - 1].to : 1;
+                m.scale.push({ t0: a.t0, t1: a.t1, from, to: from * s1, ease: o.ease });
+                m.alpha.push({ t0: tf, t1: a.t1, from: 1, to: 0 }); m.gone = a.t1;
+              }
+              node.shakes.push({ t0: a.t1 - 0.05, t1: a.t1 + 0.4, kind: 'pulse' });
+            }
+          }
+          desc = `${a.verb === 'expand' ? '展开' : '收起'} ${ids.join('、')}`;
         } else if (a.verb === 'pose' || a.verb === 'face') {
           for (const tl of tlsOf.filter(need)) {
             if (!tl.el.figure) { err(aw, `"${tl.el.id}" 不是火柴人，不能 ${a.verb}`); continue; }
@@ -574,6 +783,65 @@ export function compile(dir: string): Compiled {
         lastEnd = Math.max(lastEnd, a.t1);
       }
     });
+    // 跟着变：引用了会挪动、会变化的元素的东西（箭头的两头、标记和批注的对象、相对定位的参照），跟着重新生成
+    const extents = new Map<string, Box[]>();
+    {
+      const moving = new Set<string>();
+      for (const eid of scene.els) {
+        const tl = local.get(eid); if (!tl) continue;
+        if (tl.moves.length || !tl.remake) { if (tl.moves.length || tl.morphs.length) moving.add(eid); continue; }
+        const ds = depsOf(tl.el.src, i => local.has(i) || groups.has(i)).flatMap(i => groups.get(i) ?? [i]).filter(d => moving.has(d));
+        if (ds.length) tl.live = ds;
+        if (ds.length || tl.morphs.length) moving.add(eid);
+      }
+      // 变化之后它占的地方：镜头要装得下，也不能压到别人
+      const after = new Map<string, { t1: number; box: Box }[]>();
+      for (const eid of scene.els) {
+        const tl = local.get(eid);
+        if (!tl?.remake) continue;
+        for (const m of tl.morphs) {
+          if (m.base) continue;
+          try { const b = remade(tl, m.to, els, els).box; after.set(eid, [...(after.get(eid) ?? []), { t1: m.t1, box: b }]); extents.set(eid, [...(extents.get(eid) ?? []), b]); }
+          catch (e: any) { if (e instanceof SrcError) err(`${file} / 元素 ${eid}`, `变化之后排不出来：${e.message.replace(/^.*?: /, '')}`); else throw e; }
+        }
+      }
+      /** t 时刻它占的地方：最近一次变化之后的样子（同时在变的，按变完算） */
+      const boxAt = (tl: TL, t: number): Box => { let b = tl.el.kind === 'note' ? tl.el.solid : tl.el.box; for (const x of after.get(tl.el.id) ?? []) if (x.t1 <= t + 0.3) b = x.box; return b; };
+      const ov = (a: Box, q: Box) => Math.min(a.x + a.w, q.x + q.w) - Math.max(a.x, q.x) > 8 && Math.min(a.y + a.h, q.y + q.h) - Math.max(a.y, q.y) > 8;
+      for (const [eid, list] of after) {
+        const tl = local.get(eid)!;
+        if (['arrow', 'line', 'mark'].includes(tl.el.kind)) continue;
+        for (const { t1: mt, box: b } of list) {
+          const hit = [...local.values()].find(o => {
+            if (o === tl || ['mark', 'arrow', 'line', 'axis'].includes(o.el.kind) || o.el.src?.overlap === true || tl.el.src?.overlap === true || o.live?.includes(eid) || tl.el.over.has(o.el.id) || o.el.over.has(eid)) return false;
+            const born = o.drawT0 ?? o.appear?.t ?? Infinity;
+            if (born > (tl.gone ?? Infinity) || (o.gone ?? Infinity) <= mt) return false;
+            return ov(b, boxAt(o, Math.max(mt, born))) && !ov(tl.el.box, o.el.solid);
+          });
+          if (hit) warn(`${file} / 元素 ${eid}`, `change 之后（${fmtTime(mt)}）它会压到 "${hit.el.id}"。定义时引擎只按变化前的样子避让：给它变大之后的样子留出地方（挪开 "${hit.el.id}"，或者把 "${eid}" 定义成变化后的样子、用 change 从小变回来）`);
+        }
+      }
+    }
+    // 细节框：框里的东西在框打开之后、收起之前画；框不能压到外面的东西
+    for (const [f, mem0] of membersOf) {
+      const ft = local.get(f); if (!ft) continue;
+      const mem = [...new Set([...mem0, ...[...local.values()].filter(x => x !== ft && !x.ghost && x.el.over.has(f)).map(x => x.el.id)])]; // 叠放在框上的（相对框里的东西定位的标签）也算框里的
+      const open = ft.appear?.t, close = ft.gone ?? Infinity;
+      if (open == null) { if (mem.some(i => local.get(i)?.drawT0 != null || local.get(i)?.appear)) err(`${file} / 元素 ${f}`, `细节框 "${f}" 从没打开，框里的东西却画了。在画它们之前加一拍 { expand: ${f} }`); continue; }
+      for (const i of mem) {
+        const m = local.get(i), born = m?.drawT0 ?? m?.appear?.t;
+        if (born == null) continue;
+        if (born < open - 0.01) err(`${file} / 元素 ${i}`, `它在细节框 "${f}" 里，却在框打开（${fmtTime(open)}）之前就画了。先 { expand: ${f} }，再画框里的东西`);
+        else if (born >= close - 0.01) err(`${file} / 元素 ${i}`, `它在细节框 "${f}" 里，但框在 ${fmtTime(close)} 已经收起了，再画就画在空地上`);
+      }
+      const fb = ft.el.box, own = new Set([f, ...mem, ...(leadersOf.get(f) ?? []), String(ft.el.src.detail)]);
+      const hit = [...local.values()].find(o => {
+        if (own.has(o.el.id) || o.ghost || ['arrow', 'line', 'mark', 'axis'].includes(o.el.kind)) return false;
+        const born = o.drawT0 ?? o.appear?.t; if (born == null || born >= close || (o.gone ?? Infinity) <= open) return false;
+        const q = o.el.solid; return Math.min(fb.x + fb.w, q.x + q.w) - Math.max(fb.x, q.x) > 8 && Math.min(fb.y + fb.h, q.y + q.h) - Math.max(fb.y, q.y) > 8;
+      });
+      if (hit) warn(`${file} / 元素 ${f}`, `细节框打开的时候会盖住 "${hit.el.id}"。把框挪到板上空着的地方（改 at），或者把框画小（w、h）；外面的东西要在框收起之后才画，就把它放到 collapse 之后`);
+    }
     // 进场方式为 wipe 的下一场景：把本场景整板擦掉
     const nextSrc = srcScenes[si + 1]?.src;
     if (nextSrc && nextSrc.enter === 'wipe') {
@@ -584,7 +852,7 @@ export function compile(dir: string): Compiled {
         for (const tl of live) { tl.erase = erases.length - 1; tl.gone = g.t1; }
       }
     }
-    boards.set(id, { srcs: [...local.values()].map(tl => [tl.el.id, { ...tl.el.src, __seed: tl.el.src.__seed ?? id }] as [string, any]), left: [...local.values()].filter(tl => (tl.drawT0 != null || tl.appear) && (tl.gone == null || tl.gone >= t1 - 0.7) && !tl.moves.length).map(tl => tl.el.id), groups: new Map(groups) });
+    boards.set(id, { srcs: [...local.values()].filter(tl => !tl.ghost).map(tl => [tl.el.id, { ...tl.el.src, __seed: tl.el.src.__seed ?? id }] as [string, any]), left: [...local.values()].filter(tl => (tl.drawT0 != null || tl.appear) && (tl.gone == null || tl.gone >= t1 - 0.7) && !tl.moves.length).map(tl => tl.el.id), groups: new Map(groups) });
     // 自动取景：这块板上所有东西（含它们移动到过的位置）没铺满画板时，镜头推近到刚好装满。
     // 位置关系一点不变，只是整体放大；东西和字在手机上都更大，板面不再空一截。home 是同一个对象，前面排好的镜头跟着变
     let contentBox: Box | null = null;
@@ -594,6 +862,7 @@ export function compile(dir: string): Compiled {
         if (tl.drawT0 == null && !tl.appear) continue;
         bs.push(tl.el.box);
         for (const m of tl.moves) bs.push(shifted(tl.el.box, m.to as Pt));
+        bs.push(...(extents.get(tl.el.id) ?? []));
       }
       // 沿用（recall）的场景和原场景取同一个景，母图再出现时不跳
       const rcId = src.recall != null ? String(typeof src.recall === 'string' ? src.recall : src.recall?.scene ?? '') : '';
@@ -711,7 +980,7 @@ export function compile(dir: string): Compiled {
       for (const b of scene.beats) {
         const own = mine.filter(k => k.t0 >= b.t - 1e-6 && k.t0 < b.tEnd);
         if (own.length) { cur = own[own.length - 1].to; lastMove = own[own.length - 1].t0; held = true; if (cur === home) lastHome = lastMove; continue; } // 自己写的镜头：照写的走
-        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => ['draw', 'pop', 'fade'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
+        const boxOfBeat = (bb: CBeat): Box | null => { const ids = bb.actions.filter(a => [...APPEAR, 'change', 'become', 'expand'].includes(a.verb)).flatMap(a => a.ids).filter(i => local.has(i) && local.get(i)!.el.kind !== 'axis'); return ids.length ? unionBox(ids.map(i => local.get(i)!.el.kind === 'note' ? local.get(i)!.el.solid : local.get(i)!.el.box)) : null; };
         const tgt = boxOfBeat(b);
         if (!tgt) continue;
         // 往后看一小段：接下来几秒要画的东西一起框进去，免得刚推近就得拉开
@@ -719,7 +988,9 @@ export function compile(dir: string): Compiled {
         CB = drawnBy(b.t + GAP);
         // 大板按分区走：要画的东西整个落在某个分区里、而这个分区一屏装得下，就对准整个分区——
         // 观众看到的是“走到了这一块”，在这一块里画的时候镜头不再跟着每一笔晃
-        const want = unionBox([tgt, ...ahead]);
+        // 打开的细节框里画东西：镜头对准整个框，框里画的时候不再跟着每一笔走
+        const frIn = [...frames.entries()].find(([f, fb]) => { const ft = local.get(f), op = ft?.appear?.t; return op != null && b.t >= op - 0.05 && b.t < (ft!.gone ?? Infinity) && tgt.x >= fb.x - 8 && tgt.y >= fb.y - 8 && tgt.x + tgt.w <= fb.x + fb.w + 8 && tgt.y + tgt.h <= fb.y + fb.h + 60; });
+        const want = frIn ? { ...frIn[1], h: frIn[1].h + 60 } : unionBox([tgt, ...ahead]);
         const home0 = BIG ? [...regions.values()].filter(r => want.x >= r.x - 8 && want.y >= r.y - 8 && want.x + want.w <= r.x + r.w + 8 && want.y + want.h <= r.y + r.h + 8 && Math.min(FB.w / r.w, FB.h / r.h) >= 0.72).sort((p, q) => p.w * p.h - q.w * q.h)[0] : undefined;
         const near = whole(home0 ?? want, x => camOf(x, home0 && x === home0 ? 0 : PAD), b.t + GAP), worth = near.zoom / (home.zoom || 1) >= 1.35 && b.t < t1 - 5, calm = b.t - lastMove >= GAP; // 最后几秒不再推近
         // 分镜自己定的景别（含自己写的全景）：要画的东西在画面里、而且在这个景别下看得清，就不动——那是为这个景别画的
@@ -757,7 +1028,14 @@ export function compile(dir: string): Compiled {
         for (const k of tl.shakes) needs.push({ t0: k.t0, t1: k.t1, box, id });
         for (const k of tl.poses) needs.push({ t0: k.t0, t1: k.t1, box, id });
         for (const m of tl.moves) needs.push({ t0: m.t0, t1: m.t1, box: unionBox([shifted(tl.el.box, m.from), shifted(tl.el.box, m.to)]), id });
+        for (const m of tl.morphs) needs.push({ t0: m.t0, t1: m.t1, box: unionBox([box, ...(extents.get(id) ?? [])]), id });
         if (tl.erase != null && !sceneEnd(tl)) needs.push({ t0: erases[tl.erase].t0, t1: erases[tl.erase].t1, box, id });
+      }
+      // 流动、点亮、变成：整条路都要在画面里
+      for (const bb of scene.beats) for (const ac of bb.actions) {
+        if (!['flow', 'trace', 'become', 'expand', 'collapse'].includes(ac.verb)) continue;
+        const bs = ac.ids.flatMap(i => [local.get(i)?.el.box, ...(ac.verb === 'expand' || ac.verb === 'collapse' ? [local.get(String(local.get(i)?.el.src.detail))?.el.box] : [])]).filter((x): x is Box => !!x);
+        if (bs.length) needs.push({ t0: ac.t0, t1: ac.t1, box: unionBox(bs), id: ac.ids[0] });
       }
       needs.sort((a, b) => a.t0 - b.t0);
       const fits = (b: Box, v: Box, m = 6) => b.x >= v.x + m && b.y >= v.y + m && b.x + b.w <= v.x + v.w - m && b.y + b.h <= v.y + v.h - m;
@@ -801,6 +1079,7 @@ export function compile(dir: string): Compiled {
       });
     }
     for (const tl of local.values()) {
+      if (tl.ghost) { ghosts.push(tl); continue; } // 替身只出现在画面上，不进元素清单，不参与检查
       if (tl.drawT0 == null && !tl.appear && !fromPattern.has(tl.el.id) && tl.el.kind !== 'axis') warn(`${file} / 元素 ${tl.el.id}`, '定义了但从没画出来（没有任何 draw / pop / fade 用到它）');
       tls.push(tl);
     }
@@ -831,7 +1110,7 @@ export function compile(dir: string): Compiled {
     if (tm.total > 45) warn('appendix.yaml', `附录要滚 ${Math.round(tm.total)} 秒（${apx.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）。片尾太长观众会划走：删掉次要的几条，或者写 seconds: 30 滚快一点（太快就读不清了）`);
     if (speed > 330) warn('appendix.yaml', `附录滚得太快（每秒 ${Math.round(speed)} 像素），字读不清。把 seconds 调大，或者删几条`);
   }
-  return { dir, meta, fmt, fps, al, duration, total, ...(appendix ? { appendix } : {}), scenes, tls, erases, cams: camEvents, subs, issues, planHash: apx.appendix && !plan ? createHash('sha256').update(planHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : planHash, keyHash: apx.appendix && !plan ? createHash('sha256').update(keyHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : keyHash, ...(plan ? { plan } : {}), castUse };
+  return { dir, meta, fmt, fps, al, duration, total, ...(appendix ? { appendix } : {}), scenes, tls, erases, cams: camEvents, subs, issues, fx: { flows, traces, ghosts }, planHash: apx.appendix && !plan ? createHash('sha256').update(planHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : planHash, keyHash: apx.appendix && !plan ? createHash('sha256').update(keyHash + JSON.stringify(apx.appendix)).digest('hex').slice(0, 16) : keyHash, ...(plan ? { plan } : {}), castUse };
 }
 
 const fmtTime = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;

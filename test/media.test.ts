@@ -166,6 +166,7 @@ test('计划里的真实影像和附录：缺文件拦住；审片页逐段有�
   mkdirSync(voice, { recursive: true });
   writeFileSync(join(voice, 'alignment.json'), JSON.stringify(fakeAlignment(SCRIPT)));
   assert.equal(hj(['init', dir, '--voice', voice]).status, 0);
+  rmSync(join(dir, 'story.yaml')); writeFileSync(join(dir, 'project.yaml'), readFileSync(join(dir, 'project.yaml'), 'utf8').replace(/^story:.*\n/m, '')); // 这条测试不管导演那一步（在 story.test.ts）
   writeFileSync(join(dir, 'plan.yaml'), PLAN);
   const miss = hj(['check', dir]);
   assert.equal(miss.status, 1);

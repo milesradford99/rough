@@ -1,10 +1,12 @@
 // 渲染器：画面是时间的纯函数。drawFrame(ctx, compiled, t) 能精确画出任意时刻的一帧。
 import { appendixOffset } from './appendix';
 import type { Compiled, TL, Cam, EraseGroup } from './compile';
+import type { El } from './elements';
 import { type Stroke, type LineStroke, type Pt, cumLen, pointAt, widthProfile, rng } from './strokes';
 import { lerpPose } from './figure';
 import { textStrokes } from './text';
 import { THEME } from './theme';
+import { easeBy, liveEls } from './live';
 
 export interface Env { createCanvas(w: number, h: number): any; Path2D: any; /** 读一张位图（image 元素用）；视频片段给第几帧 */ image?(file: string, frame?: { dir: string; i: number }): any }
 export interface FrameOpts { scale?: number; subtitles?: boolean; /** 笔：marker 只有一支马克笔，hand 是握着笔的手；true 等于 marker */ pen?: boolean | 'marker' | 'hand'; guides?: boolean; /** 只画板上的东西，不画纸面、暗角和上下的遮罩（透明底，给封面等二次合成用） */ bare?: boolean }
@@ -51,6 +53,45 @@ function lineUniform(ctx: any, s: LineStroke, frac: number) {
   ctx.strokeStyle = s.color; ctx.lineWidth = s.w; ctx.stroke();
 }
 
+/** 一笔由粗到细（鞭子、毛笔）：沿线两侧按粗细偏移出轮廓，整块填满，边缘是连续的，不会一节一节 */
+function lineRibbon(ctx: any, s: LineStroke, frac: number) {
+  const pts = s.pts, cum = cumLen(s), wm = widthProfile(s), n = cum.length, L = cum[n - 1];
+  const target = frac >= 1 ? L : frac * L;
+  // 顺滑的粗细：先把粗细沿线平均一下，去掉逐点的抖动
+  const sm = new Float32Array(n);
+  for (let i = 0, a = 0, b = 0, acc = 0; i < n; i++) {
+    while (b < n && cum[b] - cum[i] <= 10) acc += wm[b++];
+    while (cum[i] - cum[a] > 10) acc -= wm[a++];
+    sm[i] = acc / Math.max(1, b - a);
+  }
+  const left: number[] = [], right: number[] = [];
+  let last = 0;
+  for (let i = 0; i < n; i++) {
+    let x = pts[2 * i], y = pts[2 * i + 1], w = sm[i];
+    if (cum[i] > target) {
+      const k = (target - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
+      x = pts[2 * i - 2] + (x - pts[2 * i - 2]) * k; y = pts[2 * i - 1] + (y - pts[2 * i - 1]) * k; w = sm[i - 1];
+    }
+    const j0 = Math.max(0, i - 1), j1 = Math.min(n - 1, i + 1);
+    let tx = pts[2 * j1] - pts[2 * j0], ty = pts[2 * j1 + 1] - pts[2 * j0 + 1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    const h = (s.w * w) / 2;
+    left.push(x - ty * h, y + tx * h); right.push(x + ty * h, y - tx * h);
+    last = i;
+    if (cum[i] > target) break;
+  }
+  if (left.length < 4) return;
+  ctx.fillStyle = s.color; ctx.beginPath(); ctx.moveTo(left[0], left[1]);
+  for (let i = 2; i < left.length; i += 2) ctx.lineTo(left[i], left[i + 1]);
+  // 笔尖：圆头
+  const ex = (left[left.length - 2] + right[right.length - 2]) / 2, ey = (left[left.length - 1] + right[right.length - 1]) / 2;
+  const er = Math.hypot(left[left.length - 2] - ex, left[left.length - 1] - ey);
+  ctx.lineTo(right[right.length - 2], right[right.length - 1]);
+  for (let i = right.length - 4; i >= 0; i -= 2) ctx.lineTo(right[i], right[i + 1]);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex, ey, er, 0, 6.2832); ctx.arc(pts[0], pts[1], (s.w * sm[0]) / 2, 0, 6.2832); ctx.fill();
+  void last;
+}
+
 /** 墨线：一小段一小段画，每段粗细不同——落笔重、行笔有起伏、收笔出锋 */
 function lineBrush(ctx: any, s: LineStroke, frac: number) {
   const pts = s.pts, cum = cumLen(s), wm = widthProfile(s), n = cum.length;
@@ -82,6 +123,7 @@ export function drawStroke(ctx: any, env: Env, s: Stroke, frac: number, alpha: n
     ctx.globalAlpha = alpha * (s.alpha ?? 1);
     if (s.flat) { ctx.globalCompositeOperation = 'multiply'; lineUniform(ctx, s, frac); ctx.globalCompositeOperation = 'source-over'; }
     else if ((s.alpha ?? 1) < 1 || s.pts.length <= 4 && s.len < 3) lineUniform(ctx, s, frac);
+    else if (s.taper) lineRibbon(ctx, s, frac);
     else lineBrush(ctx, s, frac);
   } else if (s.kind === 'fill') {
     // 涂色：沿斜向一路涂过去，而不是整块淡入
@@ -160,7 +202,7 @@ export function drawStrokes(ctx: any, env: Env, strokes: Stroke[], alpha = 1) {
 // ── 纸面 ──
 const papers = new Map<string, any>();
 function paperTexture(env: Env, W: number, H: number): any {
-  const key = `${W}x${H}`;
+  const key = `${W}x${H}${THEME.paper}`;
   let cv = papers.get(key);
   if (cv) return cv;
   cv = env.createCanvas(W, H);
@@ -208,6 +250,23 @@ function veil(env: Env, tex: any, W: number, H: number, board: { x: number; y: n
 interface ElState { visible: boolean; dx: number; dy: number; scale: number; alpha: number; strokes: Stroke[]; drawing: boolean }
 const poseCache = new WeakMap<object, Map<string, Stroke[]>>();
 
+/** 挪动带来的位移（不含晃动、点头这类小动作） */
+export function moveAt(tl: TL, t: number): Pt {
+  let d: Pt = [0, 0];
+  for (const m of tl.moves) {
+    if (t < m.t0) break;
+    const k = m.linear ? span(t, m.t0, m.t1) : easeBy(m.ease, span(t, m.t0, m.t1));
+    if (m.path && m.base) {
+      // 先滑到轨迹起点，再沿轨迹走
+      const kk = Math.min(1, k), cum = cumLen({ pts: m.path }), p = pointAt(m.path, cum, kk);
+      const lead = Math.min(1, kk * 6);
+      const sx = m.from[0] + (m.path[0] - m.base[0] - m.from[0]) * lead, sy = m.from[1] + (m.path[1] - m.base[1] - m.from[1]) * lead;
+      d = kk < 1 / 6 ? [sx, sy] : [p[0] - m.base[0], p[1] - m.base[1]];
+    } else d = [m.from[0] + (m.to[0] - m.from[0]) * k, m.from[1] + (m.to[1] - m.from[1]) * k];
+  }
+  return d;
+}
+
 export function stateAt(tl: TL, t: number): ElState {
   const el = tl.el;
   const st: ElState = { visible: false, dx: 0, dy: 0, scale: 1, alpha: 1, strokes: el.strokes, drawing: false };
@@ -216,19 +275,9 @@ export function stateAt(tl: TL, t: number): ElState {
   st.visible = true;
   st.drawing = tl.drawT1 != null && t < tl.drawT1;
   if (tl.appear) { const k = span(t, tl.appear.t, tl.appear.t + tl.appear.dur); if (tl.appear.kind === 'pop') st.scale *= Math.max(0.01, outBack(k)); else st.alpha *= k; }
-  for (const m of tl.moves) {
-    if (t < m.t0) break;
-    const k = m.linear ? span(t, m.t0, m.t1) : ease(span(t, m.t0, m.t1));
-    if (m.path && m.base) {
-      // 先滑到轨迹起点，再沿轨迹走
-      const cum = cumLen({ pts: m.path }), p = pointAt(m.path, cum, k);
-      const lead = Math.min(1, k * 6);
-      const sx = m.from[0] + (m.path[0] - m.base[0] - m.from[0]) * lead, sy = m.from[1] + (m.path[1] - m.base[1] - m.from[1]) * lead;
-      st.dx = k < 1 / 6 ? sx : p[0] - m.base[0]; st.dy = k < 1 / 6 ? sy : p[1] - m.base[1];
-    } else { st.dx = m.from[0] + (m.to[0] - m.from[0]) * k; st.dy = m.from[1] + (m.to[1] - m.from[1]) * k; }
-  }
+  [st.dx, st.dy] = moveAt(tl, t);
   for (const a of tl.alpha) if (t >= a.t0) st.alpha *= a.from + (a.to - a.from) * span(t, a.t0, a.t1);
-  for (const a of tl.scale) if (t >= a.t0) st.scale = (st.scale / (tl.scale[tl.scale.indexOf(a) - 1]?.to ?? 1)) * (a.from + (a.to - a.from) * ease(span(t, a.t0, a.t1)));
+  for (const a of tl.scale) if (t >= a.t0) st.scale = (st.scale / (tl.scale[tl.scale.indexOf(a) - 1]?.to ?? 1)) * (a.from + (a.to - a.from) * easeBy(a.ease, span(t, a.t0, a.t1)));
   for (const s of tl.shakes) {
     if (t < s.t0 || t > s.t1) continue;
     const k = span(t, s.t0, s.t1);
@@ -324,7 +373,8 @@ function drawMinimap(ctx: any, c: Compiled, t: number, cam: Cam) {
 }
 
 // ── 握笔的手 ──
-interface PenSeg { t0: number; t1: number; tl: TL; i: number }
+/** i 是正在画的那一笔；tip 给出时是“拖着笔走”的轨迹（横条长出来、数字滚动），f 是这段动作的进度 */
+interface PenSeg { t0: number; t1: number; tl: TL; i: number; tip?: (f: number) => Pt; color?: string }
 const penSegs = new WeakMap<object, PenSeg[]>();
 function segsOf(c: Compiled): PenSeg[] {
   let segs = penSegs.get(c);
@@ -337,6 +387,25 @@ function segsOf(c: Compiled): PenSeg[] {
       if ((s as any).deco || !(b > a)) continue;
       segs.push({ t0: a, t1: b, tl, i });
     }
+  }
+  // 点亮：笔顺着线描
+  for (const tr of c.fx?.traces ?? []) {
+    const tl = c.tls.find(x => x.scene === tr.scene && x.el.id === tr.id), p = tl?.el.path;
+    if (!tl || !p) continue;
+    const cum = cumLen({ pts: p });
+    segs.push({ t0: tr.t0, t1: tr.t1, tl, i: -1, tip: f => pointAt(p, cum, f), color: tr.color });
+  }
+  // 长出来、数字滚动：笔拖着那一头走
+  for (const tl of c.tls) for (const m of tl.morphs) {
+    if (!m.base || !(m.t1 > m.t0)) continue;
+    const el = tl.el, b = el.box, col = (el.strokes.find(s => s.kind === 'line') as any)?.color ?? THEME.ink;
+    let tip: ((f: number) => Pt) | undefined;
+    if (el.kind === 'span' && el.anchors.from && el.anchors.to) {
+      const [p, q] = (m.from.span?.[0] === m.to.span?.[1] ? [el.anchors.to, el.anchors.from] : [el.anchors.from, el.anchors.to]);
+      tip = f => { const k = easeBy(m.ease, f); return [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]; };
+    } else if (el.kind === 'chart') tip = f => { const k = easeBy(m.ease, f); return [b.x + b.w * (0.1 + 0.8 * f), b.y + b.h * (1 - 0.9 * Math.min(1, k))]; };
+    else if (el.kind === 'text') tip = f => [b.x + b.w * (0.15 + 0.85 * f), b.y + b.h * (0.6 + 0.12 * Math.sin(f * 18))];
+    if (tip) segs.push({ t0: m.t0, t1: m.t1, tl, i: -1, tip, color: el.kind === 'text' ? (el.strokes[0] as any)?.color ?? col : col });
   }
   segs.sort((x, y) => x.t0 - y.t0);
   penSegs.set(c, segs);
@@ -366,16 +435,16 @@ export function handAt(c: Compiled, t: number, cam: Cam): HandPos | null {
   if (!segs.length) return null;
   const { W, H, board } = c.fmt;
   const screen = (g: PenSeg, f: number): [number, number] => {
-    const sc = c.scenes[g.tl.scene], p = tipOf(g.tl.el.strokes[g.i], f);
+    const sc = c.scenes[g.tl.scene], p = g.tip ? g.tip(f) : tipOf(g.tl.el.strokes[g.i], f);
     return [(sc.origin[0] + board.x + p[0] - cam.cx) * cam.zoom + W / 2, (sc.origin[1] + board.y + p[1] - cam.cy) * cam.zoom + H / 2];
   };
-  const colorOf = (g: PenSeg) => (g.tl.el.strokes[g.i] as any).color || THEME.ink;
+  const colorOf = (g: PenSeg) => g.color ?? ((g.tl.el.strokes[g.i] as any).color || THEME.ink);
   // 二分找到最后一个 t0 <= t 的
   let lo = 0, hi = segs.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (segs[m].t0 <= t) lo = m + 1; else hi = m; }
   let cur: PenSeg | null = null, prev: PenSeg | null = null;
   for (let i = lo - 1; i >= 0 && i >= lo - 40; i--) { const g = segs[i]; if (t < g.t1) { cur = g; break; } if (!prev || g.t1 > prev.t1) prev = g; }
-  if (cur) { const k = (t - cur.t0) / (cur.t1 - cur.t0), p = screen(cur, k * 0.55 + k * k * (3 - 2 * k) * 0.45); return { x: p[0], y: p[1], color: colorOf(cur), scene: cur.tl.scene, down: true }; }
+  if (cur) { const k = (t - cur.t0) / (cur.t1 - cur.t0), p = screen(cur, cur.tip ? k : k * 0.55 + k * k * (3 - 2 * k) * 0.45); return { x: p[0], y: p[1], color: colorOf(cur), scene: cur.tl.scene, down: true }; }
   const next = segs[lo] ?? null, rest: [number, number] = [W * 0.92, H * 1.12];
   const a = prev ? screen(prev, 1) : rest, b = next ? screen(next, 0) : rest;
   const tp = prev ? prev.t1 : -Infinity, tn = next ? next.t0 : Infinity, gap = tn - tp, IN = 0.42, OUT = 0.5, lift = -14;
@@ -444,6 +513,8 @@ function focusOf(c: Compiled): Map<number, { segs: FocusSeg[]; release: number }
       if (!ids.size) continue;
       // 标记、批注、连线牵着的东西也算正在讲的
       for (const id of [...ids]) { const src = byId.get(`${sc.index}/${id}`)?.el.src; if (!src || typeof src !== 'object') continue; for (const r of [src.target, src.arrow, src.line].flat()) if (typeof r === 'string') ids.add(r.split('.')[0]); }
+      // 跟着它变的东西（横条上的标签、连着它的箭头）也在讲
+      for (const id of sc.els) { const tl = byId.get(`${sc.index}/${id}`); if (tl?.live?.some(d => ids.has(d)) && b.actions.some(a => a.t1 > a.t0 && a.ids.some(i => tl.live!.includes(i)) && a.verb !== 'draw')) ids.add(id); }
       segs.push({ t0: b.t, ids });
     }
     m.set(sc.index, { segs, release: release + 0.5 });
@@ -462,6 +533,19 @@ export function focusAlpha(c: Compiled, tl: TL, t: number): number {
   return v;
 }
 
+const drawLists = new WeakMap<Compiled, TL[]>();
+/** 要画的东西：元素加上 become 的替身，按出场先后 */
+function drawList(c: Compiled): TL[] {
+  let l = drawLists.get(c);
+  if (!l) { l = c.fx.ghosts.length ? [...c.tls, ...c.fx.ghosts].sort((a, b) => a.order - b.order) : c.tls; drawLists.set(c, l); }
+  return l;
+}
+const tlIdx = new WeakMap<Compiled, Map<string, TL>>();
+function tlIndex(c: Compiled): Map<string, TL> {
+  let m = tlIdx.get(c);
+  if (!m) { m = new Map(); for (const tl of c.tls) m.set(`${tl.scene}/${tl.el.id}`, tl); tlIdx.set(c, m); }
+  return m;
+}
 const subCache = new Map<string, { strokes: Stroke[]; w: number }>();
 let layer: any = null;
 
@@ -483,15 +567,61 @@ export function drawFrame(ctx: any, c: Compiled, t: number, env: Env, o: FrameOp
   }
   const groups = new Map<number, { tl: TL; st: ElState }[]>();
   let curScene = -1;
-  for (const tl of c.tls) {
+  // 这一刻样子变了的东西（横条在伸长、数字在滚、箭头跟着挪动的东西走）
+  const lives = new Map<number, Map<TL, El> | null>();
+  for (const tl of drawList(c)) {
     const sc = c.scenes[tl.scene];
     if (sc.origin[0] > vx1 || sc.origin[0] + (sc.span ?? W) < vx0) continue;
     const st = stateAt(tl, t);
     if (!st.visible) continue;
+    if (!lives.has(tl.scene)) lives.set(tl.scene, liveEls(c, tl.scene, t, moveAt));
+    const lv = lives.get(tl.scene)?.get(tl);
+    if (lv) st.strokes = lv.strokes;
     if (c.meta?.focus !== false && !st.drawing) st.alpha *= focusAlpha(c, tl, t);
     if (tl.erase != null) { const g = c.erases[tl.erase]; if (t >= g.t0) { if (!groups.has(tl.erase)) groups.set(tl.erase, []); groups.get(tl.erase)!.push({ tl, st }); continue; } }
     if (tl.scene !== curScene) { world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y); curScene = tl.scene; }
     drawEl(ctx, env, tl, t, st);
+  }
+  // 流动的小记号、点亮的路线：画在元素上面，路线跟着线此刻的走向
+  if (c.fx.flows.length || c.fx.traces.length) {
+    const byId = tlIndex(c);
+    const pathOf = (si: number, id: string): number[] | null => {
+      const tl = byId.get(`${si}/${id}`);
+      if (!tl || (tl.gone != null && t >= tl.gone)) return null;
+      if (!lives.has(si)) lives.set(si, liveEls(c, si, t, moveAt));
+      const p = (lives.get(si)?.get(tl) ?? tl.el).path;
+      if (!p) return null;
+      const d = moveAt(tl, t); // 线自己被挪过
+      return d[0] || d[1] ? p.map((v, i) => v + d[i % 2]) : p;
+    };
+    const inView = (si: number) => { const sc = c.scenes[si]; return !(sc.origin[0] > vx1 || sc.origin[0] + (sc.span ?? W) < vx0); };
+    for (const tr of c.fx.traces) {
+      if (t < tr.t0 || t > tr.until + 0.6 || !inView(tr.scene)) continue;
+      const p = pathOf(tr.scene, tr.id); if (!p) continue;
+      const sc = c.scenes[tr.scene], fade = t > tr.until ? 1 - span(t, tr.until, tr.until + 0.6) : 1;
+      world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y); curScene = -1;
+      ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.5 * fade; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      lineUniform(ctx, { kind: 'line', pts: p, w: tr.w, color: tr.color, len: 0 }, span(t, tr.t0, tr.t1));
+      ctx.restore();
+    }
+    for (const fl of c.fx.flows) {
+      if (t < fl.t0 || t > fl.t1 || !inView(fl.scene)) continue;
+      const parts = fl.ids.map(id => pathOf(fl.scene, id));
+      if (parts.some(p => !p)) continue;
+      const pts = (parts as number[][]).flat(), cum = cumLen({ pts }), closed = Math.hypot(pts[0] - pts[pts.length - 2], pts[1] - pts[pts.length - 1]) < 40;
+      const trip = fl.loop + (fl.n - 1) / fl.n, u = ((t - fl.t0) / (fl.t1 - fl.t0)) * trip;
+      const sc = c.scenes[fl.scene];
+      world(ctx); ctx.translate(sc.origin[0] + board.x, sc.origin[1] + board.y); curScene = -1;
+      for (let i = 0; i < fl.n; i++) {
+        const f = u - i / fl.n;
+        if (f < 0 || f > fl.loop) continue;
+        const k = f - Math.floor(f === fl.loop ? f - 1 : f), q = pointAt(pts, cum, k);
+        // 开放的线：记号从起点冒出来、到终点没进去；一圈的线：只在整段开始和结束时淡入淡出
+        const a = closed ? Math.min(1, f / 0.06, (fl.loop - f) / 0.06) : Math.min(1, k / 0.07, (1 - k) / 0.07);
+        if (a <= 0) continue;
+        ctx.save(); ctx.translate(q[0], q[1]); drawStrokes(ctx, env, fl.token, Math.max(0, a)); ctx.restore();
+      }
+    }
   }
   // 正在被擦的元素：画到单独一层，用板擦路径抠掉
   for (const [gi, items] of groups) {

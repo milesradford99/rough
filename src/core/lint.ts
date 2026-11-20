@@ -68,7 +68,9 @@ export function lint(c: Compiled): Issue[] {
     const sig = new Map<string, number>();
     for (const t of shown) if (t.el.kind !== 'mark') { const k = t.el.kind + JSON.stringify(Object.fromEntries(Object.entries(t.el.src).filter(([key]) => !POS.has(key)))); sig.set(k, (sig.get(k) ?? 0) + 1); }
     // 一模一样的东西画十遍（一排小人）是一组，不是十样：第一个算 1，其余每个只算四分之一
-    const dur = sc.t1 - sc.t0, things = Math.floor([...sig.values()].reduce((n, c) => n + 1 + (c - 1) * 0.25, 0)), want = Math.max(6, Math.round(dur / 2.4));
+    // 板上的东西在眼前变了（change、count、grow 一个已有的量）也是新信息：每变一次算半样
+    const morphs = c.tls.filter(t => t.scene === sc.index).reduce((n, t) => n + t.morphs.filter(m => m.t0 > (t.drawT0 ?? t.appear?.t ?? 0) + 0.3).length, 0);
+    const dur = sc.t1 - sc.t0, things = Math.floor([...sig.values()].reduce((n, c) => n + 1 + (c - 1) * 0.25, 0) + morphs * 0.5), want = Math.max(6, Math.round(dur / 2.4));
     if (dur >= 8 && things < want) add('warn', sc.file, `信息密度偏低：这个场景讲了 ${dur.toFixed(0)} 秒，板上一共只出现了 ${things} 样东西（这个时长建议不少于 ${want} 样）。画面稀疏会显得内容单薄。往上加“第二层信息”：给箭头写小字（label）、给关键元素加批注（note：数字、名字、出处）、补一个小图表或再放一种手法（pattern 写成列表、各占一块 area）`);
     for (const tl of shown) if (tl.el.kind === 'text' && (tl.el.src.size ?? 72) < 34) add('warn', `${sc.file} / 元素 ${tl.el.id}`, `字号 ${tl.el.src.size} 太小，手机上看不清，至少 36`);
     const visual = shown.filter(t => !['text', 'mark'].includes(t.el.kind));
@@ -283,7 +285,7 @@ export function lint(c: Compiled): Issue[] {
     }
     // 小动作撑不起一长段：晃一下、换个表情不算往板上加东西
     if (sc.t1 - sc.t0 >= WINDOW) {
-      const ink = acts.filter(a => ['draw', 'pop', 'fade', 'erase', 'move', 'walk', 'scale', 'camera'].includes(a.verb));
+      const ink = acts.filter(a => ['draw', 'pop', 'fade', 'grow', 'count', 'change', 'flow', 'trace', 'become', 'erase', 'move', 'walk', 'scale', 'camera'].includes(a.verb));
       let worst = -1, worstInk = Infinity;
       for (let w0 = sc.t0; w0 + WINDOW <= sc.t1 + 1e-6; w0 += 0.5) {
         const sum = ink.reduce((n, a) => n + Math.max(0, Math.min(a.t1, w0 + WINDOW) - Math.max(a.t0, w0)), 0);
@@ -366,7 +368,7 @@ export function lint(c: Compiled): Issue[] {
   // 片尾：最后一笔要在配音说完之前落定
   const lastSc = c.scenes[c.scenes.length - 1], voiceEnd = c.al.units.length ? c.al.units[c.al.units.length - 1].end : c.duration;
   if (lastSc) {
-    const la = lastSc.beats.flatMap(b => b.actions).filter(a => ['draw', 'pop', 'fade', 'erase', 'move', 'walk'].includes(a.verb));
+    const la = lastSc.beats.flatMap(b => b.actions).filter(a => ['draw', 'pop', 'fade', 'grow', 'count', 'change', 'flow', 'trace', 'become', 'erase', 'move', 'walk'].includes(a.verb));
     const last = la.length ? Math.max(...la.map(a => a.t1)) : 0;
     if (last > Math.max(voiceEnd + 0.15, c.al.duration + 0.05)) add('warn', lastSc.file, `最后一个动作 ${fmtT(last)} 才做完，配音 ${fmtT(voiceEnd)} 就说完了：片子会在画到一半、或刚画完的那一下结束。最后一拍只留一件事，并用 lead 提前，让它在最后一个字之前落定`);
   }
@@ -414,7 +416,7 @@ export function planMarkdown(c: Compiled): string {
     const first = sc.beats[0];
     if (first && first.t - sc.t0 > 0.4) { const pre = c.al.units.filter(u => u.start >= sc.t0 - 1e-6 && u.start < first.t - 1e-6).map(u => u.display).join(''); if (pre) L.push(`| ${fmtT(sc.t0)} | ${pre} | （承接上一拍，画面不变） | |`); }
     for (const b of sc.beats) {
-      const texts = b.actions.flatMap(a => a.ids).map(id => c.tls.find(t => t.scene === sc.index && t.el.id === id)?.el).filter(e => e?.text && b.actions.some(a => ['draw', 'pop', 'fade'].includes(a.verb) && a.ids.includes(e!.id))).map(e => e!.text!.replace(/\n/g, ' / '));
+      const texts = b.actions.flatMap(a => a.ids).map(id => c.tls.find(t => t.scene === sc.index && t.el.id === id)?.el).filter(e => e?.text && b.actions.some(a => ['draw', 'pop', 'fade', 'count'].includes(a.verb) && a.ids.includes(e!.id))).map(e => e!.text!.replace(/\n/g, ' / '));
       L.push(`| ${fmtT(b.t)} | ${b.say || '—'} | ${b.intent} | ${[...new Set(texts)].join('、')} |`);
     }
     L.push('');

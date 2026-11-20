@@ -13,11 +13,14 @@ import { loadDoodle } from './elements';
 import { iconExists } from './icons';
 import { loadAppendix, type Appendix } from './appendix';
 import { POSES, ACCESSORIES } from './figure';
+import { loadStory, MOVES, type Story } from './story';
 
 export interface PlanCast { name: string; look: any }
 export interface PlanRelation { from: string; to: string; label?: string }
 export interface PlanSegment {
   at: string; act?: string; in?: string; intent: string;
+  /** 这一段还横跨哪些分区（in 写成列表时，第一个是 in，其余在这里）：一件事同时落在链条的几环上 */
+  across?: string[];
   show: string[]; link: string[]; revisit: string[]; words: string[];
   /** 这一段画一条线，把本分区和这些分区连起来（括号、斜线、汇总的箭头：不是角色之间的关系，但把板连成一张图） */
   joins: string[];
@@ -124,7 +127,7 @@ export function loadPlan(dir: string): Plan | null {
     // 用了版式又没写 regions 的分区，用版式自带的说明
     regions: { ...(b?.layout != null && !b?.grid && LAYOUTS[String(b.layout)] ? LAYOUTS[String(b.layout)].regions : {}), ...Object.fromEntries(Object.entries(b?.regions ?? {}).map(([k, v]) => [k, String(v ?? '')])) },
     segments: (Array.isArray(b?.segments) ? b.segments : []).map((s: any) => ({
-      at: String(s?.at ?? ''), ...(s?.act != null ? { act: String(s.act) } : {}), ...(s?.in != null ? { in: String(s.in) } : {}), intent: String(s?.intent ?? ''),
+      at: String(s?.at ?? ''), ...(s?.act != null ? { act: String(s.act) } : {}), ...(s?.in != null ? (Array.isArray(s.in) ? { in: String(s.in[0] ?? ''), across: s.in.slice(1).map(String) } : { in: String(s.in) }) : {}), intent: String(s?.intent ?? ''),
       show: arr(s?.show), link: arr(s?.link), revisit: arr(s?.revisit), words: arr(s?.words), joins: arr(s?.joins),
       ...(s?.diagram != null ? { diagram: String(s.diagram) } : {}), ...(s?.pattern != null ? { pattern: String(s.pattern) } : {}),
     })),
@@ -288,6 +291,7 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
       if (!s.in) err(sw, `缺少 in：这一段画在哪个分区（${rnames.join(' ')}）`);
       else if (!regions[s.in] && !ge.length) err(sw, `in 写了 "${s.in}"，但这块板没有这个分区。有：${rnames.join(' ')}`);
       else usedRegions.add(s.in);
+      for (const a of s.across ?? []) { if (!regions[a] && !ge.length) err(sw, `in 的列表里写了 "${a}"，但这块板没有这个分区。有：${rnames.join(' ')}`); else usedRegions.add(a); }
       for (const id of s.show) { if (!plan.cast[id]) err(sw, `show 里的 "${id}" 不是 cast 里的角色。要画的图不是角色时写进 diagram`); else { shownAnywhere.add(id); ids.add(id); if (!home.has(id) && s.in) home.set(id, s.in); } }
       for (const id of s.link) {
         const r = plan.relations[id];
@@ -358,6 +362,28 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
     const shared = plan.boards.some(o => o.id !== b.id && [...(boardIds.get(o.id) ?? [])].some(x => mine.has(x)));
     if (!shared && !b.recall && !plan.boards.some(o => o.recall === b.id)) warn(`${W} / ${b.id}`, '这块板和别的板没有任何共同的角色或关系，也没有沿用（recall）。分成几块板时，要有贯穿的东西把它们串起来：同一个角色再出场、一条关系从上一块板连过来，或者先画一张总图、后面每块板 recall 它');
   }
+  if (projectDir) { const { story } = loadStory(projectDir); if (story) out.push(...planVsStory(plan, story, al, duration)); }
+  return out;
+}
+
+/** 导演的简报落到计划里：惊叹那一句单独起一段，让观众猜的那一句也单独起一段 */
+function storySegment(plan: Plan, al: Alignment, duration: number, say: string): { seg: PlanSegment; t0: number; t1: number; time: number; board: PlanBoard } | null | undefined {
+  let time: number;
+  try { time = resolveAnchor(al, say).time; } catch { return undefined; }
+  const { times } = segmentTimes(plan, al, duration);
+  for (const tm of times) if (Math.abs(tm.anchor - time) < 0.35) { const board = plan.boards[tm.board]; return { seg: board.segments[tm.seg], t0: tm.t0, t1: tm.t1, time, board }; }
+  return null;
+}
+function planVsStory(plan: Plan, story: Story, al: Alignment, duration: number): Issue[] {
+  const out: Issue[] = [];
+  const aha = storySegment(plan, al, duration, story.aha.say), pre = storySegment(plan, al, duration, story.predict.say);
+  if (aha === null) out.push({ level: 'error', where: W, msg: `导演定的惊叹点是“${story.aha.say}”。计划里要有一段正好从这一句开始（at: "${story.aha.say}"）：这一段是全片的揭晓，act 写转折、推翻或结论，intent 写清楚画面怎么变——简报里写的是“${story.aha.see}”` });
+  else if (aha && !['转折', '推翻', '结论', '对比', '算账', '数据'].includes(aha.seg.act ?? '')) out.push({ level: 'warn', where: W, msg: `惊叹那一段（${aha.seg.at}）的 act 是“${aha.seg.act ?? '没写'}”。它是全片的揭晓：转折、推翻或结论` });
+  if (aha) {
+    if (!aha.board.hero) out.push({ level: 'warn', where: `${W} / ${aha.board.id}`, msg: `惊叹点在这块板上，板却没有主角（hero）。揭晓的那样东西就是主角` });
+    if (!/变|长|缩|滚|涨|跌|走|流|亮|打开|展开|收|放大|翻/.test(aha.seg.intent)) out.push({ level: 'warn', where: W, msg: `惊叹那一段的 intent“${aha.seg.intent}”没有说画面怎么变。照简报写：${story.aha.see}` });
+  }
+  if (pre === null) out.push({ level: 'warn', where: W, msg: `导演要观众在“${story.predict.say}”这里先猜一下。给它单独一段（act: 设问）：画面停在问题上，留个问号或空位，答案留到惊叹那一段` });
   return out;
 }
 
@@ -526,16 +552,17 @@ export function conform(c: Compiled): Issue[] {
       }
       // 这一段有没有真的画东西（不是只写字）
       const news = tls.filter(t => { const st = shownAt(t); return st >= t0 - 1.2 && st < t1; });
-      const nonText = news.some(t => !['text', 'note'].includes(t.el.kind) && !(t.el.kind === 'shape' && t.el.src?.inside != null)) /* 框里写字还是字 */ || acts.some(a => a.t0 >= t0 - 0.6 && a.t0 < t1 && !['draw', 'camera', 'wait', 'pop', 'fade'].includes(a.verb));
+      const nonText = news.some(t => !['text', 'note'].includes(t.el.kind) && !(t.el.kind === 'shape' && t.el.src?.inside != null)) /* 框里写字还是字 */ || acts.some(a => a.t0 >= t0 - 0.6 && a.t0 < t1 && !['draw', 'camera', 'wait', 'pop', 'fade', 'count'].includes(a.verb));
       const hit = (bx: { x: number; y: number; w: number; h: number }, rn: string) => { const r = sc.regions?.find(x => x.name === rn)?.box; return !!r && bx.x < r.x + r.w && bx.x + bx.w > r.x && bx.y < r.y + r.h && bx.y + bx.h > r.y; };
       for (const j of s.joins) if (s.in && !news.some(t => ['arrow', 'line', 'mark', 'span', 'shape'].includes(t.el.kind) && hit(t.el.box, j) && hit(t.el.box, s.in!))) err(where, `计划要在这一段画一条线，把分区 "${j}" 和 "${s.in}" 连起来，这一段新画的东西里没有哪一条线同时碰到这两个分区。画一条箭头、连线或括号，两头分别落在两个分区里`);
       if (!nonText && !revisited) err(where, news.length ? '这一段只写了字，没有画任何东西。计划里这一段是有画面的：把它画出来（手绘件、小人、箭头、横条、图表、标记）' : '这一段什么都没画。照计划的 intent 把它画出来');
       // 画在计划指定的分区里
-      const rg = sc.regions?.find(r => r.name === s.in);
-      if (rg) {
+      const rgs = [s.in, ...(s.across ?? [])].map(n => sc.regions?.find(r => r.name === n)).filter(Boolean) as { name: string; box: { x: number; y: number; w: number; h: number } }[];
+      if (rgs.length) {
         const body = news.filter(t => !['arrow', 'line', 'mark', 'note', 'axis'].includes(t.el.kind));
-        const inside = body.filter(t => { const bx = t.el.box, cx = bx.x + bx.w / 2, cy = bx.y + bx.h / 2; return cx >= rg.box.x - 20 && cx <= rg.box.x + rg.box.w + 20 && cy >= rg.box.y - 20 && cy <= rg.box.y + rg.box.h + 20; });
-        if (body.length >= 2 && inside.length < body.length / 2) warn(where, `计划把这一段放在分区 "${s.in}"，但这一段新画的 ${body.length} 样东西里只有 ${inside.length} 样在里面。给它们写 in: ${s.in}`);
+        const inside = body.filter(t => { const bx = t.el.box, cx = bx.x + bx.w / 2, cy = bx.y + bx.h / 2; return rgs.some(rg => cx >= rg.box.x - 20 && cx <= rg.box.x + rg.box.w + 20 && cy >= rg.box.y - 20 && cy <= rg.box.y + rg.box.h + 20); });
+        const names = rgs.map(r => `"${r.name}"`).join('、');
+        if (body.length >= 2 && inside.length < body.length / 2) warn(where, `计划把这一段放在分区 ${names}，但这一段新画的 ${body.length} 样东西里只有 ${inside.length} 样在里面。给它们写 in: ${s.in}${rgs.length > 1 ? '（或列表里的别的分区）' : ''}`);
       }
     });
     // 计划之外的东西
@@ -577,5 +604,18 @@ export function conform(c: Compiled): Issue[] {
     const planned = new Set(b.segments.flatMap(s => s.words)).size;
     if (extras.length > Math.max(6, planned)) warn(sc.file, `这块板上有 ${extras.length} 处计划之外的小字（计划里的板书一共 ${planned} 处）：${[...new Set(extras)].slice(0, 8).join('、')}…。小标签加多了，板就成了字堆`);
   });
+  // 惊叹那一段：画面上的东西要在观众眼前变，不能只是又画了一样新东西
+  const { story } = loadStory(c.dir);
+  if (story) {
+    const aha = storySegment(plan, c.al, c.duration, story.aha.say);
+    const sc = aha ? c.scenes.find(x => x.id === aha.board.id) : undefined;
+    if (aha && sc) {
+      const acts = sc.beats.flatMap(be => be.actions).filter(a => a.t0 >= aha.t0 - 0.6 && a.t0 < aha.t1);
+      const moved = acts.filter(a => (MOVES as readonly string[]).includes(a.verb));
+      const where = `${sc.file} / 惊叹那一段（${aha.seg.at}）`;
+      if (!moved.length) err(where, `这一段是全片的揭晓，导演要的是：${story.aha.see}。用一个“变”的动作做出来（${MOVES.join(' ')}），不要只是再画一样新东西。简报写的是 ${story.aha.move}`);
+      else if (!moved.some(a => a.verb === story.aha.move)) warn(where, `简报定的揭晓动作是 ${story.aha.move}，这一段用的是 ${[...new Set(moved.map(a => a.verb))].join('、')}。换了做法要有理由，向用户说明`);
+    }
+  }
   return out;
 }
