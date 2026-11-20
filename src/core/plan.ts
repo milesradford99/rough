@@ -317,6 +317,11 @@ export function checkPlan(plan: Plan, al: Alignment, fmt: Format, duration: numb
         if (wordLen(w) > 10) err(sw, `板书 "${w}" 有 ${wordLen(w)} 个字：板书只写关键词、数字、标签，不超过 10 个字。整句话留给字幕`);
         const lc = longestCommon(stripPunct(w), narration);
         if (lc >= 7) err(sw, `板书 "${w}" 照抄了口播里连续 ${lc} 个字。画面演示口播，不抄写口播：换成一个数、一个词，或者干脆画出来`);
+        // 同一块板上，箭头的小字、角色的名字已经会写出来：板书再写一遍就是两处一样的字
+        const rel = b.segments.flatMap(x => x.link).find(id => plan.relations[id]?.label && norm(plan.relations[id].label!) === norm(w));
+        if (rel) warn(sw, `板书 "${w}" 和关系 ${rel} 箭头上的小字一样，板上会出现两处 "${w}"。留一处：删掉这条板书，或者把箭头的 label 改成别的说法`);
+        const who = b.segments.flatMap(x => x.show).find(id => plan.cast[id] && norm(plan.cast[id].name) === norm(w));
+        if (who) warn(sw, `板书 "${w}" 就是角色 ${who} 的名字，角色出场时名字会写在它下面，板上会有两处 "${w}"。删掉这条板书，或者换成别的信息（一个数、一个状态）`);
       }
       if (Number.isFinite(tm.t0) && Number.isFinite(tm.t1)) {
         const d = tm.t1 - tm.t0;
@@ -381,7 +386,7 @@ function planVsStory(plan: Plan, story: Story, al: Alignment, duration: number):
   else if (aha && !['转折', '推翻', '结论', '对比', '算账', '数据'].includes(aha.seg.act ?? '')) out.push({ level: 'warn', where: W, msg: `惊叹那一段（${aha.seg.at}）的 act 是“${aha.seg.act ?? '没写'}”。它是全片的揭晓：转折、推翻或结论` });
   if (aha) {
     if (!aha.board.hero) out.push({ level: 'warn', where: `${W} / ${aha.board.id}`, msg: `惊叹点在这块板上，板却没有主角（hero）。揭晓的那样东西就是主角` });
-    if (!/变|长|缩|滚|涨|跌|走|流|亮|打开|展开|收|放大|翻/.test(aha.seg.intent)) out.push({ level: 'warn', where: W, msg: `惊叹那一段的 intent“${aha.seg.intent}”没有说画面怎么变。照简报写：${story.aha.see}` });
+    if (!/变|长|缩|滚|涨|跌|走|流|亮|打开|展开|收|放大|翻|滑|跳|移|拉|升|降|拆|分成|合成|掉|消失|冒出|弹/.test(aha.seg.intent) && !aha.seg.intent.includes(story.aha.see)) out.push({ level: 'warn', where: W, msg: `惊叹那一段的 intent“${aha.seg.intent}”没有说画面怎么变。照简报写：${story.aha.see}` });
   }
   if (pre === null) out.push({ level: 'warn', where: W, msg: `导演要观众在“${story.predict.say}”这里先猜一下。给它单独一段（act: 设问）：画面停在问题上，留个问号或空位，答案留到惊叹那一段` });
   return out;
@@ -391,9 +396,13 @@ function planVsStory(plan: Plan, story: Story, al: Alignment, duration: number):
 /** 计划的卡点是“从上一段往后找”，场景的卡点是“在整块板的口播里找”。同一个词在这块板里出现过几次，就要写成 #n */
 function sceneAnchor(al: Alignment, at: string, boardStart: number, time: number): string {
   if (/#\d+/.test(at) === false && !/@end|[+-]\d/.test(at)) {
-    const needle = stripPunct(at); let n = 0;
-    for (let i = al.flat.indexOf(needle); i >= 0; i = al.flat.indexOf(needle, i + 1)) { const t = al.units[al.flatUnit[i]].start; if (t >= boardStart - 1e-6 && t <= time + 1e-6) n++; }
-    return n > 1 ? `${at}#${n}` : at;
+    const needle = stripPunct(at); let n = 0, hit = -1;
+    for (let i = al.flat.indexOf(needle); i >= 0; i = al.flat.indexOf(needle, i + 1)) { const t = al.units[al.flatUnit[i]].start; if (t >= boardStart - 1e-6 && t <= time + 1e-6) { n++; hit = i; } }
+    if (n > 1) return `${at}#${n}`;
+    // 第一次出现，但后面还会再说到（“个月”“利润”）：往后多带几个字，直到在这块板往后的口播里只出现一次，免得卡点有歧义
+    const count = (sub: string) => { let k = 0; for (let i = al.flat.indexOf(sub); i >= 0; i = al.flat.indexOf(sub, i + 1)) if (al.units[al.flatUnit[i]].start >= boardStart - 1e-6) k++; return k; };
+    if (hit >= 0 && count(needle) > 1) for (let len = needle.length + 1; len <= needle.length + 8 && hit + len <= al.flat.length; len++) { const sub = al.flat.slice(hit, hit + len); if (count(sub) === 1) return sub; }
+    return at;
   }
   const m = at.match(/^(.*?)#(\d+)(.*)$/); if (!m) return at;
   const needle = stripPunct(m[1]); let n = 0;
@@ -433,7 +442,7 @@ export function scaffold(plan: Plan, b: PlanBoard, fmt: Format, al: Alignment, d
   const firstIn = new Map<string, string>(), texts: { id: string; w: string; seg: number }[] = [];
   const local = new Set<string>();
   b.segments.forEach((s, si) => { for (const id of [...s.show, ...s.link]) if (!firstIn.has(id) && s.in) firstIn.set(id, s.in); s.words.forEach(w => { if (!texts.some(t => t.w === w)) texts.push({ id: `w${texts.length + 1}`, w, seg: si }); }); });
-  for (const s of b.segments) for (const id of s.show) if (!local.has(id) && plan.cast[id]) { local.add(id); L.push(`  ${id}: { cast: ${id}, size: ${b.hero === id ? 'big' : 'mid'}, in: ${firstIn.get(id)} }    # ${plan.cast[id].name}${b.hero === id ? '（主角）' : ''}`); }
+  for (const s of b.segments) for (const id of s.show) if (!local.has(id) && plan.cast[id]) { local.add(id); L.push(`  ${id}: { cast: ${id}, size: ${b.hero === id ? 'big' : 'mid'}, label: ${q(plan.cast[id].name)}, in: ${firstIn.get(id)} }    # ${plan.cast[id].name}${b.hero === id ? '（主角）' : ''}：label 是它的名字，观众靠它认出“又是它”`); }
   for (const s of b.segments) for (const id of s.link) if (!local.has(id) && plan.relations[id]) {
     const r = plan.relations[id]; local.add(id);
     const ends = local.has(r.from) && local.has(r.to);

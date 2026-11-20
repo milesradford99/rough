@@ -128,15 +128,30 @@ function storyGate(dir: string, what: string) {
   if (approvals(dir).story?.planHash !== sc.story!.hash) die(`创意简报${approvals(dir).story ? '在用户确认之后又改过，' : '还没有得到用户确认，'}${what}之前要先确认它：hj story ${dir} 生成简报，交给用户看；用户明确同意后运行 hj approve ${dir} story --by "<用户的确认原话>"。
 简报会决定稿子怎么写、惊叹点放在哪儿，所以它排在配音和计划前面`);
 }
-/** 只看计划、不编译场景：规划者写计划、交用户确认时用（这时候还没有场景文件） */
-function planCtx(dir: string): { meta: any; fmt: (typeof FORMATS)[string]; al: ReturnType<typeof loadAlignment>; duration: number; plan: Plan; issues: Issue[] } | null {
+/** 还没配音时估时间用的语速（字/秒）：和 hj fake-align 一样 */
+const EST_CPS = 4.5;
+/** 按稿子匀速估一份时间表，写在 out/.estimate/ 里（不放进 voice/：那里只放真实的配音，hj status 靠它判断配没配音） */
+function fakeAlignmentFile(dir: string, script: string): string {
+  const d = join(dir, 'out', '.estimate'); mkdirSync(d, { recursive: true });
+  const f = join(d, 'alignment.json'); writeFileSync(f, JSON.stringify(fakeAlignment(script, EST_CPS)));
+  return f;
+}
+/** 只看计划、不编译场景：规划者写计划、交用户确认时用（这时候还没有场景文件）。
+ *  estimate：还没有配音时，按稿子匀速估一份时间表，让规划者在配音之前就能查计划、出审片页（确认计划仍要等配音） */
+function planCtx(dir: string, o: { estimate?: boolean } = {}): { meta: any; fmt: (typeof FORMATS)[string]; al: ReturnType<typeof loadAlignment>; duration: number; plan: Plan; issues: Issue[]; estimated?: boolean } | null {
   let plan: Plan | null;
   try { plan = loadPlan(dir); } catch (e: any) { return die(e.message); }
   if (!plan) return null;
   if (!existsSync(join(dir, 'project.yaml'))) die(`${dir} 里没有 project.yaml，这不是一个画讲项目（用 hj init 创建）`);
   const meta = YAML.parse(readFileSync(join(dir, 'project.yaml'), 'utf8')) ?? {}, fmt = FORMATS[meta.format ?? 'portrait'] ?? die('project.yaml: format 只能是 portrait 或 landscape');
-  if (!existsSync(join(dir, meta.voice ?? 'voice/alignment.json'))) die(`找不到时间表 ${join(dir, meta.voice ?? 'voice/alignment.json')}：还没有配音。hj status ${dir} 看下一步`);
-  const al = loadAlignment(join(dir, meta.voice ?? 'voice/alignment.json')), duration = al.duration + (meta.tail ?? 0.6);
+  const alf = join(dir, meta.voice ?? 'voice/alignment.json'), sf = join(dir, 'script.txt');
+  if (!existsSync(alf)) {
+    if (!o.estimate || !existsSync(sf)) die(`找不到时间表 ${alf}：还没有配音。${o.estimate ? '' : '计划可以在配音之前先查、先出审片页（hj check、hj plan 会按稿子估时间），但确认计划、生成骨架要等配好音、按真实时间重排之后。'}hj status ${dir} 看下一步`);
+    const al = loadAlignment(fakeAlignmentFile(dir, readFileSync(sf, 'utf8'))), duration = al.duration + (meta.tail ?? 0.6);
+    const note: Issue = { level: 'info', where: 'voice', msg: `还没有配音：时间是按每秒 ${EST_CPS} 个字估的，秒数只作参考。结构可以先查、先给用户看；配音之后重跑 hj plan，按真实时间再确认计划` };
+    return { meta, fmt, al, duration, plan, estimated: true, issues: [note, ...checkPlan(plan, al, fmt, duration, dir), ...loadAppendix(dir).issues] };
+  }
+  const al = loadAlignment(alf), duration = al.duration + (meta.tail ?? 0.6);
   // 附录写错了，在规划阶段就拦住（有场景之后由编译器报）
   return { meta, fmt, al, duration, plan, issues: [...checkPlan(plan, al, fmt, duration, dir), ...loadAppendix(dir).issues] };
 }
@@ -371,8 +386,8 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   check() {
     const dir = args[0] ?? die('用法：hj check <项目目录>');
-    // 规划阶段：有计划、还没有场景文件，只查计划
-    const pc = planCtx(dir);
+    // 规划阶段：有计划、还没有场景文件，只查计划（还没配音也能查：按稿子估时间）
+    const pc = hasScenes(dir) ? planCtx(dir) : planCtx(dir, { estimate: true });
     if (pc && !hasScenes(dir)) {
       console.log(`计划：${pc.plan.boards.length} 块板，${pc.plan.boards.reduce((n, b) => n + b.segments.length, 0)} 段，${Object.keys(pc.plan.cast).length} 个角色，${Object.keys(pc.plan.relations).length} 条关系，时长 ${fmtT(pc.duration)}，计划版本 ${pc.plan.hash}\n`);
       const r = printIssues(pc.issues), a = approvals(dir);
@@ -396,7 +411,7 @@ const commands: Record<string, () => Promise<void> | void> = {
 
   plan() {
     const dir = args[0] ?? die('用法：hj plan <项目目录>');
-    const pc = planCtx(dir);
+    const pc = planCtx(dir, { estimate: true });
     if (pc) {
       // 有计划：分镜表由计划排出来，这时候不需要、也不看任何场景文件
       if (pc.issues.some(i => i.level === 'error')) { printIssues(pc.issues); die('计划有错误，先修掉再生成分镜表（hj check 可随时重查）'); }
@@ -409,6 +424,7 @@ const commands: Record<string, () => Promise<void> | void> = {
         const { plan } = pc, { times } = segmentTimes(plan, pc.al, pc.duration), nm = (id: string) => plan.cast[id]?.name ?? id;
         const blocks: ReviewBlock[] = [], parts: any[] = [];
         const nSeg = plan.boards.reduce((n, b) => n + b.segments.length, 0);
+        if (pc.estimated) blocks.push({ heading: '还没有配音：这一版的秒数是估的', note: `时间按每秒 ${EST_CPS} 个字估算，只作参考。这一页用来先看结构（论点、角色、关系、分区、每一段画什么）；配好音之后会按真实时间重排一版，再请你确认计划。` });
         blocks.push({ heading: '这条片子讲的是什么', html: `<p><b>论点：</b>${esc(plan.thesis)}</p><p><b>角色（${Object.keys(plan.cast).length} 个）：</b>${Object.values(plan.cast).map(c => esc(c.name)).join('、')}</p><p><b>关系（这件事的骨架）：</b>${Object.values(plan.relations).map(r => `${esc(nm(r.from))} →${r.label ? ` ${esc(r.label)} →` : ''} ${esc(nm(r.to))}`).join('；') || '（没有）'}</p><p><b>篇幅：</b>${fmtT(pc.duration)}，${plan.boards.length} 块板，${nSeg} 段${plan.appendix ? `，片尾有滚动附录（${plan.appendix.sections.reduce((n, s) => n + s.items.length, 0)} 条）` : ''}</p>` });
         for (const [bi, b] of plan.boards.entries()) {
           const L = layoutSketch(plan, b, pc.fmt, dir), senv = await sketchEnv(env, L, f => posterOf(dir, f));
@@ -611,6 +627,9 @@ const commands: Record<string, () => Promise<void> | void> = {
     if (!sc.exists) { writeFileSync(join(dir, 'story.yaml'), STORY_TEMPLATE); die(`没有创意简报，已经写好模板：${join(dir, 'story.yaml')}。照 director.md 填上`); }
     printIssues(sc.issues);
     if (sc.issues.some(i => i.level === 'error')) die('简报有错误，改好再交给用户');
+    // 稿子的读法问题（阿拉伯数字、英文、单个字母…）在导演这一步就改掉：用户确认之后再改稿，确认就失效了，卡点也要跟着改
+    const sf = join(dir, 'script.txt'), sw = existsSync(sf) ? scriptWarnings(readFileSync(sf, 'utf8')) : [];
+    if (sw.length) console.log(`稿子的读法：交给用户确认之前先改掉（配音时一样会报，那时再改稿要重新确认）\n${sw.map(w => `! ${w}`).join('\n')}\n`);
     const md = storyMarkdown(sc.story!), f = join(dir, 'story.md');
     writeFileSync(f, md);
     console.log(md);
@@ -838,11 +857,17 @@ const commands: Record<string, () => Promise<void> | void> = {
     }
     const portrait = H > W, stacked = W / H < 1.5; // 接近方形的横图也把标题放上面：放左边会把全景挤得太小
     let t = c.duration - 0.05;
-    if (cfg.at != null) { if (typeof cfg.at === 'number') t = cfg.at; else { try { t = resolveAnchor(c.al, String(cfg.at)).time + 3; } catch { die(`cover.at 写的 "${cfg.at}" 在口播里找不到`); } } }
-    // 先画出那一刻的画面（不带字幕），裁出画板
+    if (cfg.at != null) { if (typeof cfg.at === 'number') t = cfg.at; else { try {
+      // 说到那句之后 3 秒：画面上多半已经画完了；但不越过这块板的结尾（再往后就是下一块板的开头，几乎是空的）
+      const ta = resolveAnchor(c.al, String(cfg.at)).time, own = c.scenes.find(s => ta >= s.t0 && ta < s.t1);
+      t = Math.min(ta + 3, own ? own.t1 - 0.05 : Infinity);
+    } catch { die(`cover.at 写的 "${cfg.at}" 在口播里找不到`); } } }
+    // 先画出那一刻的画面（不带字幕），裁出画板。镜头一律用那块板的全景：那一刻镜头可能正推近某一处，封面要的是整张图
+    const tc = Math.min(Math.max(0, t), c.duration - 0.01), sc = c.scenes.find(s => tc >= s.t0 && tc < s.t1) ?? c.scenes[c.scenes.length - 1];
+    const cc = sc ? ({ ...c, cams: [{ t0: 0, t1: 0, to: sc.home, cut: true }] } as Compiled) : c;
     const src = createCanvas(VW, VH), sx = src.getContext('2d');
-    await prepare(c, Math.min(Math.max(0, t), c.duration - 0.01));
-    drawFrame(sx, c, Math.min(Math.max(0, t), c.duration - 0.01), env, { scale: 1, subtitles: false, bare: true });
+    await prepare(cc, tc);
+    drawFrame(sx, cc, tc, env, { scale: 1, subtitles: false, bare: true });
     const cv = createCanvas(Math.round(W * k), Math.round(H * k)), x = cv.getContext('2d');
     x.setTransform(k, 0, 0, k, 0, 0);
     drawFrame(x, { ...c, fmt: { ...c.fmt, W, H }, tls: [], subs: [] } as Compiled, 0, env, { scale: k, subtitles: false }); // 一张空白的纸

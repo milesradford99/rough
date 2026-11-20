@@ -30,7 +30,7 @@ hj status <项目目录>
 ```bash
 hj init <项目目录> --script <朗读稿.txt>          # 只有稿子：之后用 hj voice 配音
 hj init <项目目录> --voice <配音材料目录>         # 已有配音（narration.wav + alignment.json）
-# 加 --format landscape 做横屏；默认竖屏
+# 加 --format landscape 做横屏；默认竖屏。横竖屏一开始就问用户定下来：计划的分区是按画幅设计的，中途改要重排
 ```
 
 项目目录由用户指定；没指定就放在当前工作目录下的 `huajiang/<项目名>/`。

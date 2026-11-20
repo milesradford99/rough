@@ -252,7 +252,8 @@ test('主角和版式：主角必须是板上真有的东西；版式展开成�
 test('构图检查：档位写错、字号太多、漂着的字、差一点对齐、左右失衡；手写坐标会被吸附对齐', () => {
   const dir = project(PLAN.replace('  - id: loop\n', '  - id: loop\n    hero: "+0"\n'));
   assert.equal(hj(['scaffold', dir]).status, 0);
-  const f = join(dir, 'scenes/01-loop.yaml'), src = readFileSync(f, 'utf8');
+  // 这条测的是构图检查：去掉骨架给角色写的名字，免得名字正好落在要测“漂着”的字旁边
+  const f = join(dir, 'scenes/01-loop.yaml'), src = readFileSync(f, 'utf8').replace(/, label: "[^"]*"/g, '');
   assert.match(src, /size: hero/, '骨架给主角最大一档'); assert.match(src, /size: key/);
   const msgs = () => lint(compile(dir)).filter(i => i.level !== 'info').map(i => i.msg).join('\n');
   const add = (els: string) => writeFileSync(f, src.replace('beats:\n', 'beats:\n  - { at: "公司", intent: 加几样, do: [{ draw: [x1, x2, x3, x4, x5, x6] }] }\n').replace('elements:\n', 'elements:\n' + els));
