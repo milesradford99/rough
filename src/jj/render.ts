@@ -170,6 +170,8 @@ function wrap(ctx: Ctx, text: string, size: number, maxW: number): string[] {
   const out: string[] = []; let line = '';
   for (const c of [...text]) { if (ctx.measureText(line + c).width > maxW && line) { if (/^[，。、？！：；”）]$/.test(c)) { line += c; continue; } out.push(line); line = c; } else line += c; }
   if (line) out.push(line);
+  // 最后一行只剩一个字：从上一行挪一个字下来
+  if (out.length > 1 && [...out[out.length - 1]].length === 1) { const prev = [...out[out.length - 2]]; out[out.length - 1] = prev.pop()! + out[out.length - 1]; out[out.length - 2] = prev.join(''); }
   return out;
 }
 
@@ -216,7 +218,7 @@ async function layerFor(p: Project, s: Timed, assets: Record<string, Asset>, cw:
 /** 来源标注：授权需要署名、或者是评论性引用的素材，画面左上角标出出处 */
 export function creditLine(a: Asset): string {
   const s = a.source, who = [s.author, s.site].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).join(' / ');
-  return `${who || s.url}${LICENSES[s.license]?.credit && s.license.startsWith('cc') ? ` · ${LICENSES[s.license].name}` : ''}`;
+  return `${who || (s.url.startsWith('file://') ? LICENSES[s.license]?.name ?? '' : s.url)}${LICENSES[s.license]?.credit && s.license.startsWith('cc') ? ` · ${LICENSES[s.license].name}` : ''}`;
 }
 
 /** 片尾附录：项目的 appendix.yaml，加上自动生成的“素材来源”。画成一张长图，从下往上滚 */
@@ -224,7 +226,7 @@ async function appendixSheet(p: Project, timed: Timed[], assets: Record<string, 
   const { appendix } = loadAppendix(p.dir);
   const sections: { title: string; note?: string; items: { when?: string; tag?: string; title: string; text?: string }[] }[] = appendix ? [...appendix.sections] : [];
   const used = [...new Set(timed.flatMap(s => [s.use, s.meme?.use]).filter((u): u is string => !!u && u !== 'title' && !!assets[u]))];
-  if (used.length) sections.push({ title: '画面素材来源', items: used.map(id => { const a = assets[id], shots = timed.filter(s => s.use === id || s.meme?.use === id).map(s => s.id); return { tag: shots.join(' '), title: a.source.title?.slice(0, 40) || a.source.site || id, text: `${creditLine(a)}（${LICENSES[a.source.license]?.name ?? a.source.license}${a.purpose === 'quote' ? '，评论引用' : ''}）${a.source.page ?? a.source.url}`.slice(0, 160) }; }) });
+  if (used.length) sections.push({ title: '画面素材来源', items: used.map(id => { const a = assets[id], shots = timed.filter(s => s.use === id || s.meme?.use === id).map(s => s.id); const local = a.source.url.startsWith('file://'); return { tag: shots.length > 4 ? `${shots.slice(0, 3).join(' ')} 等 ${shots.length} 镜` : shots.join(' '), title: a.source.title?.slice(0, 40) || a.source.site || id, text: local ? `${LICENSES[a.source.license]?.name ?? a.source.license}${a.note ? `：${a.note}` : ''}`.slice(0, 160) : `${creditLine(a)}（${LICENSES[a.source.license]?.name ?? a.source.license}${a.purpose === 'quote' ? '，评论引用' : ''}）${a.source.page ?? a.source.url}`.slice(0, 160) }; }) });
   if (!sections.length) return null;
   const sc = cw / W, F = fonts();
   const tmp = createCanvas(cw, 10).getContext('2d');
