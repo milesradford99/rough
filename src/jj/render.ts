@@ -60,20 +60,24 @@ function blurBg(src: any, sw: number, sh: number, cw: number, ch: number): any {
 function fitMode(s: Shot, a: Asset): 'fill' | 'frame' {
   if (s.fit) return s.fit;
   if (a.kind === 'page') return 'fill';
-  return (a.w ?? 1) / (a.h ?? 1) > 1.15 ? 'frame' : 'fill';
+  const c = s.crop ?? [0, 0, 1, 1];
+  return ((a.w ?? 1) * c[2]) / ((a.h ?? 1) * c[3]) > 1.15 ? 'frame' : 'fill';
 }
 
 async function videoLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number, fps: number): Promise<Layer> {
   const dur = s.t1 - s.t0, from = s.from ?? 0, vp = videoPlan(a, from, dur);
   const m = mediaFor(p.dir, a, from, dur);
   const mode = fitMode(s, a), [fx, fy] = focusXY(s.focus);
-  const aw = a.w ?? 1920, ah = a.h ?? 1080;
+  const c = s.crop ?? [0, 0, 1, 1];
+  const aw = (a.w ?? 1920) * c[2], ah = (a.h ?? 1080) * c[3];
+  const pre = s.crop ? `crop=trunc(iw*${c[2]}/2)*2:trunc(ih*${c[3]}/2)*2:iw*${c[0]}:ih*${c[1]},` : '';
   let w = cw, h = ch, geo: string;
   if (mode === 'fill') geo = `scale=${cw}:${ch}:force_original_aspect_ratio=increase,crop=${cw}:${ch}:(iw-${cw})*${fx}:(ih-${ch})*${fy}`;
   else {
-    if (aw / ah >= cw / ch) { w = cw; h = 2 * Math.round((cw * ah) / aw / 2); } else { h = Math.round(ch * 0.62 / 2) * 2; w = 2 * Math.round((h * aw) / ah / 2); }
+    { const k = Math.min(cw / aw, (ch * 0.86) / ah); w = 2 * Math.round((aw * k) / 2); h = 2 * Math.round((ah * k) / 2); }
     geo = `scale=${w}:${h}`;
   }
+  geo = pre + geo;
   const srcDur = Math.min(dur * vp.speed, Math.max(0.1, (a.duration ?? dur) - from)) + 0.2;
   const args = ['-v', 'error', '-ss', String(Math.max(0, from - m.offset)), '-i', m.file, '-t', srcDur.toFixed(3), '-vf', `setpts=${(1 / vp.speed).toFixed(4)}*PTS,fps=${fps},${geo},format=rgba`, '-an', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'];
   const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'inherit'] });
@@ -100,7 +104,8 @@ async function videoLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number
 }
 
 async function stillLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number, k: number): Promise<Layer> {
-  const img = await loadImage(join(p.dir, a.file));
+  let img: any = await loadImage(join(p.dir, a.file));
+  if (s.crop) { const c = s.crop, cc = createCanvas(Math.max(2, Math.round(img.width * c[2])), Math.max(2, Math.round(img.height * c[3]))); cc.getContext('2d').drawImage(img, -img.width * c[0], -img.height * c[1]); img = cc; }
   const iw = img.width, ih = img.height, mode = fitMode(s, a), [fx, fy] = focusXY(s.focus);
   const zoomIn = k % 2 === 0;
   const box = a.source.box;
@@ -135,7 +140,7 @@ async function stillLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number
       if (mode === 'frame') {
         bg ??= blurBg(img, iw, ih, cw, ch);
         ctx.drawImage(bg, 0, 0);
-        const s0 = Math.min(cw / iw, (ch * 0.62) / ih) * z, w = iw * s0, h = ih * s0;
+        const s0 = Math.min(cw / iw, (ch * 0.86) / ih) * z, w = iw * s0, h = ih * s0;
         ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2 - ch * 0.06, w, h);
       } else {
         const s0 = Math.max(cw / iw, ch / ih) * z, w = iw * s0, h = ih * s0;
@@ -161,6 +166,7 @@ function drawText(ctx: Ctx, text: string, x: number, y: number, size: number, o:
 }
 function wrap(ctx: Ctx, text: string, size: number, maxW: number): string[] {
   ctx.font = `${size}px ${fonts()}`;
+  if (text.includes('\n')) return text.split('\n').flatMap(t => wrap(ctx, t, size, maxW));
   const out: string[] = []; let line = '';
   for (const c of [...text]) { if (ctx.measureText(line + c).width > maxW && line) { if (/^[，。、？！：；”）]$/.test(c)) { line += c; continue; } out.push(line); line = c; } else line += c; }
   if (line) out.push(line);
@@ -240,11 +246,11 @@ async function appendixSheet(p: Project, timed: Timed[], assets: Record<string, 
   return sheet;
 }
 
-export interface RenderOpts { out: string; draft?: boolean; from?: number; to?: number; appendix?: boolean; log?: (s: string) => void }
+export interface RenderOpts { out: string; draft?: boolean; /** 草稿也出全尺寸（仍带水印） */ full?: boolean; from?: number; to?: number; appendix?: boolean; log?: (s: string) => void }
 
 export async function renderVideo(p: Project, timed: Timed[], assets: Record<string, Asset>, o: RenderOpts): Promise<{ file: string; seconds: number; frames: number; cuts: { id: string; t: number }[] }> {
   const log = o.log ?? console.log;
-  const draft = !!o.draft, scale = draft ? 0.5 : 1, fps = draft ? 15 : p.fps;
+  const draft = !!o.draft, low = draft && !o.full, scale = low ? 0.5 : 1, fps = low ? 15 : p.fps;
   const cw = Math.round(W * scale / 2) * 2, ch = Math.round(H * scale / 2) * 2, sc = cw / W;
   const cv = createCanvas(cw, ch), ctx = cv.getContext('2d');
   const F = fonts();
@@ -259,7 +265,7 @@ export async function renderVideo(p: Project, timed: Timed[], assets: Record<str
   const ff = ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${cw}x${ch}`, '-r', String(fps), '-i', '-'];
   if (p.audio) ff.push('-ss', String(from), '-i', p.audio);
   ff.push('-map', '0:v'); if (p.audio) ff.push('-map', '1:a', '-af', 'apad');
-  ff.push('-t', (to - from).toFixed(3), '-c:v', 'libx264', '-preset', draft ? 'veryfast' : 'medium', '-crf', draft ? '28' : '19', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', o.out);
+  ff.push('-t', (to - from).toFixed(3), '-c:v', 'libx264', '-preset', low ? 'veryfast' : 'medium', '-crf', low ? '28' : '19', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', o.out);
   const enc = spawn('ffmpeg', ff, { stdio: ['pipe', 'inherit', 'inherit'] });
   const done = new Promise<number>(r => enc.on('close', c => r(c ?? 1)));
   // 弹字、表情包的时间

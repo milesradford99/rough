@@ -138,6 +138,7 @@ export function checkProject(p: Project, shots: Shot[], assets: Record<string, A
     if (s.cut && !CUTS.includes(s.cut)) err(where, `cut 只能是 ${CUTS.join(' | ')}`);
     if (s.fit && !['fill', 'frame'].includes(s.fit)) err(where, 'fit 只能是 fill（裁满竖屏）或 frame（整幅放中间，上下模糊垫底）');
     if (s.focus != null && !(typeof s.focus === 'number' ? s.focus >= 0 && s.focus <= 1 : ['left', 'center', 'right', 'top', 'bottom'].includes(String(s.focus)))) err(where, 'focus 写 left | center | right | top | bottom，或 0 到 1 之间的数');
+    if (s.crop != null && !(Array.isArray(s.crop) && s.crop.length === 4 && s.crop.every(v => typeof v === 'number' && v >= 0 && v <= 1) && s.crop[0] + s.crop[2] <= 1.001 && s.crop[1] + s.crop[3] <= 1.001 && s.crop[2] > 0.05 && s.crop[3] > 0.05)) err(where, 'crop 写成 [左, 上, 宽, 高]，都是 0 到 1 的比例，比如 [0, 0, 1, 0.8] 去掉下面五分之一');
     if (s.pop && !stripPunct(s.sayNow).includes(stripPunct(s.pop))) err(where, `pop "${s.pop}" 不是这一镜里说的话。弹字要用口播原文：${s.sayNow}`);
     if (!s.use) { err(where, `还没有选画面${s.want ? `（want：${s.want}）` : '：先写 want，再去找'}。实在找不到，写 use: title 用金句卡`); return; }
     if (s.use === 'title') { if (s.from != null) warn(where, '金句卡不需要 from'); return; }
@@ -176,7 +177,7 @@ export function checkProject(p: Project, shots: Shot[], assets: Record<string, A
     for (let i = 1; i < list.length; i++) {
       const a = assets[id], x = list[i - 1], y = list[i];
       if (a.kind !== 'video') { if (timed.indexOf(y) === timed.indexOf(x) + 1) warn(y.id, `和 ${x.id} 用的是同一张图 ${id}，观众会以为画面卡住了`); }
-      else { const x0 = x.from ?? 0, y0 = y.from ?? 0; if (Math.abs(x0 - y0) < Math.min(x.t1 - x.t0, y.t1 - y.t0)) warn(y.id, `和 ${x.id} 用的是 ${id} 的同一段（${x0}s 和 ${y0}s）`); }
+      else { const x0 = x.from ?? 0, y0 = y.from ?? 0, x1 = x0 + (x.t1 - x.t0), y1 = y0 + (y.t1 - y.t0); if (Math.min(x1, y1) - Math.max(x0, y0) > 0.3) warn(y.id, `和 ${x.id} 用的是 ${id} 的同一段（${x0}s 和 ${y0}s）`); }
     }
   }
   const missing = timed.filter(s => !s.use).length;

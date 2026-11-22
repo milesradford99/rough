@@ -61,7 +61,7 @@ const HELP = `剪讲（jj）：素材剪辑式口播视频。agent 找素材、�
   jj check <目录>                           时长、覆盖、锚点、授权、重复
   jj board <目录>                           故事板审片页 → 发给用户做“素材定稿”确认
   jj approve <目录> footage --by "<用户的确认原话>"
-  jj preview <目录> [--from 秒 --to 秒]     低清草稿（带水印，不用确认），自己看节奏
+  jj preview <目录> [--from 秒 --to 秒] [--full]   草稿（带水印，不用确认），自己看节奏；--full 出全尺寸
   jj render <目录>                          成片 out/video.mp4 + 切点检查图 out/cuts.png
 
 镜头单的字段：jj help shots`;
@@ -77,6 +77,7 @@ const HELP_SHOTS = `shots.yaml 的字段（每个镜头一项）
   from    视频素材从第几秒开始用（jj look / jj hear 找到的）
   fit     fill 裁满竖屏 | frame 整幅放中间、上下用模糊的同一画面垫底（横屏素材默认 frame）
   focus   fill 时保哪边：left | center | right | top | bottom，或 0..1
+  crop    只用素材的一块：[左, 上, 宽, 高]（0..1 的比例）。切掉烧进去的字幕、水印，或者只要图表那块
   text    金句卡上的字（不写就用 say）
   pop     说到这几个字时弹出大字（必须是这一镜的原文）
   meme    { use: 素材, at: "原文", dur: 1, place: corner | center }  表情包
@@ -325,8 +326,8 @@ async function render(draft: boolean) {
   if (!timed.length) die('没有能解析的镜头');
   const from = num('from'), to = num('to');
   const out = str('out') ?? join(dir, 'out', `${draft ? 'preview' : 'video'}${from != null || to != null ? `-${from ?? 0}-${to ?? 'end'}` : ''}.mp4`);
-  console.log(`开始渲染${draft ? '草稿（540×960，15 帧/秒）' : '成片（1080×1920）'}：${timed.length} 个镜头…`);
-  const r = await renderVideo(p, timed as Timed[], assets, { out, draft, from, to });
+  console.log(`开始渲染${draft ? (flags.full ? '草稿（全尺寸，带水印）' : '草稿（540×960，15 帧/秒）') : '成片（1080×1920）'}：${timed.length} 个镜头…`);
+  const r = await renderVideo(p, timed as Timed[], assets, { out, draft, full: !!flags.full, from, to });
   console.log(`✓ ${resolve(r.file)}（${r.frames} 帧，用了 ${r.seconds.toFixed(0)} 秒）`);
   if (!draft && r.cuts.length) {
     const cf = join(dir, 'out', 'cuts.png');

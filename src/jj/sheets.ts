@@ -95,7 +95,7 @@ export async function compareSheet(p: Project, s: Timed, timed: Timed[], assets:
 
 /** 素材定稿的版本：镜头的决定 + 用到的素材的签 + 口播。换了素材、挪了起点，就要重新确认 */
 export function footageHash(p: Project, timed: Timed[], assets: Record<string, Asset>): string {
-  const keys = ['id', 'use', 'from', 'fit', 'focus', 'text', 'pop', 'meme', 'cut'];
+  const keys = ['id', 'use', 'from', 'fit', 'focus', 'crop', 'text', 'pop', 'meme', 'cut'];
   return sha(JSON.stringify({ shots: timed.map(s => [...keys.map(k => (s as any)[k] ?? null), +s.t0.toFixed(2), +s.t1.toFixed(2)]), seals: timed.map(s => (s.use && assets[s.use] ? assets[s.use].seal : null)), text: p.al?.flat })).slice(0, 8);
 }
 

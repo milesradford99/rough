@@ -22,13 +22,14 @@ export interface Shot {
   from?: number;            // agent：用视频素材的第几秒开始
   fit?: 'fill' | 'frame';   // fill 裁满竖屏；frame 整幅放在中间、上下用模糊的同一画面垫底
   focus?: string | number;  // fill 时保哪边：left | center | right | top | bottom，或 0..1
+  crop?: [number, number, number, number]; // 只用素材的这一块：[左, 上, 宽, 高]，都是 0..1 的比例（切掉烧进画面的字幕、水印，或者只要图表那一块）
   text?: string;            // 金句卡上的字（不写就用 say）
   pop?: string;             // 说到这几个字时弹出大字（必须是这一镜里说的原文）
   meme?: { use: string; at?: string; dur?: number; place?: 'corner' | 'center' };
   cut?: 'cut' | 'flash' | 'zoom' | 'whip';
   note?: string;
 }
-export const SHOT_KEYS = ['id', 'at', 'say', 'dur', 'want', 'use', 'from', 'fit', 'focus', 'text', 'pop', 'meme', 'cut', 'note'];
+export const SHOT_KEYS = ['id', 'at', 'say', 'dur', 'want', 'use', 'from', 'fit', 'focus', 'crop', 'text', 'pop', 'meme', 'cut', 'note'];
 export const CUTS = ['cut', 'flash', 'zoom', 'whip'];
 
 /** 素材的来源：jj grab / jj snap 自动记，封了签（seal），手改了 jj check 会报错 */

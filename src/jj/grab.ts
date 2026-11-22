@@ -125,10 +125,15 @@ async function shootPage(url: string, outPng: string, o: { find?: string; full?:
   const b = await browser();
   try {
     const page = await b.newPage({ viewport: { width: 540, height: 960 }, deviceScaleFactor: 2, userAgent: UA.replace('Windows NT 10.0; Win64; x64', 'Linux; Android 14; Pixel 8') + ' Mobile', locale: 'zh-CN' });
-    try { await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 }); } catch (e: any) { throw new Error(`打不开这个网页：${e.message.split('\n')[0]}`); }
+    let resp: any;
+    try { resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 }); } catch (e: any) { throw new Error(`打不开这个网页：${e.message.split('\n')[0]}`); }
+    if (resp && resp.status() >= 400) throw new Error(`网页返回 ${resp.status()}（网站拒绝了，或者页面不存在）。换一个来源`);
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
     await page.waitForTimeout(1200);
     const meta = await page.evaluate(`(${META_JS})()`);
+    if (String(meta.text ?? '').replace(/\s/g, '').length < 60) throw new Error(`页面几乎没有内容（只有“${String(meta.text ?? '').trim().slice(0, 40)}”），多半是没打开、要登录或被拦了。换一个来源`);
+    // 浮在页面上的东西（“打开APP”按钮、cookie 提示、吸顶的导航）挡住正文：截图前藏起来
+    await page.evaluate(`for (const el of document.querySelectorAll('body *')) { const p = getComputedStyle(el).position; if (p === 'fixed' || p === 'sticky') el.style.setProperty('display', 'none', 'important'); }`).catch(() => {});
     let box: [number, number, number, number] | undefined;
     if (o.find) {
       const r: any = await page.evaluate(`(${FIND_JS})(${JSON.stringify(o.find)})`);
@@ -172,6 +177,9 @@ export async function grab(dir: string, url: string, o: GrabOpts = {}): Promise<
     return { id, asset: a, reused, extra };
   };
   const local = !/^https?:\/\//i.test(url);
+  // Pexels 的页面拒绝自动访问，但图片地址有固定写法：页面网址直接换成原图
+  const px = url.match(/^https?:\/\/(?:www\.)?pexels\.com\/(?:[a-z-]+\/)?photo\/(?:[^/]*-)?(\d+)\/?$/i);
+  if (px) url = `https://images.pexels.com/photos/${px[1]}/pexels-photo-${px[1]}.jpeg?auto=compress&w=2400`;
   if (o.license && !local) throw new Error('--license 只用于本地文件。网上的素材，许可证由框架从来源识别，不能自己填');
   if (local && o.license && !['own', 'ai', 'unknown'].includes(o.license)) throw new Error('本地文件的 --license 只能是 own（自己拍的、自己做的）、ai（AI 生成）或 unknown。网上下的东西请直接 jj grab 它的网址，许可证由框架识别');
   const key = local ? 'file://' + resolve(url) : url;
@@ -239,7 +247,9 @@ export async function grab(dir: string, url: string, o: GrabOpts = {}): Promise<
       source = { url, page: ci.page, title: ci.title, author: ci.author, site: 'Wikimedia Commons', published: ci.published, grabbed: today(), sha256: '', license: ci.license, ...(ci.licenseUrl ? { licenseUrl: ci.licenseUrl } : {}) };
     } else {
       const tmp = join(media, id + '.dl');
-      const r = curl(url, tmp);
+      let r: { type: string; final: string };
+      // 网站拒绝 curl（常见于新闻站）：换无头浏览器打开，按网页截图
+      try { r = curl(url, tmp); } catch (e: any) { spawnSync('rm', ['-f', tmp, tmp + '.headers']); if (/\.(jpe?g|png|webp|gif|mp4|webm)(\?|$)/i.test(url)) throw e; return grab(dir, url, { ...o, page: true }); }
       if (r.type.startsWith('image/') || r.type.startsWith('video/')) {
         file = `media/${id}${extFor(r.type, r.final)}`; renameSync(tmp, join(dir, file));
         kind = r.type.startsWith('video/') ? 'video' : 'image';
