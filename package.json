@@ -2,16 +2,18 @@
   "name": "huajiang",
   "version": "1.0.0",
   "private": true,
-  "description": "画讲：把带逐字时间表的口播做成“边画边讲”的手绘视频。给 AI agent 用的分镜与渲染框架，基于 rough.js 笔画引擎。",
+  "description": "画讲：把带逐字时间表的口播做成“边画边讲”的手绘视频。给 AI agent 用的分镜与渲染框架，基于 rough.js 笔画引擎。 另含剪讲（jj）：素材剪辑式口播视频的工具箱。",
   "type": "module",
   "bin": {
-    "hj": "bin/hj.mjs"
+    "hj": "bin/hj.mjs",
+    "jj": "bin/jj.mjs"
   },
   "scripts": {
     "hj": "tsx src/cli/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "check:examples": "node bin/hj.mjs check examples/compound --strict && node bin/hj.mjs check examples/patterns --strict && node bin/hj.mjs check examples/one-board --strict && node bin/hj.mjs check examples/big-board --strict"
+    "check:examples": "node bin/hj.mjs check examples/compound --strict && node bin/hj.mjs check examples/patterns --strict && node bin/hj.mjs check examples/one-board --strict && node bin/hj.mjs check examples/big-board --strict",
+    "jj": "tsx src/jj/cli.ts"
   },
   "license": "MIT",
   "repository": {
