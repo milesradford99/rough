@@ -5,9 +5,10 @@
 
 ## 这个仓库是什么
 
-两样东西放在一起：
+三样东西放在一起：
 
 - **引擎**（`src/`、`bin/hj.mjs`）：把“计划 + 场景 + 逐字时间表”编译成时间线，检查、出图、渲染成 mp4；外加配音。
+- **剪讲**（`src/jj/`、`bin/jj.mjs`、`skills/jianjiang/`）：第二个引擎，做“素材剪辑式”口播：agent 自己上网找素材、做判断，jj 负责抓取（自动记来源和授权）、看素材（胶片条、转文字、候选拼图）、镜头单上时间线、渲染、检查。复用画讲的配音、逐字时间表、审片页和片尾附录。设计见项目文件 `research/素材剪辑式口播视频-框架设计.md`。
 - **技能**（`skills/huajiang/`）：交给 agent 的使用说明。agent 安装技能后，每次工作前运行 `scripts/hj.sh setup` 找到引擎、检查更新，再照说明初始化项目和干活。
 
 成片的标准：**体现系统化的思考**。观众看完记住的是一张图：有哪些东西、它们之间什么关系、结论从哪儿连出来。
@@ -49,7 +50,17 @@ src/core/
   live.ts         活元素：缓动、参数随时间插值、跟着挪动和变化的东西重新生成
 src/cli/main.ts   hj 命令；确认闸门；审片页的图（全景、眯眼图、逐段卡片）；视频元素的抽帧缓存（out/.media）
 src/cli/sketch.ts 计划审片页的结构草图：只凭计划画出分区、角色、关系，和“讲到第 N 段时板上有什么”的小图
+src/jj/           剪讲
+  project.ts      项目、镜头单（shots.yaml）、素材台账（assets.yaml，来源封签）、许可证分档、跨项目素材库
+  shots.ts        镜头骨架（动态规划切 1.2–4 秒）、锚点解析成时间、jj check 的全部检查
+  grab.ts         jj grab / snap / stock：curl、yt-dlp、Playwright 截图找原文、图库官方接口；按域名和页面认许可证
+  media.ts        ffprobe、抽帧、胶片条、转文字（平台字幕优先，否则 faster-whisper）
+  render.ts       逐帧合成：卡片版式（标题条 + 卡片）、数据图、视频由 ffmpeg 解码裁切，图片推拉、截图推近高亮、金句卡、转场、弹字、表情包、字幕、署名、片尾滚动附录
+  sheets.ts       候选拼图、故事板审片页（素材定稿闸门）、切点检查图
+  cli.ts          jj 命令
 scripts/edge_words.py   取 edge-tts 的逐词时间
+scripts/jj_hear.py      剪讲：faster-whisper 转文字
+skills/jianjiang/ 剪讲的技能：SKILL.md、scripts/jj.sh
 skills/huajiang/  技能：SKILL.md（入口）、director.md、planner.md、executor.md、voice.md、revising.md、reference.md、scripts/hj.sh
 examples/         one-board 是“计划 + 执行”的完整例子；patterns、compound、big-board 是不带计划的老写法，留作引擎的回归样例
 evals/            固定的 12 条口播稿和打分办法
@@ -77,4 +88,5 @@ npm run check:examples      # 四个示例零错误零警告
 - 改了计划的格式：同步改 `examples/one-board/plan.yaml`、`hj init` 写出的模板（`main.ts` 的 `PLAN_TEMPLATE`）和 `planner.md`。
 - 评估改动对成片的影响：见 [evals/README.md](evals/README.md)。分别找一个 agent 扮演规划者和执行者，各自只给它技能里对应的那一份说明。
 - 配音的付费接口没法在 CI 里真调。协议层靠 `test/plan.test.ts` 里的模拟服务端；改了 `tts.ts` 的帧格式，要拿真实密钥手工验证一次并在提交说明里写明。
+- 剪讲：`test/jj.test.ts` 不联网（素材用 ffmpeg 现做）。改了 `grab.ts` 的识别规则，拿真实网址手工跑一次。云端容器里 YouTube、B 站的下载常被当成机器人拦下，在用户自己的电脑上跑；`JJ_YTDLP_ARGS="--cookies-from-browser chrome"` 可以带登录态。
 - `work/` 被 git 忽略：用户的稿子和配音不进仓库。

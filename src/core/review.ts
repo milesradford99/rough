@@ -1,8 +1,8 @@
 // 审片页：每道确认闸交给用户看的那一页。由引擎生成，图都嵌在里面，一个文件就能发给用户。
 // 页面和长图上印着内容的版本号：内容改了，审片页要重新生成，`hj approve` 只认和现在这一版对得上的审片页。
 
-export type Stage = 'plan' | 'look' | 'keyframes';
-export const STAGE_NAME: Record<Stage, string> = { plan: '分镜计划', look: '全景定稿', keyframes: '关键帧' };
+export type Stage = 'plan' | 'look' | 'keyframes' | 'footage';
+export const STAGE_NAME: Record<Stage, string> = { plan: '分镜计划', look: '全景定稿', keyframes: '关键帧', footage: '素材定稿' };
 
 
 export interface ReviewImage { src: string; caption?: string; sub?: string; wide?: boolean; /** 要用户留意的地方（如一拍里干等太久），红字标出 */ alert?: string }
