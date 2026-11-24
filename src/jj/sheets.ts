@@ -5,7 +5,7 @@ import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { type Project, type Asset, LICENSES, tierOf, sha, W, H } from './project';
 import { type Timed, type Issue, videoPlan } from './shots';
 import { fonts, frameAt, fmtTime } from './media';
-import { shotStill, creditLine } from './render';
+import { shotStill, creditLine, resolveHeads } from './render';
 import { reviewHtml, esc, type ReviewPage } from '../core/review';
 
 const TIER_COLOR: Record<string, string> = { green: '#3c9a55', yellow: '#d9a520', red: '#d9433a', banned: '#7a1f1a' };
@@ -95,7 +95,7 @@ export async function compareSheet(p: Project, s: Timed, timed: Timed[], assets:
 
 /** 素材定稿的版本：镜头的决定 + 用到的素材的签 + 口播。换了素材、挪了起点，就要重新确认 */
 export function footageHash(p: Project, timed: Timed[], assets: Record<string, Asset>): string {
-  const keys = ['id', 'use', 'from', 'fit', 'focus', 'crop', 'text', 'pop', 'meme', 'cut'];
+  const keys = ['id', 'use', 'from', 'fit', 'focus', 'crop', 'text', 'pop', 'meme', 'cut', 'layout', 'head', 'chart'];
   return sha(JSON.stringify({ shots: timed.map(s => [...keys.map(k => (s as any)[k] ?? null), +s.t0.toFixed(2), +s.t1.toFixed(2)]), seals: timed.map(s => (s.use && assets[s.use] ? assets[s.use].seal : null)), text: p.al?.flat })).slice(0, 8);
 }
 
@@ -103,17 +103,18 @@ export function footageHash(p: Project, timed: Timed[], assets: Record<string, A
 export async function boardReview(p: Project, timed: Timed[], assets: Record<string, Asset>, issues: Issue[]): Promise<{ html: string; png: string; hash: string }> {
   const hash = footageHash(p, timed, assets), F = fonts();
   const thumbs: any[] = [];
-  for (let k = 0; k < timed.length; k++) thumbs.push(await shotStill(p, timed[k], assets, 270, k));
+  const heads = resolveHeads(p, timed);
+  for (let k = 0; k < timed.length; k++) thumbs.push(await shotStill(p, timed[k], assets, 270, k, heads[k]));
   const rowsHtml: string[] = [];
   let quotes = 0, titles = 0;
   for (let k = 0; k < timed.length; k++) {
-    const s = timed[k], a = s.use && s.use !== 'title' ? assets[s.use] : undefined;
-    const tier = a ? tierOf(a) : s.use === 'title' ? 'green' : 'red';
+    const s = timed[k], a = s.use && s.use !== 'title' && s.use !== 'chart' ? assets[s.use] : undefined;
+    const tier = a ? tierOf(a) : s.use === 'title' || s.use === 'chart' ? 'green' : 'red';
     if (a?.purpose === 'quote') quotes++;
     if (s.use === 'title') titles++;
-    const src = a ? `${esc(creditLine(a))}<br><a href="${esc(a.source.page ?? a.source.url)}">${esc((a.source.title ?? a.source.page ?? a.source.url).slice(0, 60))}</a>` : s.use === 'title' ? '金句卡（不用外部素材）' : '还没选';
+    const src = a ? `${esc(creditLine(a))}<br><a href="${esc(a.source.page ?? a.source.url)}">${esc((a.source.title ?? a.source.page ?? a.source.url).slice(0, 60))}</a>` : s.use === 'title' ? '金句卡（不用外部素材）' : s.use === 'chart' ? `数据图：${esc(s.chart?.note ?? '（没写出处）')}` : '还没选';
     const flag = a?.purpose === 'quote' ? `<em class="alert">⚠ 评论性引用：${esc(a.why ?? '')}</em>` : '';
-    rowsHtml.push(`<div class="seg"><img src="${'data:image/jpeg;base64,' + (await thumbs[k].encode('jpeg', 80)).toString('base64')}" alt="${s.id}"><div><div class="seg-h"><b>${s.id}</b><span class="tag">${fmtTime(s.t0)}–${fmtTime(s.t1)} · ${(s.t1 - s.t0).toFixed(1)}s</span><span class="tag" style="color:${TIER_COLOR[tier]};border-color:${TIER_COLOR[tier]}">${a ? LICENSES[a.source.license]?.name ?? a.source.license : s.use === 'title' ? '金句卡' : '缺画面'}</span>${s.cut && s.cut !== 'cut' ? `<span class="tag">转场 ${s.cut}</span>` : ''}${s.pop ? `<span class="tag in">弹字 ${esc(s.pop)}</span>` : ''}</div><p class="say">${esc(s.sayNow)}</p>${s.want ? `<p class="intent">${esc(s.want)}</p>` : ''}<p class="note">${src}</p>${flag ? `<p>${flag}</p>` : ''}</div></div>`);
+    rowsHtml.push(`<div class="seg"><img src="${'data:image/jpeg;base64,' + (await thumbs[k].encode('jpeg', 80)).toString('base64')}" alt="${s.id}"><div><div class="seg-h"><b>${s.id}</b><span class="tag">${fmtTime(s.t0)}–${fmtTime(s.t1)} · ${(s.t1 - s.t0).toFixed(1)}s</span><span class="tag" style="color:${TIER_COLOR[tier]};border-color:${TIER_COLOR[tier]}">${a ? LICENSES[a.source.license]?.name ?? a.source.license : s.use === 'title' ? '金句卡' : s.use === 'chart' ? '数据图' : '缺画面'}</span>${a?.source.via === 'upload' ? '<span class="tag" style="color:#e65100;border-color:#e65100">上传·出处待确认</span>' : ''}${s.cut && s.cut !== 'cut' ? `<span class="tag">转场 ${s.cut}</span>` : ''}${s.pop ? `<span class="tag in">弹字 ${esc(s.pop)}</span>` : ''}</div><p class="say">${esc(s.sayNow)}</p>${s.want ? `<p class="intent">${esc(s.want)}</p>` : ''}<p class="note">${src}</p>${flag ? `<p>${flag}</p>` : ''}</div></div>`);
   }
   // 长图：一屏 6 列缩略图，带镜头号和授权色标
   const cols = 6, tw = 270, th = Math.round((tw * H) / W), lab = 64, pad = 10, head = 110;
@@ -125,7 +126,7 @@ export async function boardReview(p: Project, timed: Timed[], assets: Record<str
   for (let k = 0; k < timed.length; k++) {
     const s = timed[k], x = pad + (k % cols) * (tw + pad), y = head + Math.floor(k / cols) * (th + lab + pad);
     ctx.drawImage(thumbs[k], x, y, tw, th);
-    const a = s.use && s.use !== 'title' ? assets[s.use] : undefined, tier = a ? tierOf(a) : s.use === 'title' ? 'green' : 'red';
+    const a = s.use && s.use !== 'title' && s.use !== 'chart' ? assets[s.use] : undefined, tier = a ? tierOf(a) : s.use === 'title' || s.use === 'chart' ? 'green' : 'red';
     ctx.fillStyle = TIER_COLOR[tier]; ctx.fillRect(x, y + th, tw, 6);
     ctx.fillStyle = '#111'; ctx.font = `22px ${F}`; ctx.fillText(`${s.id} ${fmtTime(s.t0)}`, x + 2, y + th + 10);
     ctx.fillStyle = '#555'; ctx.font = `18px ${F}`; ctx.fillText(lines(ctx, s.sayNow, tw - 4)[0] ?? '', x + 2, y + th + 38);

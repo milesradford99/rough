@@ -53,9 +53,9 @@ src/cli/sketch.ts 计划审片页的结构草图：只凭计划画出分区、�
 src/jj/           剪讲
   project.ts      项目、镜头单（shots.yaml）、素材台账（assets.yaml，来源封签）、许可证分档、跨项目素材库
   shots.ts        镜头骨架（动态规划切 1.2–4 秒）、锚点解析成时间、jj check 的全部检查
-  grab.ts         jj grab / snap：curl、yt-dlp、Playwright 截图找原文；按域名和页面认许可证
+  grab.ts         jj grab / snap / stock：curl、yt-dlp、Playwright 截图找原文、图库官方接口；按域名和页面认许可证
   media.ts        ffprobe、抽帧、胶片条、转文字（平台字幕优先，否则 faster-whisper）
-  render.ts       逐帧合成：视频由 ffmpeg 解码裁切，图片推拉、截图推近高亮、金句卡、转场、弹字、表情包、字幕、署名、片尾滚动附录
+  render.ts       逐帧合成：卡片版式（标题条 + 卡片）、数据图、视频由 ffmpeg 解码裁切，图片推拉、截图推近高亮、金句卡、转场、弹字、表情包、字幕、署名、片尾滚动附录
   sheets.ts       候选拼图、故事板审片页（素材定稿闸门）、切点检查图
   cli.ts          jj 命令
 scripts/edge_words.py   取 edge-tts 的逐词时间

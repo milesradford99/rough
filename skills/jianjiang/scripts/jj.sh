@@ -19,6 +19,7 @@ setup() {
   command -v yt-dlp >/dev/null 2>&1 || echo "! 没有找到 yt-dlp：抓视频平台的素材要用它（pip install -U yt-dlp）"
   python3 -c "import faster_whisper" >/dev/null 2>&1 || echo "· 没有 faster-whisper：jj hear 转文字要用它（pip install faster-whisper）；有平台字幕的视频不需要"
   node -e "require('playwright')" >/dev/null 2>&1 || (cd "$ENGINE" 2>/dev/null && node -e "require('playwright')" >/dev/null 2>&1) || echo "· 没有 Playwright：网页截图（jj snap、抓网页）要用它（npm install -g playwright && npx playwright install chromium）"
+  [ -n "$PEXELS_API_KEY$PIXABAY_API_KEY" ] || echo "· 没有图库密钥：jj stock 要 PEXELS_API_KEY 或 PIXABAY_API_KEY（免费申请；云端放进环境变量）"
   if [ ! -d "$ENGINE" ]; then
     echo "· 下载引擎到 $ENGINE"
     git clone --depth 50 -q "$REPO" "$ENGINE"

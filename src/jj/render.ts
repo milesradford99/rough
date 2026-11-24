@@ -1,7 +1,7 @@
 // 渲染：逐帧合成。视频素材由 ffmpeg 解码成帧（对时长、裁 9:16 在 ffmpeg 里做），
 // 图片和截图在画布上推拉，金句卡在画布上排字；转场、弹字、表情包、字幕、来源标注都画在画布上；最后和配音一起编码。
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCanvas, loadImage, ImageData } from '@napi-rs/canvas';
 import { buildSubtitles, resolveAnchor, stripPunct } from '../core/alignment';
@@ -183,8 +183,10 @@ function titleLayer(s: Timed, cw: number, ch: number): Layer {
       const g = ctx.createRadialGradient(cw / 2, ch * 0.42, 50 * sc, cw / 2, ch * 0.42, ch * 0.75);
       g.addColorStop(0, '#2a2723'); g.addColorStop(1, '#0d0c0b'); ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
       let size = 112 * sc, lines = wrap(ctx, text, size, 860 * sc);
-      while (lines.length > 4 && size > 60 * sc) { size *= 0.88; lines = wrap(ctx, text, size, 860 * sc); }
-      const lh = size * 1.32, y0 = ch * 0.42 - ((lines.length - 1) * lh) / 2;
+      // 手动换了行（\n）的，每一行尽量不再被折开：缩字号直到放得下
+      const want = text.split('\n').length;
+      while ((lines.length > 4 || (want > 1 && lines.length > want)) && size > 60 * sc) { size *= 0.9; lines = wrap(ctx, text, size, 860 * sc); }
+      const cy = ch / cw < 1.2 ? 0.5 : 0.42, lh = size * 1.32, y0 = ch * cy - ((lines.length - 1) * lh) / 2;
       const k = ease(i / (0.3 * 30));
       ctx.globalAlpha = k;
       lines.forEach((l, j) => drawText(ctx, l, cw / 2, y0 + j * lh + (1 - k) * 30 * sc, size, { fill: '#f5f1e8', accent: s.pop && l.includes(s.pop) ? s.pop : undefined, accentColor: '#ffcf33' }));
@@ -207,12 +209,112 @@ function missingLayer(s: Timed, cw: number, ch: number): Layer {
   };
 }
 
-async function layerFor(p: Project, s: Timed, assets: Record<string, Asset>, cw: number, ch: number, fps: number, k: number): Promise<Layer> {
+async function innerLayer(p: Project, s: Timed, assets: Record<string, Asset>, cw: number, ch: number, fps: number, k: number): Promise<Layer> {
   if (!s.use) return missingLayer(s, cw, ch);
   if (s.use === 'title') return titleLayer(s, cw, ch);
+  if (s.use === 'chart') return s.chart ? chartLayer(s, cw, ch) : missingLayer(s, cw, ch);
   const a = assets[s.use];
   if (!a) return missingLayer(s, cw, ch);
   return a.kind === 'video' ? videoLayer(p, s, a, cw, ch, fps) : stillLayer(p, s, a, cw, ch, k);
+}
+
+/** 版式：card 是顶部标题条 + 中间一张卡片，画面放在卡片里；full 是铺满全屏 */
+export const layoutOf = (p: Project, s: Shot): 'card' | 'full' => s.layout ?? (p.meta.layout === 'card' ? 'card' : 'full');
+export const CARD = { x: 40, y: 440, w: 1000, h: 860 };
+/** 每一镜顶部标题条的字：写了 head 就换，不写沿用上一镜 */
+export function resolveHeads(p: Project, timed: Timed[]): string[] {
+  let cur = String(p.meta.headline ?? p.meta.title ?? '');
+  return timed.map(s => (cur = s.head ?? cur));
+}
+const ACCENT = (p: Project) => String(p.meta.accent ?? '#e53935');
+const bgCache = new Map<string, any>();
+function cardBackground(p: Project, head: string, cw: number, ch: number): any {
+  const key = `${head}|${cw}|${ACCENT(p)}`;
+  if (bgCache.has(key)) return bgCache.get(key);
+  const sc = cw / W, bg = createCanvas(cw, ch), b = bg.getContext('2d');
+  const g = b.createLinearGradient(0, 0, 0, ch); g.addColorStop(0, '#1b1e24'); g.addColorStop(1, '#0c0d10');
+  b.fillStyle = g; b.fillRect(0, 0, cw, ch);
+  if (head) {
+    let size = 84 * sc, lines = wrap(b, head, size, 960 * sc);
+    while (lines.length > 2 && size > 48 * sc) { size *= 0.9; lines = wrap(b, head, size, 960 * sc); }
+    const lh = size * 1.25, cy = (CARD.y - 120) * sc, y0 = cy - ((lines.length - 1) * lh) / 2;
+    lines.forEach((l, j) => drawText(b, l, cw / 2, y0 + j * lh, size, { fill: '#fff' }));
+    b.fillStyle = ACCENT(p); b.fillRect(cw / 2 - 60 * sc, y0 + (lines.length - 1) * lh + size * 0.75, 120 * sc, 8 * sc);
+  }
+  if (bgCache.size > 6) bgCache.delete(bgCache.keys().next().value!);
+  bgCache.set(key, bg);
+  return bg;
+}
+
+async function layerFor(p: Project, s: Timed, assets: Record<string, Asset>, cw: number, ch: number, fps: number, k: number, head = ''): Promise<Layer> {
+  if (layoutOf(p, s) !== 'card') return innerLayer(p, s, assets, cw, ch, fps, k);
+  const sc = cw / W, x = CARD.x * sc, y = CARD.y * sc, w = Math.round(CARD.w * sc), h = Math.round(CARD.h * sc), r = 28 * sc;
+  const inner = await innerLayer(p, s, assets, w, h, fps, k);
+  const card = createCanvas(w, h), cctx = card.getContext('2d');
+  return {
+    async draw(ctx, i, n) {
+      ctx.drawImage(cardBackground(p, head, cw, ch), 0, 0);
+      await inner.draw(cctx, i, n);
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 40 * sc; ctx.shadowOffsetY = 10 * sc;
+      ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fillStyle = '#000'; ctx.fill();
+      ctx.shadowColor = 'transparent'; ctx.clip(); ctx.drawImage(card, x, y);
+      ctx.restore();
+    },
+    close() { inner.close(); },
+  };
+}
+
+/** 原生数据图：横条一根根长出来（标红的那根最后、最醒目），或者折线从左往右画出来 */
+function chartLayer(s: Timed, cw: number, ch: number): Layer {
+  const c = s.chart!, sc = cw / W, F = fonts();
+  const hl = new Set(Array.isArray(c.highlight) ? c.highlight : c.highlight != null ? [c.highlight] : []);
+  const data = c.data ?? [], unit = c.unit ?? '';
+  const fmtV = (v: number) => `${Number.isInteger(v) ? v : v.toFixed(Math.abs(v) < 10 ? 1 : 0)}${unit}`;
+  return {
+    async draw(ctx, i, n) {
+      const t = i / 30;
+      ctx.fillStyle = '#f7f4ee'; ctx.fillRect(0, 0, cw, ch);
+      let top = 50 * sc;
+      if (c.title) { drawText(ctx, c.title, cw / 2, top + 30 * sc, 52 * sc, { fill: '#1f1d1b' }); top += 100 * sc; }
+      const bottom = ch - (c.note ? 70 : 40) * sc;
+      if (c.note) { ctx.font = `${26 * sc}px ${F}`; ctx.fillStyle = '#8c8781'; ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.fillText(c.note, cw / 2, ch - 40 * sc); ctx.textAlign = 'left'; }
+      const max = Math.max(...data.map(d => Math.abs(d[1])), 1e-9);
+      if ((c.type ?? 'bar') === 'bar') {
+        const rows = data.length, gap = (bottom - top) / Math.max(rows, 1), bh = Math.min(gap * 0.62, 90 * sc);
+        ctx.font = `${40 * sc}px ${F}`;
+        const labW = Math.max(...data.map(d => ctx.measureText(d[0]).width)) + 30 * sc, x0 = 40 * sc + labW;
+        ctx.font = `${50 * sc}px ${F}`;
+        const valW = Math.max(...data.map(d => ctx.measureText(fmtV(d[1])).width)) + 50 * sc, maxW = Math.max(cw * 0.25, cw - x0 - valW);
+        const stagger = Math.min(0.35, (n / 30) * 0.5 / Math.max(rows, 1));
+        data.forEach(([lab, v], j) => {
+          const y = top + gap * (j + 0.5), on = hl.has(lab), e = ease((t - j * stagger) / 0.5);
+          drawText(ctx, lab, x0 - 20 * sc - ctx.measureText(lab).width / 2, y, 40 * sc, { fill: on ? '#c4402f' : '#3a3632' });
+          ctx.fillStyle = on ? '#d9433a' : '#8fa3b3'; ctx.beginPath(); ctx.roundRect(x0, y - bh / 2, Math.max(2, (Math.abs(v) / max) * maxW * e), bh, 8 * sc); ctx.fill();
+          if (e > 0.05) { ctx.globalAlpha = Math.min(1, e * 1.5); drawText(ctx, fmtV(v), x0 + (Math.abs(v) / max) * maxW * e + 20 * sc, y, (on ? 50 : 40) * sc, { fill: on ? '#c4402f' : '#3a3632', align: 'left' }); ctx.globalAlpha = 1; }
+        });
+      } else {
+        const vals = data.map(d => d[1]), lo = Math.min(...vals), hi = Math.max(...vals), pad = (hi - lo) * 0.12 || 1;
+        const x0 = 90 * sc, x1 = cw - 120 * sc, y0 = bottom - 60 * sc, y1 = top + 40 * sc;
+        const X = (j: number) => x0 + ((x1 - x0) * j) / Math.max(1, data.length - 1), Y = (v: number) => y0 - ((v - lo + pad) / (hi - lo + 2 * pad)) * (y0 - y1);
+        ctx.strokeStyle = '#d6d0c4'; ctx.lineWidth = 2 * sc; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); ctx.stroke();
+        const e = ease(t / Math.max(0.6, (n / 30) * 0.6)), upto = e * (data.length - 1);
+        ctx.strokeStyle = '#d9433a'; ctx.lineWidth = 8 * sc; ctx.lineJoin = 'round'; ctx.beginPath();
+        for (let j = 0; j <= Math.floor(upto); j++) (j ? ctx.lineTo(X(j), Y(vals[j])) : ctx.moveTo(X(j), Y(vals[j])));
+        const fj = Math.floor(upto), fr = upto - fj;
+        if (fj < data.length - 1) ctx.lineTo(X(fj) + (X(fj + 1) - X(fj)) * fr, Y(vals[fj]) + (Y(vals[fj + 1]) - Y(vals[fj])) * fr);
+        ctx.stroke();
+        data.forEach(([lab, v], j) => {
+          if (j > upto + 1e-6) return;
+          const on = hl.has(lab) || j === 0 || j === data.length - 1;
+          ctx.fillStyle = '#d9433a'; ctx.beginPath(); ctx.arc(X(j), Y(v), (on ? 12 : 6) * sc, 0, Math.PI * 2); ctx.fill();
+          if (on) drawText(ctx, fmtV(v), X(j), Y(v) - 44 * sc, 42 * sc, { fill: '#c4402f' });
+          if (on || data.length <= 8) drawText(ctx, lab, X(j), y0 + 40 * sc, 32 * sc, { fill: '#5a554f' });
+        });
+      }
+    },
+    close() {},
+  };
 }
 
 /** 来源标注：授权需要署名、或者是评论性引用的素材，画面左上角标出出处 */
@@ -226,7 +328,9 @@ async function appendixSheet(p: Project, timed: Timed[], assets: Record<string, 
   const { appendix } = loadAppendix(p.dir);
   const sections: { title: string; note?: string; items: { when?: string; tag?: string; title: string; text?: string }[] }[] = appendix ? [...appendix.sections] : [];
   const used = [...new Set(timed.flatMap(s => [s.use, s.meme?.use]).filter((u): u is string => !!u && u !== 'title' && !!assets[u]))];
-  if (used.length) sections.push({ title: '画面素材来源', items: used.map(id => { const a = assets[id], shots = timed.filter(s => s.use === id || s.meme?.use === id).map(s => s.id); const local = a.source.url.startsWith('file://'); return { tag: shots.length > 4 ? `${shots.slice(0, 3).join(' ')} 等 ${shots.length} 镜` : shots.join(' '), title: a.source.title?.slice(0, 40) || a.source.site || id, text: local ? `${LICENSES[a.source.license]?.name ?? a.source.license}${a.note ? `：${a.note}` : ''}`.slice(0, 160) : `${creditLine(a)}（${LICENSES[a.source.license]?.name ?? a.source.license}${a.purpose === 'quote' ? '，评论引用' : ''}）${a.source.page ?? a.source.url}`.slice(0, 160) }; }) });
+  if (used.length) sections.push({ title: '画面素材来源', items: used.map(id => { const a = assets[id], shots = timed.filter(s => s.use === id || s.meme?.use === id).map(s => s.id); const local = a.source.url.startsWith('file://'); return { tag: shots.length > 4 ? `${shots.slice(0, 3).join(' ')} 等 ${shots.length} 镜` : shots.join(' '), title: a.source.title?.slice(0, 40) || a.source.site || id, text: local ? `${LICENSES[a.source.license]?.name ?? a.source.license}${a.note ? `：${a.note}` : ''}`.slice(0, 160) : `${creditLine(a)}（${LICENSES[a.source.license]?.name ?? a.source.license}${a.purpose === 'quote' ? '，评论引用' : ''}${a.source.via === 'upload' ? '，上传文件' : ''}）${a.source.page ?? a.source.url}`.slice(0, 160) }; }) });
+  const charts = timed.filter(s => s.use === 'chart' && s.chart);
+  if (charts.length) sections.push({ title: '图表数据来源', items: charts.map(s => ({ tag: s.id, title: s.chart!.title ?? s.sayNow.slice(0, 30), text: [s.chart!.data.map(([k, v]) => `${k} ${v}${s.chart!.unit ?? ''}`).join('；'), s.chart!.note].filter(Boolean).join('。').slice(0, 200) })) });
   if (!sections.length) return null;
   const sc = cw / W, F = fonts();
   const tmp = createCanvas(cw, 10).getContext('2d');
@@ -264,10 +368,12 @@ export async function renderVideo(p: Project, timed: Timed[], assets: Record<str
   const from = o.from ?? 0, to = Math.min(o.to ?? narr + appDur, narr + appDur);
   const total = Math.round((to - from) * fps);
   mkdirSync(join(o.out, '..'), { recursive: true });
+  // 先写到临时文件，合成成功才换上：中断的、同时跑的两次渲染不会把成片写坏
+  const partial = `${o.out}.${process.pid}.part`;
   const ff = ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${cw}x${ch}`, '-r', String(fps), '-i', '-'];
   if (p.audio) ff.push('-ss', String(from), '-i', p.audio);
   ff.push('-map', '0:v'); if (p.audio) ff.push('-map', '1:a', '-af', 'apad');
-  ff.push('-t', (to - from).toFixed(3), '-c:v', 'libx264', '-preset', low ? 'veryfast' : 'medium', '-crf', low ? '28' : '19', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', o.out);
+  ff.push('-t', (to - from).toFixed(3), '-c:v', 'libx264', '-preset', low ? 'veryfast' : 'medium', '-crf', low ? '28' : '19', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4', partial);
   const enc = spawn('ffmpeg', ff, { stdio: ['pipe', 'inherit', 'inherit'] });
   const done = new Promise<number>(r => enc.on('close', c => r(c ?? 1)));
   // 弹字、表情包的时间
@@ -278,6 +384,7 @@ export async function renderVideo(p: Project, timed: Timed[], assets: Record<str
   }
   const memeImg = new Map<string, any>();
   for (const s of timed) if (s.meme && assets[s.meme.use] && !memeImg.has(s.meme.use)) { try { memeImg.set(s.meme.use, await loadImage(join(p.dir, assets[s.meme.use].file))); } catch { /* 读不了的表情包不画 */ } }
+  const heads = resolveHeads(p, timed);
   const subSprite = new Map<number, any>();
   let k = -1, layer: Layer | null = null, layerStart = 0, layerN = 0, lastFrame: any = null, appBg: any = null;
   const started = Date.now();
@@ -294,7 +401,7 @@ export async function renderVideo(p: Project, timed: Timed[], assets: Record<str
         const sub: Timed = { ...s };
         // 只渲染一段时：视频从镜头中间开始，素材也要往后挪
         if (t > s.t0 + 1 / fps && s.from != null) sub.from = s.from + (t - s.t0);
-        layer = await layerFor(p, sub, assets, cw, ch, fps, k);
+        layer = await layerFor(p, sub, assets, cw, ch, fps, k, heads[k]);
         layerStart = fi; if (t > s.t0 + 1 / fps) layerN = Math.max(1, Math.round((s.t1 - t) * fps));
       }
       const s = timed[k], li = fi - layerStart, lt = li / fps;
@@ -311,7 +418,8 @@ export async function renderVideo(p: Project, timed: Timed[], assets: Record<str
       if (a && (a.purpose === 'quote' || LICENSES[a.source.license]?.credit)) {
         ctx.font = `${26 * sc}px ${F}`; ctx.textBaseline = 'top'; ctx.fillStyle = 'rgba(0,0,0,0.45)';
         const txt = `画面：${creditLine(a)}`.slice(0, 40), tw = ctx.measureText(txt).width;
-        ctx.fillRect(40 * sc, (SAFE.top + 10) * sc, tw + 24 * sc, 40 * sc); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillText(txt, 52 * sc, (SAFE.top + 17) * sc);
+        const card = layoutOf(p, s) === 'card', cx = card ? CARD.x + 16 : 40, cy = card ? CARD.y + CARD.h - 56 : SAFE.top + 10;
+        ctx.fillRect(cx * sc, cy * sc, tw + 24 * sc, 40 * sc); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillText(txt, (cx + 12) * sc, (cy + 7) * sc);
       }
       // 表情包
       if (s.meme && memeImg.has(s.meme.use)) {
@@ -363,6 +471,7 @@ export async function renderVideo(p: Project, timed: Timed[], assets: Record<str
   layer?.close();
   enc.stdin!.end();
   if ((await done) !== 0) throw new Error('ffmpeg 合成失败');
+  renameSync(partial, o.out);
   return { file: o.out, seconds: (Date.now() - started) / 1000, frames: total, cuts: timed.filter(s => s.t0 > from && s.t0 < to).map(s => ({ id: s.id, t: s.t0 - from })) };
 }
 
@@ -370,13 +479,13 @@ export function hasFfmpeg(): boolean { return existsSync('/usr/bin/ffmpeg') || !
 export { stripPunct };
 
 /** 一个镜头中间那一刻的画面（裁切、推拉都和成片一样，不含字幕）：故事板和候选图用 */
-export async function shotStill(p: Project, s: Timed, assets: Record<string, Asset>, width = 360, k = 0): Promise<any> {
+export async function shotStill(p: Project, s: Timed, assets: Record<string, Asset>, width = 360, k = 0, head = ''): Promise<any> {
   const cw = Math.round(width / 2) * 2, ch = Math.round((width * H) / W / 2) * 2;
   const cv = createCanvas(cw, ch), ctx = cv.getContext('2d');
   const mid: Timed = { ...s };
   const a = s.use ? assets[s.use] : undefined;
   if (a?.kind === 'video') mid.from = Math.min((s.from ?? 0) + (s.t1 - s.t0) / 2, Math.max(0, (a.duration ?? 1) - 0.2));
-  const layer = await layerFor(p, mid, assets, cw, ch, 30, k);
+  const layer = await layerFor(p, mid, assets, cw, ch, 30, k, head);
   const n = Math.round((s.t1 - s.t0) * 30);
   try { await layer.draw(ctx, a?.kind === 'video' ? 0 : Math.round(n * 0.7), n); } finally { layer.close(); }
   return cv;

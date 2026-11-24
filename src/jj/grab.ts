@@ -163,7 +163,49 @@ function findExisting(assets: Record<string, Asset>, url: string, hash?: string)
   return null;
 }
 
-export interface GrabOpts { as?: string; note?: string; video?: boolean; find?: string; license?: string; full?: boolean; page?: boolean }
+export interface GrabOpts { as?: string; note?: string; video?: boolean; find?: string; license?: string; full?: boolean; page?: boolean; sourceUrl?: string }
+
+/** 图库搜索（jj stock）：走 Pexels / Pixabay 的官方接口，云端也不会被拦。密钥放在环境变量里，免费申请 */
+export interface StockHit { site: 'pexels' | 'pixabay'; kind: 'image' | 'video'; page: string; file: string; w: number; h: number; duration?: number; author?: string; title?: string }
+const stockCacheFile = () => join(jjHome(), 'stock.json');
+const loadStockCache = (): Record<string, StockHit> => { try { return JSON.parse(readFileSync(stockCacheFile(), 'utf8')); } catch { return {}; } };
+function apiJson(url: string, headers: string[] = []): any {
+  const r = spawnSync('curl', ['-sS', '--fail-with-body', '--retry', '2', '--max-time', '40', ...headers.flatMap(h => ['-H', h]), url], { encoding: 'utf8', maxBuffer: 64 << 20 });
+  if (r.status !== 0) throw new Error(`图库接口请求失败：${(r.stdout || r.stderr || '').trim().slice(0, 200)}`);
+  return JSON.parse(r.stdout);
+}
+export function stockSearch(q: string, o: { video?: boolean; n?: number; orientation?: string; site?: string } = {}): { hits: StockHit[]; skipped: string[] } {
+  const n = Math.min(Math.max(o.n ?? 8, 3), 40), hits: StockHit[] = [], skipped: string[] = [];
+  const orient = o.orientation ?? 'portrait';
+  const pexKey = process.env.PEXELS_API_KEY, pixKey = process.env.PIXABAY_API_KEY;
+  if (!o.site || o.site === 'pexels') {
+    if (!pexKey) skipped.push('Pexels（没有 PEXELS_API_KEY：在 https://www.pexels.com/api/ 免费申请，放进环境变量）');
+    else {
+      const base = process.env.JJ_PEXELS_API ?? 'https://api.pexels.com';
+      const qs = `query=${encodeURIComponent(q)}&per_page=${n}${orient !== 'any' ? `&orientation=${orient}` : ''}`;
+      const j = apiJson(`${base}${o.video ? '/videos/search' : '/v1/search'}?${qs}`, [`Authorization: ${pexKey}`]);
+      if (o.video) for (const v of j.videos ?? []) {
+        const files = (v.video_files ?? []).filter((f: any) => /mp4/.test(f.file_type ?? 'mp4') && f.width && f.height).sort((a: any, b: any) => Math.min(a.width, a.height) - Math.min(b.width, b.height));
+        const f = files.find((f: any) => Math.min(f.width, f.height) >= 1080) ?? files[files.length - 1];
+        if (f) hits.push({ site: 'pexels', kind: 'video', page: v.url, file: f.link, w: f.width, h: f.height, duration: v.duration, author: v.user?.name, title: v.url?.split('/').filter(Boolean).pop() });
+      } else for (const ph of j.photos ?? []) hits.push({ site: 'pexels', kind: 'image', page: ph.url, file: ph.src?.original ?? ph.src?.large2x, w: ph.width, h: ph.height, author: ph.photographer, title: ph.alt || undefined });
+    }
+  }
+  if (!o.site || o.site === 'pixabay') {
+    if (!pixKey) skipped.push('Pixabay（没有 PIXABAY_API_KEY：在 https://pixabay.com/api/docs/ 免费申请，放进环境变量）');
+    else {
+      const base = process.env.JJ_PIXABAY_API ?? 'https://pixabay.com/api';
+      const qs = `key=${encodeURIComponent(pixKey)}&q=${encodeURIComponent(q)}&per_page=${n}&safesearch=true${!o.video && orient !== 'any' ? `&orientation=${orient === 'portrait' ? 'vertical' : 'horizontal'}` : ''}`;
+      const j = apiJson(`${base}${o.video ? '/videos/' : '/'}?${qs}`);
+      for (const h of j.hits ?? []) {
+        if (o.video) { const v = h.videos?.large?.url ? h.videos.large : h.videos?.medium; if (v?.url) hits.push({ site: 'pixabay', kind: 'video', page: h.pageURL, file: v.url, w: v.width, h: v.height, duration: h.duration, author: h.user, title: h.tags }); }
+        else hits.push({ site: 'pixabay', kind: 'image', page: h.pageURL, file: h.largeImageURL, w: h.imageWidth, h: h.imageHeight, author: h.user, title: h.tags });
+      }
+    }
+  }
+  if (hits.length) { const c = loadStockCache(); for (const h of hits) c[h.page] = h; mkdirSync(jjHome(), { recursive: true }); writeFileSync(stockCacheFile(), JSON.stringify(c)); }
+  return { hits, skipped };
+}
 
 export async function grab(dir: string, url: string, o: GrabOpts = {}): Promise<GrabResult> {
   const assets = loadAssets(dir), media = join(dir, 'media');
@@ -177,12 +219,15 @@ export async function grab(dir: string, url: string, o: GrabOpts = {}): Promise<
     return { id, asset: a, reused, extra };
   };
   const local = !/^https?:\/\//i.test(url);
+  if (o.sourceUrl && !local) throw new Error('--source-url 只用于本地文件：说明这个文件是从哪个网址下的');
+  if (o.sourceUrl && !/^https?:\/\//i.test(o.sourceUrl)) throw new Error('--source-url 要写完整网址（https://…）');
+  if (o.sourceUrl && o.license) throw new Error('--source-url 和 --license 不能一起用：有出处的文件，许可证按出处认');
   // Pexels 的页面拒绝自动访问，但图片地址有固定写法：页面网址直接换成原图
   const px = url.match(/^https?:\/\/(?:www\.)?pexels\.com\/(?:[a-z-]+\/)?photo\/(?:[^/]*-)?(\d+)\/?$/i);
-  if (px) url = `https://images.pexels.com/photos/${px[1]}/pexels-photo-${px[1]}.jpeg?auto=compress&w=2400`;
+  if (px && !loadStockCache()[url]) url = `https://images.pexels.com/photos/${px[1]}/pexels-photo-${px[1]}.jpeg?auto=compress&w=2400`;
   if (o.license && !local) throw new Error('--license 只用于本地文件。网上的素材，许可证由框架从来源识别，不能自己填');
   if (local && o.license && !['own', 'ai', 'unknown'].includes(o.license)) throw new Error('本地文件的 --license 只能是 own（自己拍的、自己做的）、ai（AI 生成）或 unknown。网上下的东西请直接 jj grab 它的网址，许可证由框架识别');
-  const key = local ? 'file://' + resolve(url) : url;
+  const key = o.sourceUrl ?? (local ? 'file://' + resolve(url) : url);
   // 抓过的网址不重复下载（jj snap 每句原文是一次新的截图）
   if (!o.find) { const hit = findExisting(assets, key); if (hit) return attach(hit, 'project'); }
   if (!o.find && !local) {
@@ -208,7 +253,12 @@ export async function grab(dir: string, url: string, o: GrabOpts = {}): Promise<
     file = `media/${id}${extname(abs).toLowerCase()}`;
     copyFileSync(abs, join(dir, file));
     kind = probe(join(dir, file)).duration > 0.5 && !/\.(png|jpe?g|webp|gif|bmp)$/i.test(abs) ? 'video' : 'image';
-    source = { url: key, title: basename(abs), grabbed: today(), sha256: '', license: lic };
+    if (o.sourceUrl) {
+      // 用户或别的机器下好的文件：出处是声明的（框架没有亲自抓），许可证按出处的域名认，认不出就是授权未知
+      const host = hostOf(o.sourceUrl);
+      source = { url: o.sourceUrl, page: o.sourceUrl, title: basename(abs), site: host, grabbed: today(), sha256: '', ...(licenseByHost(host) ?? { license: VIDEO_HOSTS.test(host) ? 'platform' : 'unknown' }), via: 'upload' };
+      extra.push('出处是声明的：故事板上会标“上传”，请确认文件确实来自这个网址');
+    } else source = { url: key, title: basename(abs), grabbed: today(), sha256: '', license: lic };
   } else if (o.find || o.page) {
     // 网页截图：jj snap，或者 jj grab --page
     file = `media/${id}.png`;
@@ -221,6 +271,13 @@ export async function grab(dir: string, url: string, o: GrabOpts = {}): Promise<
     if (r.meta.ogImage) extra.push(`页面主图：${r.meta.ogImage}`);
     for (const im of r.meta.imgs.slice(0, 5)) if (im !== r.meta.ogImage) extra.push(`页面里的大图：${im}`);
     for (const v of r.meta.vids) extra.push(`页面里的视频：${v}`);
+  } else if (loadStockCache()[url]) {
+    // jj stock 搜到的：用接口给的直链下载，作者和许可证来自接口
+    const h = loadStockCache()[url], tmp = join(media, id + '.dl');
+    const r = curl(h.file, tmp);
+    file = `media/${id}${extFor(r.type, h.file)}`; renameSync(tmp, join(dir, file));
+    kind = h.kind;
+    source = { url, page: h.page, title: h.title, author: h.author, site: h.site === 'pexels' ? 'Pexels' : 'Pixabay', grabbed: today(), sha256: '', ...licenseByHost(h.site + '.com')! };
   } else {
     const host = hostOf(url);
     const commonsPage = /commons\.wikimedia\.org$|wikipedia\.org$/.test(host) && /\/wiki\/(File|文件):/.test(decodeURIComponent(url));

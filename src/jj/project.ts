@@ -27,10 +27,23 @@ export interface Shot {
   pop?: string;             // 说到这几个字时弹出大字（必须是这一镜里说的原文）
   meme?: { use: string; at?: string; dur?: number; place?: 'corner' | 'center' };
   cut?: 'cut' | 'flash' | 'zoom' | 'whip';
+  layout?: 'card' | 'full'; // card：顶部标题条 + 中间一张卡片放画面（默认，见 project.yaml 的 layout）；full：画面铺满全屏
+  head?: string;            // 这一镜顶部标题条的字（不写就沿用上一镜的，第一镜用 project.yaml 的 headline）
+  chart?: Chart;            // use: chart 时的数据图
   note?: string;
 }
-export const SHOT_KEYS = ['id', 'at', 'say', 'dur', 'want', 'use', 'from', 'fit', 'focus', 'crop', 'text', 'pop', 'meme', 'cut', 'note'];
+export const SHOT_KEYS = ['id', 'at', 'say', 'dur', 'want', 'use', 'from', 'fit', 'focus', 'crop', 'text', 'pop', 'meme', 'cut', 'layout', 'head', 'chart', 'note'];
 export const CUTS = ['cut', 'flash', 'zoom', 'whip'];
+
+/** 原生数据图：数据写在镜头单里，引擎画、引擎做动画 */
+export interface Chart {
+  type?: 'bar' | 'line';                 // bar 横条（默认）；line 折线
+  title?: string;                        // 图上方的一行字
+  unit?: string;                         // 数值后面的单位，如 %、美元、年
+  data: [string, number][];              // [[标签, 数值], …]
+  highlight?: string | string[];         // 要标红的那一条（标签）
+  note?: string;                         // 图下方的出处或注释
+}
 
 /** 素材的来源：jj grab / jj snap 自动记，封了签（seal），手改了 jj check 会报错 */
 export interface Source {
@@ -46,6 +59,7 @@ export interface Source {
   licenseUrl?: string;
   find?: string;            // jj snap：截的是页面上哪句原文
   box?: [number, number, number, number]; // 这句原文在截图里的位置（像素）
+  via?: 'upload';           // 用户或别的机器下好、放进来的文件：出处是声明的，框架没有亲自抓
 }
 export interface Asset {
   file: string;             // 相对项目目录

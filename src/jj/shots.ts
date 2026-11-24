@@ -5,6 +5,10 @@ import { resolveAnchor, stripPunct, type Alignment } from '../core/alignment';
 import { type Shot, type Asset, type Project, SHOT_KEYS, CUTS, LICENSES, tierOf, sealOf, mediaFor } from './project';
 
 export const MIN_DUR = 1.2, MAX_DUR = 4, TARGET_DUR = 2.8;
+/** 镜头节奏：jj scaffold --pace。fast 适合快剪新闻；calm 适合讲道理、放数据图 */
+export const PACES: Record<string, { target: number; max: number }> = { fast: { target: 2.2, max: 3.5 }, normal: { target: 2.8, max: 4 }, calm: { target: 4.2, max: 6.5 } };
+/** 镜头时长的检查：静止画面撑不了太久，视频和数据图可以长一些 */
+export const LONG_WARN = 6, LONG_WARN_MOVING = 9, LONG_ERR = 12;
 /** 评论性引用的上限：每条片子的个数、单个镜头的时长 */
 export const QUOTE_MAX = 12, QUOTE_SHOT_MAX = 4.5;
 /** 素材比镜头短：放慢不低于 0.8 倍，再不够就定格推近；够不到一半报错 */
@@ -44,7 +48,8 @@ export function anchorAt(al: Alignment, ui: number): string {
 }
 
 /** 切镜头骨架：动态规划，切点尽量落在句号、逗号、停顿上，时长尽量接近 2.8 秒 */
-export function scaffoldShots(al: Alignment, duration: number): Shot[] {
+export function scaffoldShots(al: Alignment, duration: number, pace = 'normal'): Shot[] {
+  const P = PACES[pace] ?? PACES.normal, MAXD = P.max, TGT = P.target;
   const n = al.units.length;
   const T = (i: number) => (i >= n ? duration : cutTime(al, i));
   // best[i]：前 i 个字切好的最小代价（i 是下一个镜头开头的字）
@@ -55,8 +60,8 @@ export function scaffoldShots(al: Alignment, duration: number): Shot[] {
     for (let i = j - 1; i >= 0; i--) {
       if (best[i] === Infinity) continue;
       const d = T(j) - T(i);
-      if (d > MAX_DUR * 2.5) break;
-      let c = d < MIN_DUR ? 40 + (MIN_DUR - d) * 40 : d > MAX_DUR ? 40 + (d - MAX_DUR) * 40 : 0.6 * (d - TARGET_DUR) ** 2;
+      if (d > MAXD * 2.5) break;
+      let c = d < MIN_DUR ? 40 + (MIN_DUR - d) * 40 : d > MAXD ? 40 + (d - MAXD) * 40 : (0.6 * (d - TGT) ** 2) * (2.8 / TGT) ** 2;
       c += bc * 2;
       if (best[i] + c < best[j]) { best[j] = best[i] + c; prev[j] = i; }
     }
@@ -127,11 +132,13 @@ export function checkProject(p: Project, shots: Shot[], assets: Record<string, A
   });
   const timed = timeShots(p, shots, issues);
   let quotes = 0;
+  const uploads = new Set<string>();
   const usedAt = new Map<string, Timed[]>();
   timed.forEach((s, k) => {
     const where = s.id, d = s.t1 - s.t0;
-    if (d > MAX_DUR + 0.5) err(where, `镜头 ${d.toFixed(1)} 秒，太长（上限 ${MAX_DUR} 秒）：在中间加一个镜头（复制一行，at 写成后半句开头的几个字），再 jj sync`);
-    else if (d > MAX_DUR) warn(where, `镜头 ${d.toFixed(1)} 秒，略长（建议不超过 ${MAX_DUR} 秒）`);
+    const moving = s.use === 'chart' || (!!s.use && assets[s.use]?.kind === 'video'), soft = moving ? LONG_WARN_MOVING : LONG_WARN;
+    if (d > LONG_ERR) err(where, `镜头 ${d.toFixed(1)} 秒，太长（上限 ${LONG_ERR} 秒）：在中间加一个镜头（复制一行，at 写成后半句开头的几个字），再 jj sync`);
+    else if (d > soft) warn(where, `镜头 ${d.toFixed(1)} 秒，${moving ? '' : '静止画面'}偏长（建议不超过 ${soft} 秒）。要是这里就该停一下，可以不管`);
     if (d < MIN_DUR - 0.3 && k < timed.length - 1) err(where, `镜头只有 ${d.toFixed(1)} 秒，太短（下限 ${MIN_DUR} 秒）：和相邻镜头合并（删掉这一行或下一行），再 jj sync`);
     if (s.say != null && stripPunct(s.say) !== stripPunct(s.sayNow)) warn(where, `say 和口播对不上了（at 改过？）。运行 jj sync 重算 say 和 dur`);
     else if (s.dur != null && Math.abs(s.dur - d) > 0.05) warn(where, `dur 写的是 ${s.dur}，实际是 ${d.toFixed(2)}。运行 jj sync`);
@@ -141,7 +148,12 @@ export function checkProject(p: Project, shots: Shot[], assets: Record<string, A
     if (s.crop != null && !(Array.isArray(s.crop) && s.crop.length === 4 && s.crop.every(v => typeof v === 'number' && v >= 0 && v <= 1) && s.crop[0] + s.crop[2] <= 1.001 && s.crop[1] + s.crop[3] <= 1.001 && s.crop[2] > 0.05 && s.crop[3] > 0.05)) err(where, 'crop 写成 [左, 上, 宽, 高]，都是 0 到 1 的比例，比如 [0, 0, 1, 0.8] 去掉下面五分之一');
     if (s.pop && !stripPunct(s.sayNow).includes(stripPunct(s.pop))) err(where, `pop "${s.pop}" 不是这一镜里说的话。弹字要用口播原文：${s.sayNow}`);
     if (!s.use) { err(where, `还没有选画面${s.want ? `（want：${s.want}）` : '：先写 want，再去找'}。实在找不到，写 use: title 用金句卡`); return; }
+    if (s.layout != null && !['card', 'full'].includes(s.layout)) err(where, 'layout 只能是 card（顶部标题条 + 卡片）或 full（铺满全屏）');
+    if (s.head != null && typeof s.head !== 'string') err(where, 'head 写一行字（这一镜顶部标题条的字）');
+    else if (s.head && [...s.head].length > 28) warn(where, `head 有 ${[...s.head].length} 个字，标题条最多两行，缩到 28 个字以内`);
+    if (s.chart && s.use !== 'chart') warn(where, '写了 chart 但 use 不是 chart：数据图不会出现。要用图，写 use: chart');
     if (s.use === 'title') { if (s.from != null) warn(where, '金句卡不需要 from'); return; }
+    if (s.use === 'chart') { checkChart(s.chart, m => err(where, m)); return; }
     const a = assets[s.use];
     if (!a) { err(where, `use: ${s.use} 不在素材台账里。素材要先 jj grab 入库；可用：${Object.keys(assets).join(' ') || '（台账是空的）'}`); return; }
     if (a.rejected) err(where, `${s.use} 已经被否掉了（${a.rejected}）。换一个，或者先把 rejected 删掉`);
@@ -149,6 +161,7 @@ export function checkProject(p: Project, shots: Shot[], assets: Record<string, A
     if (tier === 'banned') err(where, `${s.use} 的许可证是 ${lic?.name}，不能用在这条片子里（剪裁、加字都算演绎；自媒体算商用）。换一个素材`);
     if (tier === 'red' && !(a.purpose && a.why)) err(where, `${s.use} ${lic?.name ?? '授权不明'}（${a.source?.site ?? a.source?.url}）。要用它，在台账里写 purpose: quote 和 why（为什么是评论性引用：评论的是什么）：jj note ${p.dir} ${s.use} --purpose quote --why "…"；否则换一个授权清楚的素材`);
     if (tier === 'yellow' && !a.purpose) warn(where, `${s.use} 是官方网站的公开信息，写一下用途：jj note ${p.dir} ${s.use} --purpose quote --why "…"`);
+    if (a.source?.via === 'upload') uploads.add(s.use);
     if (a.purpose === 'quote') { quotes++; if (d > QUOTE_SHOT_MAX) warn(where, `评论性引用的镜头 ${d.toFixed(1)} 秒，超过 ${QUOTE_SHOT_MAX} 秒：引用越短越稳妥`); }
     if (a.kind === 'video') {
       const from = s.from ?? 0;
@@ -171,6 +184,7 @@ export function checkProject(p: Project, shots: Shot[], assets: Record<string, A
       if (s.meme.at && !stripPunct(s.sayNow).includes(stripPunct(String(s.meme.at).replace(/@end$/, '')))) err(where, `meme.at "${s.meme.at}" 不是这一镜里说的话`);
     }
   });
+  for (const id of uploads) warn(id, `${id} 是上传的文件，出处（${assets[id].source.url}）是声明的，框架没有亲自抓：故事板上会标出来，请用户确认`);
   if (quotes > QUOTE_MAX) warn('全片', `评论性引用用了 ${quotes} 处，超过 ${QUOTE_MAX} 处。换一些授权清楚的素材，或者在故事板上请用户拍板`);
   // 同一个素材用在相邻镜头、或者同一段视频用了两次
   for (const [id, list] of usedAt) {
@@ -186,6 +200,19 @@ export function checkProject(p: Project, shots: Shot[], assets: Record<string, A
     if (titles / timed.length > 0.3) warn('全片', `${titles} / ${timed.length} 个镜头是金句卡，太多了：素材剪辑的片子，金句卡只用在最该停一下的地方`);
   }
   return { issues, timed };
+}
+
+/** 数据图：数据写在镜头单里，引擎画 */
+export function checkChart(c: any, bad: (m: string) => void) {
+  const eg = '例：chart: { type: bar, unit: "%", data: [[中国, 5.2], [美国, 2.5]], highlight: 中国, note: "来源：国家统计局" }';
+  if (!c || typeof c !== 'object') return bad(`use: chart 要写 chart。${eg}`);
+  if (c.type != null && !['bar', 'line'].includes(c.type)) bad('chart.type 只能是 bar（横条）或 line（折线）');
+  if (!Array.isArray(c.data) || c.data.length < 2) return bad(`chart.data 至少两项，写成 [[标签, 数值], …]。${eg}`);
+  if (!c.data.every((r: any) => Array.isArray(r) && r.length === 2 && typeof r[1] === 'number' && isFinite(r[1]))) bad(`chart.data 每一项都写成 [标签, 数值]，数值是数字（不带单位，单位写在 unit）。${eg}`);
+  if (c.type !== 'line' && c.data.length > 8) bad(`横条图最多 8 条（现在 ${c.data.length} 条）：只留要比的几项，或者改成 type: line`);
+  const labels = c.data.map((r: any) => String(r?.[0]));
+  for (const h of [c.highlight ?? []].flat()) if (!labels.includes(String(h))) bad(`chart.highlight "${h}" 不是 data 里的标签（有：${labels.join('、')}）`);
+  if (!c.note) bad('chart.note 写上数据出处（如“来源：世界黄金协会，2024”）：数据图不写出处，观众没法信');
 }
 
 export function printIssues(issues: Issue[]) {

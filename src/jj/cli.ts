@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { loadProject, loadShots, saveShots, loadAssets, saveAssets, loadTried, saveTried, loadLibrary, approvals, approvalsFile, LICENSES, tierOf, type Shot } from './project';
 import { scaffoldShots, timeShots, checkProject, printIssues, type Timed } from './shots';
-import { grab, grabHd, remember } from './grab';
+import { grab, grabHd, remember, stockSearch } from './grab';
 import { filmstrip, hear, probe, fmtTime } from './media';
 import { compareSheet, boardReview, footageHash, cutSheet } from './sheets';
 import { renderVideo } from './render';
@@ -37,15 +37,19 @@ const HELP = `剪讲（jj）：素材剪辑式口播视频。agent 找素材、�
 开工
   jj init <目录> --script <口播稿.txt> | --from <画讲项目目录>   建项目（--from 连配音和附录一起拿过来）
   jj voice <目录> [--engine edge]           配音（就是 hj voice，参数一样；付费引擎要用户确认）
-  jj scaffold <目录>                        按口播切镜头骨架（每个 1.2–4 秒），写 shots.yaml
+  jj scaffold <目录> [--pace fast|normal|calm]   按口播切镜头骨架，写 shots.yaml
+       fast 平均 2.2 秒（快剪新闻）| normal 2.8 秒 | calm 4 秒左右（讲道理、放数据图）
   jj sync <目录>                            改了 at 之后，重算 say 和 dur
   jj status <目录> [镜头]                   整片进度；带镜头号时列出搜过什么、候选、否掉的
 
 找素材（找什么、去哪儿找，你自己决定；先查库，再上网）
   jj library <关键词…>                      查跨项目的素材库（抓过的、否过的都在）
+  jj stock <关键词> [--video] [--n 8] [--orientation portrait|landscape|any] [--site pexels|pixabay]
+       搜 Pexels / Pixabay 的官方接口（云端不会被拦；要 PEXELS_API_KEY / PIXABAY_API_KEY）。搜到的页面网址直接 jj grab
   jj grab <目录> <网址|本地文件> [--as s07] [--note "…"]
        图片直链、视频页面（B站/YouTube 等，用 yt-dlp）、普通网页（截图+正文）都行；自动记来源和许可证
        --video 强制按视频抓   --page 强制按网页截图   本地文件可加 --license own|ai
+       别处下好的文件（用户上传、自己电脑上下的）：jj grab <目录> <文件> --source-url <原网址>，许可证按原网址认
   jj grab <目录> --hd a031                  长视频先下的是低清版：选定片段后，只下镜头用到的那几秒高清版
   jj snap <目录> <网址> --find "页面上的原文" [--as s08]   截下这句原文所在的一屏，渲染时自动推近、高亮
   jj tried <目录> <镜头> "搜索词" [--where 网站] [--result "没找到 / 只有2023年的"]   记下搜过什么
@@ -73,7 +77,7 @@ const HELP_SHOTS = `shots.yaml 的字段（每个镜头一项）
   say     只读：这一镜说的话        dur  只读：时长（秒）。改了 at 后 jj sync
 
   want    你想要什么画面（先写它，再去找）
-  use     素材 id（a001…），或 title（金句卡：直接用这句口播排版，不需要外部素材）
+  use     素材 id（a001…），或 title（金句卡：直接用这句口播排版），或 chart（数据图，数据写在 chart 里）
   from    视频素材从第几秒开始用（jj look / jj hear 找到的）
   fit     fill 裁满竖屏 | frame 整幅放中间、上下用模糊的同一画面垫底（横屏素材默认 frame）
   focus   fill 时保哪边：left | center | right | top | bottom，或 0..1
@@ -82,8 +86,13 @@ const HELP_SHOTS = `shots.yaml 的字段（每个镜头一项）
   pop     说到这几个字时弹出大字（必须是这一镜的原文）
   meme    { use: 素材, at: "原文", dur: 1, place: corner | center }  表情包
   cut     进入这个镜头的转场：cut 硬切（默认）| flash 闪白 | zoom 推近 | whip 甩
+  layout  card 顶部标题条 + 中间一张卡片放画面 | full 铺满全屏。不写用 project.yaml 的 layout
+  head    这一镜标题条的字（不写沿用上一镜；第一镜用 project.yaml 的 headline）。换话题时换一次
+  chart   use: chart 时的数据：{ type: bar | line, title, unit, data: [[标签, 数值], …], highlight: 标签, note: 出处 }
+          横条最多 8 条；note 必须写出处。数字一定要和口播、和出处对得上
   note    备注
 
+镜头时长：静止画面超过 6 秒、视频和数据图超过 9 秒会提醒，超过 12 秒报错。
 素材比镜头短：放慢（不低于 0.8 倍），再不够定格推近；够不到一半 jj check 报错。
 图片自动缓慢推拉（相邻镜头方向交替）；jj snap 的截图说着说着推近到那句原文并画高亮框。`;
 
@@ -107,7 +116,7 @@ const commands: Record<string, () => Promise<void> | void> = {
     } else if (str('script')) copyFileSync(str('script')!, join(dir, 'script.txt'));
     else die('要给口播稿：--script <口播稿.txt>，或者从画讲项目拿：--from <目录>');
     const hasVoice = existsSync(join(dir, 'voice', 'alignment.json'));
-    writeFileSync(join(dir, 'project.yaml'), `# 剪讲项目\nengine: jianjiang\ntitle: ${JSON.stringify(title || '未命名')}\nformat: portrait   # 竖屏 1080×1920\nfps: 30\nsubtitles: true\n${hasVoice ? 'voice: voice/alignment.json\naudio: voice/narration.wav\n' : ''}`);
+    writeFileSync(join(dir, 'project.yaml'), `# 剪讲项目\nengine: jianjiang\ntitle: ${JSON.stringify(title || '未命名')}\nformat: portrait   # 竖屏 1080×1920\nfps: 30\nsubtitles: true\nlayout: card      # card：顶部标题条 + 中间卡片放画面；full：画面铺满全屏（每个镜头也可以单独写 layout）\nheadline: ${JSON.stringify(title || '未命名')}   # 标题条的字；镜头里写 head 换掉\naccent: "#e53935"\n${hasVoice ? 'voice: voice/alignment.json\naudio: voice/narration.wav\n' : ''}`);
     console.log(`✓ 建好了：${dir}\n下一步：${hasVoice ? `jj scaffold ${dir}` : `jj voice ${dir} --engine edge（免费配音；付费的火山引擎要用户先确认朗读稿）`}`);
   },
 
@@ -121,7 +130,9 @@ const commands: Record<string, () => Promise<void> | void> = {
     const dir = args[0] ?? die('用法：jj scaffold <目录>');
     const { p, shots } = ctx(dir);
     if (shots.length && !flags.force) die(`${join(dir, 'shots.yaml')} 已经有 ${shots.length} 个镜头了，里面有你写的决定。改了 at 用 jj sync；确实要从头切加 --force`);
-    const s = scaffoldShots(p.al!, p.duration);
+    const pace = str('pace') ?? 'normal';
+    if (!['fast', 'normal', 'calm'].includes(pace)) die('--pace 只能是 fast | normal | calm');
+    const s = scaffoldShots(p.al!, p.duration, pace);
     saveShots(dir, s);
     const d = s.map(x => x.dur!);
     console.log(`✓ ${join(dir, 'shots.yaml')}：${s.length} 个镜头，${p.duration.toFixed(1)} 秒，平均 ${(p.duration / s.length).toFixed(1)} 秒（${Math.min(...d).toFixed(1)}–${Math.max(...d).toFixed(1)}）\n下一步：读稿子，给每个镜头写 want（想要什么画面），再去找。jj help shots 看字段`);
@@ -153,10 +164,10 @@ const commands: Record<string, () => Promise<void> | void> = {
       for (const i of issues.filter(i => i.where === s.id)) console.log(`  ${i.level === 'error' ? '✗' : '!'} ${i.msg}`);
       return;
     }
-    const chosen = timed.filter(s => s.use && s.use !== 'title').length, titles = timed.filter(s => s.use === 'title').length, missing = timed.filter(s => !s.use);
+    const chosen = timed.filter(s => s.use && s.use !== 'title' && s.use !== 'chart').length, titles = timed.filter(s => s.use === 'title').length, charts = timed.filter(s => s.use === 'chart').length, missing = timed.filter(s => !s.use);
     const licBad = [...new Set(issues.filter(i => i.level === 'error' && /purpose|许可证|授权/.test(i.msg)).map(i => i.where))];
     const errs = issues.filter(i => i.level === 'error').length, warns = issues.filter(i => i.level === 'warn').length;
-    console.log(`${String(p.meta.title ?? dir)}：${timed.length} 个镜头，${p.duration.toFixed(0)} 秒\n  ${chosen} 个已选素材，${titles} 个用金句卡，${missing.length} 个还没找${missing.length ? `（${missing.slice(0, 12).map(s => s.id).join(' ')}${missing.length > 12 ? ' …' : ''}）` : ''}${licBad.length ? `，${licBad.length} 个授权有问题（${licBad.slice(0, 8).join(' ')}）` : ''}\n  台账 ${Object.keys(assets).length} 个素材（${Object.values(assets).filter(a => a.rejected).length} 个已否），搜索记录 ${tried.length} 条\n  检查：${errs} 个错误，${warns} 个警告（jj check ${dir}）`);
+    console.log(`${String(p.meta.title ?? dir)}：${timed.length} 个镜头，${p.duration.toFixed(0)} 秒\n  ${chosen} 个已选素材，${charts} 个数据图，${titles} 个用金句卡，${missing.length} 个还没找${missing.length ? `（${missing.slice(0, 12).map(s => s.id).join(' ')}${missing.length > 12 ? ' …' : ''}）` : ''}${licBad.length ? `，${licBad.length} 个授权有问题（${licBad.slice(0, 8).join(' ')}）` : ''}\n  台账 ${Object.keys(assets).length} 个素材（${Object.values(assets).filter(a => a.rejected).length} 个已否），搜索记录 ${tried.length} 条\n  检查：${errs} 个错误，${warns} 个警告（jj check ${dir}）`);
     const a = approvals(dir), h = footageHash(p, timed, assets);
     console.log(`  素材定稿：${a.footage?.hash === h ? '✓ 已确认' : a.footage ? '确认之后又改过，要重新确认' : '还没确认'}`);
     console.log(`下一步：${missing.length ? `给 ${missing[0].id} 找画面（jj status ${dir} ${missing[0].id}）` : errs ? `修掉错误（jj check ${dir}）` : a.footage?.hash !== h ? `jj board ${dir} → 发给用户确认素材` : `jj render ${dir}`}`);
@@ -176,13 +187,23 @@ const commands: Record<string, () => Promise<void> | void> = {
     }
     const url = args[1] ?? die('要给网址或本地文件');
     try {
-      const r = await grab(dir, url, { as: str('as'), note: str('note'), video: !!flags.video, page: !!flags.page, license: str('license'), full: !!flags.full });
+      const r = await grab(dir, url, { as: str('as'), note: str('note'), video: !!flags.video, page: !!flags.page, license: str('license'), full: !!flags.full, sourceUrl: str('source-url') });
       const a = r.asset, lic = LICENSES[a.source.license];
       console.log(`${r.reused ? `✓ ${r.id}（${r.reused === 'project' ? '本项目里已经有了，没有重新下载' : '素材库里有，直接拷过来'}）` : `✓ ${r.id}`}  ${a.kind === 'video' ? `视频 ${a.duration}s` : a.kind === 'page' ? '网页截图' : '图片'} ${a.w ?? ''}×${a.h ?? ''} → ${a.file}`);
       console.log(`  来源：${a.source.title ?? ''}${a.source.author ? ` · ${a.source.author}` : ''} · ${a.source.site ?? ''}${a.source.published ? ` · ${a.source.published}` : ''}\n  许可证：${lic?.name ?? a.source.license}（${{ green: '可以直接用', yellow: '官方公开信息，写一下用途', red: '要用得写 purpose: quote 和 why', banned: '不能用' }[tierOf(a)]}）${a.for?.length ? `\n  候选给：${a.for.join(' ')}` : ''}`);
       for (const e of r.extra) console.log('  ' + e);
       console.log(`  看一眼：jj look ${dir} ${r.id}`);
     } catch (e: any) { die(e.message); }
+  },
+
+  stock() {
+    const q = args.join(' ') || die('用法：jj stock <关键词> [--video] [--n 8] [--orientation portrait|landscape|any] [--site pexels|pixabay]   关键词用英文搜得更全');
+    let r; try { r = stockSearch(q, { video: !!flags.video, n: num('n'), orientation: str('orientation'), site: str('site') }); } catch (e: any) { return die(e.message); }
+    for (const sk of r.skipped) console.log(`! 跳过 ${sk}`);
+    if (!r.hits.length) { console.log(r.skipped.length === 2 || (str('site') && r.skipped.length) ? '没有可用的图库密钥。' : `没搜到“${q}”。换个说法（英文更全），或者 --orientation any`); return; }
+    console.log(`“${q}”：${r.hits.length} 个${flags.video ? '视频' : '图片'}（许可证：可以直接用）`);
+    for (const h of r.hits) console.log(`  ${h.page}\n    ${h.site} · ${h.w}×${h.h}${h.h > h.w ? ' 竖' : ' 横'}${h.duration ? ` · ${h.duration}s` : ''}${h.author ? ` · ${h.author}` : ''}${h.title ? ` · ${String(h.title).slice(0, 50)}` : ''}`);
+    console.log('  要哪个：jj grab <目录> <上面的页面网址> --as s07（直接用接口给的文件，作者和许可证自动记）');
   },
 
   async snap() {
