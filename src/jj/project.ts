@@ -8,6 +8,13 @@ import YAML from 'yaml';
 import { loadAlignment, type Alignment } from '../core/alignment';
 
 export const W = 1080, H = 1920;
+/** card 版式里放画面的那张卡片 */
+export const CARD = { x: 40, y: 440, w: 1000, h: 860 };
+/** 裁满（fill）时会被裁掉的比例：素材和画框的宽高比差多少 */
+export function fillLoss(a: { w?: number; h?: number }, crop: [number, number, number, number] | undefined, cw: number, ch: number): number {
+  const c = crop ?? [0, 0, 1, 1], r = ((a.w ?? 1) * c[2]) / ((a.h ?? 1) * c[3]), t = cw / ch;
+  return 1 - Math.min(r, t) / Math.max(r, t);
+}
 
 export interface Meta { title?: string; fps?: number; voice?: string; audio?: string; subtitles?: boolean; [k: string]: any }
 

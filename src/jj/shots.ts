@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveAnchor, stripPunct, type Alignment } from '../core/alignment';
-import { type Shot, type Asset, type Project, SHOT_KEYS, CUTS, LICENSES, tierOf, sealOf, mediaFor } from './project';
+import { type Shot, type Asset, type Project, SHOT_KEYS, CUTS, LICENSES, tierOf, sealOf, mediaFor, CARD, W, H, fillLoss } from './project';
 
 export const MIN_DUR = 1.2, MAX_DUR = 4, TARGET_DUR = 2.8;
 /** 镜头节奏：jj scaffold --pace。fast 适合快剪新闻；calm 适合讲道理、放数据图 */
@@ -162,6 +162,10 @@ export function checkProject(p: Project, shots: Shot[], assets: Record<string, A
     if (tier === 'red' && !(a.purpose && a.why)) err(where, `${s.use} ${lic?.name ?? '授权不明'}（${a.source?.site ?? a.source?.url}）。要用它，在台账里写 purpose: quote 和 why（为什么是评论性引用：评论的是什么）：jj note ${p.dir} ${s.use} --purpose quote --why "…"；否则换一个授权清楚的素材`);
     if (tier === 'yellow' && !a.purpose) warn(where, `${s.use} 是官方网站的公开信息，写一下用途：jj note ${p.dir} ${s.use} --purpose quote --why "…"`);
     if (a.source?.via === 'upload') uploads.add(s.use);
+    if (s.fit === 'fill' && a.kind !== 'page' && a.w && a.h) {
+      const card = (s.layout ?? (p.meta.layout === 'card' ? 'card' : 'full')) === 'card', loss = fillLoss(a, s.crop, card ? CARD.w : W, card ? CARD.h : H);
+      if (loss > 0.2) warn(where, `fit: fill 会把 ${s.use} 裁掉 ${Math.round(loss * 100)}%，画面里的字、人可能被切掉。不写 fit（默认整幅放进去），或者用 crop 只取要的那一块`);
+    }
     if (a.purpose === 'quote') { quotes++; if (d > QUOTE_SHOT_MAX) warn(where, `评论性引用的镜头 ${d.toFixed(1)} 秒，超过 ${QUOTE_SHOT_MAX} 秒：引用越短越稳妥`); }
     if (a.kind === 'video') {
       const from = s.from ?? 0;

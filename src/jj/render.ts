@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createCanvas, loadImage, ImageData } from '@napi-rs/canvas';
 import { buildSubtitles, resolveAnchor, stripPunct } from '../core/alignment';
 import { loadAppendix } from '../core/appendix';
-import { type Project, type Asset, type Shot, LICENSES, mediaFor, W, H } from './project';
+import { type Project, type Asset, type Shot, LICENSES, mediaFor, W, H, CARD, fillLoss } from './project';
 import { type Timed, videoPlan } from './shots';
 import { fonts } from './media';
 
@@ -57,17 +57,17 @@ function blurBg(src: any, sw: number, sh: number, cw: number, ch: number): any {
   return bg;
 }
 
-function fitMode(s: Shot, a: Asset): 'fill' | 'frame' {
+/** 默认不裁画面：宽高比和画框差得多（裁掉超过一成），就整幅放进去、空处垫模糊底。画面里的字不会被切掉 */
+function fitMode(s: Shot, a: Asset, cw: number, ch: number): 'fill' | 'frame' {
   if (s.fit) return s.fit;
   if (a.kind === 'page') return 'fill';
-  const c = s.crop ?? [0, 0, 1, 1];
-  return ((a.w ?? 1) * c[2]) / ((a.h ?? 1) * c[3]) > 1.15 ? 'frame' : 'fill';
+  return fillLoss(a, s.crop, cw, ch) > 0.1 ? 'frame' : 'fill';
 }
 
 async function videoLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number, fps: number): Promise<Layer> {
   const dur = s.t1 - s.t0, from = s.from ?? 0, vp = videoPlan(a, from, dur);
   const m = mediaFor(p.dir, a, from, dur);
-  const mode = fitMode(s, a), [fx, fy] = focusXY(s.focus);
+  const mode = fitMode(s, a, cw, ch), [fx, fy] = focusXY(s.focus);
   const c = s.crop ?? [0, 0, 1, 1];
   const aw = (a.w ?? 1920) * c[2], ah = (a.h ?? 1080) * c[3];
   const pre = s.crop ? `crop=trunc(iw*${c[2]}/2)*2:trunc(ih*${c[3]}/2)*2:iw*${c[0]}:ih*${c[1]},` : '';
@@ -95,18 +95,25 @@ async function videoLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number
       if (mode === 'frame') {
         bg ??= blurBg(src, w, h, cw, ch);
         ctx.drawImage(bg, 0, 0);
-        const y = (ch - h) / 2 - ch * 0.06;
-        ctx.drawImage(src, (cw - w * z) / 2, y + (h - h * z) / 2, w * z, h * z);
+        const y = (ch - h) / 2 - (ch / cw > 1.3 ? ch * 0.06 : 0);
+        const zf = Math.min(z, cw / w, ch / h);  // 整幅放的画面推近也不出框，字不会被切
+        ctx.drawImage(src, (cw - w * zf) / 2, y + (h - h * zf) / 2, w * zf, h * zf);
       } else ctx.drawImage(src, (cw - cw * z) / 2, (ch - ch * z) / 2, cw * z, ch * z);
     },
     close() { reader.kill(); },
   };
 }
 
+/** 网页截图的上下边缘淡成白色：切在半行字上的地方不扎眼 */
+function pageFade(ctx: Ctx, cw: number, ch: number) {
+  const f = Math.round(ch * 0.07);
+  for (const [y0, y1] of [[0, f], [ch, ch - f]]) { const g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.fillRect(0, Math.min(y0, y1), cw, f); }
+}
+
 async function stillLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number, k: number): Promise<Layer> {
   let img: any = await loadImage(join(p.dir, a.file));
   if (s.crop) { const c = s.crop, cc = createCanvas(Math.max(2, Math.round(img.width * c[2])), Math.max(2, Math.round(img.height * c[3]))); cc.getContext('2d').drawImage(img, -img.width * c[0], -img.height * c[1]); img = cc; }
-  const iw = img.width, ih = img.height, mode = fitMode(s, a), [fx, fy] = focusXY(s.focus);
+  const iw = img.width, ih = img.height, mode = fitMode(s, a, cw, ch), [fx, fy] = focusXY(s.focus);
   const zoomIn = k % 2 === 0;
   const box = a.source.box;
   let bg: any = null;
@@ -115,11 +122,12 @@ async function stillLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number
       const t = i / Math.max(1, n - 1);
       if (a.kind === 'page' && box) {
         // 截图镜头：先整屏，说着说着推近到那句原文，再画出高亮框
-        const s0 = cw / iw, e = ease(t * 1.4), z = 1 + 0.22 * e;
-        const cx = (box[0] + box[2] / 2) * s0, cy = (box[1] + box[3] / 2) * s0;
-        const sx = cx + (cw / 2 - cx) * e, sy = cy + (ch * 0.38 - cy) * e;
+        // 不横向放大：整行字始终完整，只上下移动，把那句原文挪到画面中间偏上
+        const s0 = cw / iw, e = ease(t * 1.4), z = 1;
+        const cy = (box[1] + box[3] / 2) * s0, maxUp = Math.max(0, ih * s0 - ch);
+        const yEnd = -Math.min(maxUp, Math.max(0, cy - ch * 0.4)), y0 = -Math.min(maxUp, Math.max(0, cy - ch * 0.7));
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch);
-        ctx.save(); ctx.translate(sx - z * cx, sy - z * cy); ctx.scale(z, z);
+        ctx.save(); ctx.translate(0, y0 + (yEnd - y0) * e);
         ctx.drawImage(img, 0, 0, iw * s0, ih * s0);
         const hl = ease((t - 0.2) / 0.25);
         if (hl > 0) {
@@ -128,20 +136,22 @@ async function stillLayer(p: Project, s: Timed, a: Asset, cw: number, ch: number
           ctx.strokeStyle = '#e8322b'; ctx.lineWidth = 5 * s0 / z; ctx.strokeRect(bx, by, bw, bh);
         }
         ctx.restore();
+        pageFade(ctx, cw, ch);
         return;
       }
       if (a.kind === 'page') {
         // 网页长截图：从上往下慢慢滚
         const s0 = cw / iw, travel = Math.max(0, ih * s0 - ch), y = -Math.min(travel, 50 * (cw / W) * (n / 30)) * t;
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch); ctx.drawImage(img, 0, y, iw * s0, ih * s0);
+        pageFade(ctx, cw, ch);
         return;
       }
-      const z = zoomIn ? 1 + 0.08 * t : 1.08 - 0.08 * t;
+      const z = zoomIn ? 1 + 0.05 * t : 1.05 - 0.05 * t;
       if (mode === 'frame') {
         bg ??= blurBg(img, iw, ih, cw, ch);
         ctx.drawImage(bg, 0, 0);
-        const s0 = Math.min(cw / iw, (ch * 0.86) / ih) * z, w = iw * s0, h = ih * s0;
-        ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2 - ch * 0.06, w, h);
+        const base = Math.min(cw / iw, (ch * 0.9) / ih), s0 = base * Math.min(z, cw / (iw * base)), w = iw * s0, h = ih * s0;
+        ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2 - (ch / cw > 1.3 ? ch * 0.06 : 0), w, h);
       } else {
         const s0 = Math.max(cw / iw, ch / ih) * z, w = iw * s0, h = ih * s0;
         const drift = (k % 4 < 2 ? 1 : -1) * 0.04 * t;
@@ -220,7 +230,7 @@ async function innerLayer(p: Project, s: Timed, assets: Record<string, Asset>, c
 
 /** 版式：card 是顶部标题条 + 中间一张卡片，画面放在卡片里；full 是铺满全屏 */
 export const layoutOf = (p: Project, s: Shot): 'card' | 'full' => s.layout ?? (p.meta.layout === 'card' ? 'card' : 'full');
-export const CARD = { x: 40, y: 440, w: 1000, h: 860 };
+export { CARD };
 /** 每一镜顶部标题条的字：写了 head 就换，不写沿用上一镜 */
 export function resolveHeads(p: Project, timed: Timed[]): string[] {
   let cur = String(p.meta.headline ?? p.meta.title ?? '');
@@ -418,8 +428,9 @@ export async function renderVideo(p: Project, timed: Timed[], assets: Record<str
       if (a && (a.purpose === 'quote' || LICENSES[a.source.license]?.credit)) {
         ctx.font = `${26 * sc}px ${F}`; ctx.textBaseline = 'top'; ctx.fillStyle = 'rgba(0,0,0,0.45)';
         const txt = `画面：${creditLine(a)}`.slice(0, 40), tw = ctx.measureText(txt).width;
-        const card = layoutOf(p, s) === 'card', cx = card ? CARD.x + 16 : 40, cy = card ? CARD.y + CARD.h - 56 : SAFE.top + 10;
-        ctx.fillRect(cx * sc, cy * sc, tw + 24 * sc, 40 * sc); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillText(txt, (cx + 12) * sc, (cy + 7) * sc);
+        // card 版式：署名写在卡片下面，不压画面里的字
+        if (layoutOf(p, s) === 'card') { ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillText(txt, (CARD.x + 8) * sc, (CARD.y + CARD.h + 14) * sc); }
+        else { ctx.fillRect(40 * sc, (SAFE.top + 10) * sc, tw + 24 * sc, 40 * sc); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillText(txt, 52 * sc, (SAFE.top + 17) * sc); }
       }
       // 表情包
       if (s.meme && memeImg.has(s.meme.use)) {
@@ -437,9 +448,11 @@ export async function renderVideo(p: Project, timed: Timed[], assets: Record<str
         const p0 = popAt.get(s.id)!, pt = t - p0;
         if (pt >= 0) {
           const z = pt < 0.12 ? 0.5 + 0.7 * (pt / 0.12) : pt < 0.22 ? 1.2 - 2 * (pt - 0.12) : 1;
-          let size = 128 * sc; ctx.font = `${size}px ${F}`;
+          // card 版式：弹字落在卡片和字幕之间，不盖住画面
+          const inCard = layoutOf(p, s) === 'card';
+          let size = (inCard ? 100 : 128) * sc; ctx.font = `${size}px ${F}`;
           while (ctx.measureText(s.pop).width > 900 * sc && size > 60 * sc) { size *= 0.9; ctx.font = `${size}px ${F}`; }
-          ctx.save(); ctx.translate(cw / 2, ch * 0.3); ctx.scale(z, z); ctx.rotate(-0.04);
+          ctx.save(); ctx.translate(cw / 2, inCard ? (CARD.y + CARD.h + 105) * sc : ch * 0.3); ctx.scale(z, z); ctx.rotate(-0.04);
           drawText(ctx, s.pop, 0, 0, size, { fill: '#ffd400', stroke: '#111', lw: size * 0.2 });
           ctx.restore();
         }

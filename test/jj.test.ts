@@ -163,3 +163,10 @@ test('jj：数据图要有数据和出处；图库接口搜到的直接抓；上
     assert.match(html, /数据图/); assert.match(html, /上传·出处待确认/);
   } finally { srv.kill(); }
 });
+
+test('不裁画面：横图放进卡片会裁掉多少；超过一成默认整幅放', async () => {
+  const { fillLoss, CARD } = await import('../src/jj/project');
+  assert.ok(fillLoss({ w: 2400, h: 1600 }, undefined, CARD.w, CARD.h) > 0.2, '3:2 的图裁满卡片要丢两成多');
+  assert.ok(fillLoss({ w: 1000, h: 860 }, undefined, CARD.w, CARD.h) < 0.01);
+  assert.ok(fillLoss({ w: 1080, h: 1920 }, [0, 0, 1, 0.5], 1080, 1920) > 0.4);
+});
